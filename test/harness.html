@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -120,6 +120,7 @@
 
       function visualOrder() {
         return panelButtons()
+          .filter((button) => button.style.display !== "none")
           .map((button) => ({ key: button.dataset.modmenuKey, top: button.getBoundingClientRect().top }))
           .sort((a, b) => a.top - b.top)
           .map((item) => item.key);
@@ -146,6 +147,7 @@
       }
 
       async function run() {
+        localStorage.removeItem("dsh.modmenu.layout.v1");
         log("module loaded: " + Object.keys(window.__loadedModules).join(","));
         try {
           window.__plugin.apply(ctx);
@@ -182,6 +184,30 @@
         window.__dshModmenu.reset();
         await wait(200);
         log("order2(after reset)=" + JSON.stringify(visualOrder()));
+
+        // --- drag a row onto the "More" anchor: it must be tucked away ------
+        const more = nav.querySelector('button[aria-haspopup="menu"]');
+        const moreRect = more.getBoundingClientRect();
+        const hideTarget = panelButtons()[0];
+        const hideKey = hideTarget.dataset.modmenuKey;
+        const hideRect = hideTarget.getBoundingClientRect();
+        pointer("pointerdown", hideTarget, hideRect.left + 40, hideRect.top + hideRect.height / 2);
+        await wait(420);
+        log("hide gesture dragging: " + Boolean(window.__dshModmenu.status().dragging));
+        pointer("pointermove", document, moreRect.left + moreRect.width / 2, moreRect.top + moreRect.height / 2);
+        await wait(60);
+        pointer("pointerup", document, moreRect.left + moreRect.width / 2, moreRect.top + moreRect.height / 2);
+        await wait(220);
+        log("hidden=" + JSON.stringify(window.__dshModmenu.status().hidden));
+        log("hiddenKey=" + hideKey + " display=" + JSON.stringify(hideTarget.style.display));
+        log("visualAfterHide=" + JSON.stringify(visualOrder()));
+
+        // --- and get it back via the API (the More menu uses the same path) --
+        window.__dshModmenu.reveal(hideKey);
+        await wait(220);
+        log("hiddenAfterReveal=" + JSON.stringify(window.__dshModmenu.status().hidden));
+        log("displayAfterReveal=" + JSON.stringify(hideTarget.style.display));
+        log("visualAfterReveal=" + JSON.stringify(visualOrder()));
         log("DONE");
       }
 
