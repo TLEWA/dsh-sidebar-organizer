@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>dsh-modmenu harness</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; font-family: system-ui, sans-serif; background: #18181b; color: #e4e4e7; }
+      .shell { width: 260px; padding: 12px; }
+      .panelList { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+      .panelRow {
+        display: flex; align-items: center; gap: 8px; min-height: 36px;
+        margin: 0 2px; padding: 7px 8px; line-height: 22px; font: inherit;
+        color: #e4e4e7; background: 0 0; border: none; border-radius: 6px;
+        cursor: pointer; text-align: left;
+      }
+      .panelRow:hover { background: #27272a; }
+      .panelGlyph { display: inline-flex; width: 18px; justify-content: center; }
+      .panelTitle { flex: 1; }
+      #log { position: fixed; right: 12px; top: 12px; width: 520px; font: 12px/1.5 monospace;
+             white-space: pre-wrap; background: #09090b; border: 1px solid #3f3f46;
+             border-radius: 8px; padding: 10px; max-height: 90vh; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <nav class="panelList" aria-label="全局面板" id="nav"></nav>
+    </div>
+    <pre id="log">booting…</pre>
+
+    <script>
+      // --- fake module loader -------------------------------------------------
+      window.__loadedModules = {};
+      window.__ModuleLoader__ = {
+        load({ id, factory }) {
+          const plugin = factory((name) => {
+            throw new Error("harness does not provide module: " + name);
+          });
+          window.__loadedModules[id] = plugin;
+          window.__plugin = plugin;
+        },
+      };
+    </script>
+    <script src="../lib/client.js"></script>
+    <script>
+      const ENTRIES = [
+        ["plugins", "插件"],
+        ["dsh-market", "插件市场"],
+        ["skills-manager", "技能"],
+        ["schedules", "定时任务"],
+        ["dsh-context", "上下文"],
+        ["mcp-connector", "MCP 连接器"],
+      ];
+
+      const nav = document.getElementById("nav");
+      for (const [, label] of ENTRIES) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "panelRow";
+        button.setAttribute("aria-label", label);
+        const glyph = document.createElement("span");
+        glyph.className = "panelGlyph";
+        glyph.textContent = "◉";
+        const title = document.createElement("span");
+        title.className = "panelTitle";
+        title.textContent = label;
+        button.append(glyph, title);
+        button.addEventListener("click", () => log("click fired on " + label));
+        nav.appendChild(button);
+      }
+      nav.appendChild(moreButton());
+
+      function moreButton() {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "panelRow";
+        button.setAttribute("aria-label", "更多");
+        button.setAttribute("aria-haspopup", "menu");
+        button.textContent = "⋯";
+        return button;
+      }
+
+      const logEl = document.getElementById("log");
+      const lines = [];
+      function log(message) {
+        lines.push(message);
+        logEl.textContent = lines.join("\n");
+        console.log("[harness]", message);
+      }
+      window.__harnessLog = log;
+
+      window.addEventListener("error", (event) => log("ERROR " + event.message));
+      window.addEventListener("unhandledrejection", (event) =>
+        log("REJECTION " + (event.reason && event.reason.message))
+      );
+
+      const ctx = {
+        slots: {
+          entriesOfSlot() {
+            return ENTRIES.map(([id, label]) => ({ options: { id, label } }));
+          },
+        },
+        effect(fn) {
+          const dispose = fn();
+          return () => typeof dispose === "function" && dispose();
+        },
+      };
+
+      function currentOrder() {
+        return Array.from(nav.querySelectorAll("button.panelRow"))
+          .filter((button) => !button.hasAttribute("aria-haspopup"))
+          .map((button) => button.dataset.modmenuKey || button.getAttribute("aria-label"));
+      }
+
+      function visualOrder() {
+        return currentOrder()
+          .map((key) => {
+            const button = Array.from(nav.querySelectorAll("button.panelRow")).find(
+              (candidate) => candidate.dataset.modmenuKey === key
+            );
+            return { key, top: button.getBoundingClientRect().top };
+          })
+          .sort((a, b) => a.top - b.top)
+          .map((item) => item.key);
+      }
+
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      function pointer(type, element, x, y, extra) {
+        const target = element || document;
+        const event = new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: x,
+          clientY: y,
+          button: 0,
+          buttons: type === "pointerup" ? 0 : 1,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: "mouse",
+          ...extra,
+        });
+        target.dispatchEvent(event);
+      }
+
+      async function run() {
+        log("module loaded: " + Object.keys(window.__loadedModules).join(","));
+        try {
+          window.__plugin.apply(ctx);
+        } catch (error) {
+          log("APPLY THREW: " + error.stack);
+          return;
+        }
+        await wait(300);
+        log("applied; rows=" + currentOrder().length);
+        log("order0=" + JSON.stringify(currentOrder()));
+        log("visual0=" + JSON.stringify(visualOrder()));
+        log("api=" + JSON.stringify(window.__dshModmenu.status()));
+
+        // drag the last row to the top
+        const buttons = Array.from(nav.querySelectorAll("button.panelRow")).filter(
+          (button) => !button.hasAttribute("aria-haspopup")
+        );
+        const last = buttons[buttons.length - 1];
+        const first = buttons[0];
+        const lastRect = last.getBoundingClientRect();
+        const firstRect = first.getBoundingClientRect();
+        const startX = lastRect.left + 40;
+        const startY = lastRect.top + lastRect.height / 2;
+
+        pointer("pointerdown", last, startX, startY);
+        await wait(420);
+        log("gesture after hold: " + Boolean(window.__dshModmenu.status().dragging));
+        pointer("pointermove", document, startX, firstRect.top + 2);
+        await wait(60);
+        pointer("pointerup", document, startX, firstRect.top + 2);
+        await wait(200);
+
+        log("order1=" + JSON.stringify(currentOrder()));
+        log("visual1=" + JSON.stringify(visualOrder()));
+        log("stored=" + localStorage.getItem("dsh.modmenu.layout.v1"));
+
+        // reset check
+        window.__dshModmenu.reset();
+        await wait(200);
+        log("order2(after reset)=" + JSON.stringify(visualOrder()));
+        log("DONE");
+      }
+
+      run();
+    </script>
+  </body>
+</html>
