@@ -208,6 +208,48 @@
         log("hiddenAfterReveal=" + JSON.stringify(window.__dshModmenu.status().hidden));
         log("displayAfterReveal=" + JSON.stringify(hideTarget.style.display));
         log("visualAfterReveal=" + JSON.stringify(visualOrder()));
+
+        // --- a drag must survive DOM churn and scrolling ---------------------
+        const grabRow = panelButtons()[0];
+        const churnRow = panelButtons()[3];
+        const grabRect = grabRow.getBoundingClientRect();
+        log(
+          "resilience target=" +
+            grabRow.dataset.modmenuKey +
+            " rect=" +
+            Math.round(grabRect.left) +
+            "," +
+            Math.round(grabRect.top) +
+            "," +
+            Math.round(grabRect.width) +
+            "x" +
+            Math.round(grabRect.height) +
+            " display=" +
+            getComputedStyle(grabRow).display
+        );
+        pointer("pointerdown", grabRow, grabRect.left + 40, grabRect.top + grabRect.height / 2);
+        await wait(60);
+        log(
+          "pressing=" +
+            Boolean(document.querySelector(".dshmodmenu-pressing")) +
+            " draggingSoon=" +
+            window.__dshModmenu.status().dragging
+        );
+        await wait(360);
+        log("resilience dragging: " + Boolean(window.__dshModmenu.status().dragging));
+        // simulate React replacing a row, plus unrelated page scrolling
+        const churnClone = churnRow.cloneNode(true);
+        churnRow.replaceWith(churnClone);
+        document.dispatchEvent(new Event("scroll"));
+        await wait(140);
+        log("draggingAfterMutation: " + Boolean(window.__dshModmenu.status().dragging));
+        const dropRect = churnClone.getBoundingClientRect();
+        pointer("pointermove", document, grabRect.left + 40, dropRect.top + 2);
+        await wait(80);
+        pointer("pointerup", document, grabRect.left + 40, dropRect.top + 2);
+        await wait(240);
+        log("draggingAfterDrop: " + Boolean(window.__dshModmenu.status().dragging));
+        log("visualAfterResilience=" + JSON.stringify(visualOrder()));
         log("DONE");
       }
 
