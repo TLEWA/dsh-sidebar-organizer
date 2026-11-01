@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -7,16 +7,16 @@
       :root { color-scheme: dark; }
       body { margin: 0; font-family: system-ui, sans-serif; background: #18181b; color: #e4e4e7; }
       .shell { width: 260px; padding: 12px; }
-      .panelList { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-      .panelRow {
+      .wtg9ga_panelList { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+      .wtg9ga_panelRow {
         display: flex; align-items: center; gap: 8px; min-height: 36px;
         margin: 0 2px; padding: 7px 8px; line-height: 22px; font: inherit;
         color: #e4e4e7; background: 0 0; border: none; border-radius: 6px;
         cursor: pointer; text-align: left;
       }
-      .panelRow:hover { background: #27272a; }
-      .panelGlyph { display: inline-flex; width: 18px; justify-content: center; }
-      .panelTitle { flex: 1; }
+      .wtg9ga_panelRow:hover { background: #27272a; }
+      .wtg9ga_panelGlyph { display: inline-flex; width: 18px; justify-content: center; }
+      .wtg9ga_panelTitle { flex: 1; }
       #log { position: fixed; right: 12px; top: 12px; width: 520px; font: 12px/1.5 monospace;
              white-space: pre-wrap; background: #09090b; border: 1px solid #3f3f46;
              border-radius: 8px; padding: 10px; max-height: 90vh; overflow: auto; }
@@ -24,9 +24,9 @@
   </head>
   <body>
     <div class="shell">
-      <nav class="panelList" aria-label="全局面板" id="nav"></nav>
+      <nav class="wtg9ga_panelList" aria-label="全局面板" id="nav"></nav>
     </div>
-    <pre id="log">booting…</pre>
+    <pre id="log">booting</pre>
 
     <script>
       // --- fake module loader -------------------------------------------------
@@ -56,13 +56,13 @@
       for (const [, label] of ENTRIES) {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "panelRow";
+        button.className = "wtg9ga_panelRow";
         button.setAttribute("aria-label", label);
         const glyph = document.createElement("span");
-        glyph.className = "panelGlyph";
-        glyph.textContent = "◉";
+        glyph.className = "wtg9ga_panelGlyph";
+        glyph.textContent = "\u25c9";
         const title = document.createElement("span");
-        title.className = "panelTitle";
+        title.className = "wtg9ga_panelTitle";
         title.textContent = label;
         button.append(glyph, title);
         button.addEventListener("click", () => log("click fired on " + label));
@@ -73,10 +73,10 @@
       function moreButton() {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "panelRow";
+        button.className = "wtg9ga_panelRow";
         button.setAttribute("aria-label", "更多");
         button.setAttribute("aria-haspopup", "menu");
-        button.textContent = "⋯";
+        button.textContent = "\u22ef";
         return button;
       }
 
@@ -106,20 +106,21 @@
         },
       };
 
+      function panelButtons() {
+        return Array.from(nav.querySelectorAll("button[aria-label]")).filter(
+          (button) => !button.hasAttribute("aria-haspopup")
+        );
+      }
+
       function currentOrder() {
-        return Array.from(nav.querySelectorAll("button.panelRow"))
-          .filter((button) => !button.hasAttribute("aria-haspopup"))
-          .map((button) => button.dataset.modmenuKey || button.getAttribute("aria-label"));
+        return panelButtons().map(
+          (button) => button.dataset.modmenuKey || button.getAttribute("aria-label")
+        );
       }
 
       function visualOrder() {
-        return currentOrder()
-          .map((key) => {
-            const button = Array.from(nav.querySelectorAll("button.panelRow")).find(
-              (candidate) => candidate.dataset.modmenuKey === key
-            );
-            return { key, top: button.getBoundingClientRect().top };
-          })
+        return panelButtons()
+          .map((button) => ({ key: button.dataset.modmenuKey, top: button.getBoundingClientRect().top }))
           .sort((a, b) => a.top - b.top)
           .map((item) => item.key);
       }
@@ -158,10 +159,7 @@
         log("visual0=" + JSON.stringify(visualOrder()));
         log("api=" + JSON.stringify(window.__dshModmenu.status()));
 
-        // drag the last row to the top
-        const buttons = Array.from(nav.querySelectorAll("button.panelRow")).filter(
-          (button) => !button.hasAttribute("aria-haspopup")
-        );
+        const buttons = panelButtons();
         const last = buttons[buttons.length - 1];
         const first = buttons[0];
         const lastRect = last.getBoundingClientRect();
@@ -181,7 +179,6 @@
         log("visual1=" + JSON.stringify(visualOrder()));
         log("stored=" + localStorage.getItem("dsh.modmenu.layout.v1"));
 
-        // reset check
         window.__dshModmenu.reset();
         await wait(200);
         log("order2(after reset)=" + JSON.stringify(visualOrder()));
