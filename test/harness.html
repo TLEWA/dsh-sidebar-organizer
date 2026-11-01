@@ -209,7 +209,52 @@
         log("displayAfterReveal=" + JSON.stringify(hideTarget.style.display));
         log("visualAfterReveal=" + JSON.stringify(visualOrder()));
 
-        // --- a drag must survive DOM churn and scrolling ---------------------
+        // --- reorder inside the "More" menu ---------------------------------
+        const visibleNow = visualOrder();
+        const hideA = visibleNow[0];
+        const hideB = visibleNow[1];
+        window.__dshModmenu.hide(hideA);
+        await wait(120);
+        window.__dshModmenu.hide(hideB);
+        await wait(200);
+        const tucked = window.__dshModmenu.status().hidden;
+        log("tucked=" + JSON.stringify(tucked));
+
+        const menu = document.createElement("div");
+        menu.style.cssText =
+          "position:fixed;left:420px;top:120px;width:220px;padding:6px;background:#222;" +
+          "z-index:5;display:flex;flex-direction:column;gap:4px";
+        for (const key of tucked) {
+          const item = document.createElement("div");
+          item.setAttribute("data-modmenu-more-key", key);
+          item.style.cssText = "height:32px;line-height:32px;padding:0 10px;background:#333;color:#fff";
+          item.textContent = key;
+          menu.appendChild(item);
+        }
+        document.body.appendChild(menu);
+        await wait(120);
+
+        if (tucked.length >= 2) {
+          const items = Array.from(menu.querySelectorAll("[data-modmenu-more-key]"));
+          const firstItem = items[0];
+          const secondItem = items[1];
+          const a = firstItem.getBoundingClientRect();
+          const b = secondItem.getBoundingClientRect();
+          pointer("pointerdown", firstItem, a.left + 30, a.top + a.height / 2);
+          await wait(420);
+          log("menu drag dragging=" + Boolean(window.__dshModmenu.status().dragging));
+          pointer("pointermove", document, b.left + 30, b.top + b.height - 2);
+          await wait(80);
+          pointer("pointerup", document, b.left + 30, b.top + b.height - 2);
+          await wait(240);
+          log("tuckedAfterMenuDrag=" + JSON.stringify(window.__dshModmenu.status().hidden));
+        }
+        menu.remove();
+        await wait(120);
+        window.__dshModmenu.reset();
+        await wait(200);
+
+
         const grabRow = panelButtons()[0];
         const churnRow = panelButtons()[3];
         const grabRect = grabRow.getBoundingClientRect();
