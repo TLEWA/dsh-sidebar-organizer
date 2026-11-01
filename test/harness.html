@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <title>dsh-modmenu harness</title>
+    <title>dsh-sidebar-organizer harness</title>
     <style>
       :root { color-scheme: dark; }
       body { margin: 0; font-family: system-ui, sans-serif; background: #18181b; color: #e4e4e7; }
@@ -114,14 +114,14 @@
 
       function currentOrder() {
         return panelButtons().map(
-          (button) => button.dataset.modmenuKey || button.getAttribute("aria-label")
+          (button) => button.dataset.dsoKey || button.getAttribute("aria-label")
         );
       }
 
       function visualOrder() {
         return panelButtons()
           .filter((button) => button.style.display !== "none")
-          .map((button) => ({ key: button.dataset.modmenuKey, top: button.getBoundingClientRect().top }))
+          .map((button) => ({ key: button.dataset.dsoKey, top: button.getBoundingClientRect().top }))
           .sort((a, b) => a.top - b.top)
           .map((item) => item.key);
       }
@@ -147,6 +147,7 @@
       }
 
       async function run() {
+        localStorage.removeItem("dsh.sidebar-organizer.layout.v1");
         localStorage.removeItem("dsh.modmenu.layout.v1");
         log("module loaded: " + Object.keys(window.__loadedModules).join(","));
         try {
@@ -159,7 +160,7 @@
         log("applied; rows=" + currentOrder().length);
         log("order0=" + JSON.stringify(currentOrder()));
         log("visual0=" + JSON.stringify(visualOrder()));
-        log("api=" + JSON.stringify(window.__dshModmenu.status()));
+        log("api=" + JSON.stringify(window.__dshSidebarOrganizer.status()));
 
         const buttons = panelButtons();
         const last = buttons[buttons.length - 1];
@@ -171,7 +172,7 @@
 
         pointer("pointerdown", last, startX, startY);
         await wait(420);
-        log("gesture after hold: " + Boolean(window.__dshModmenu.status().dragging));
+        log("gesture after hold: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
         pointer("pointermove", document, startX, firstRect.top + 2);
         await wait(60);
         pointer("pointerup", document, startX, firstRect.top + 2);
@@ -179,9 +180,9 @@
 
         log("order1=" + JSON.stringify(currentOrder()));
         log("visual1=" + JSON.stringify(visualOrder()));
-        log("stored=" + localStorage.getItem("dsh.modmenu.layout.v1"));
+        log("stored=" + localStorage.getItem("dsh.sidebar-organizer.layout.v1"));
 
-        window.__dshModmenu.reset();
+        window.__dshSidebarOrganizer.reset();
         await wait(200);
         log("order2(after reset)=" + JSON.stringify(visualOrder()));
 
@@ -189,23 +190,23 @@
         const more = nav.querySelector('button[aria-haspopup="menu"]');
         const moreRect = more.getBoundingClientRect();
         const hideTarget = panelButtons()[0];
-        const hideKey = hideTarget.dataset.modmenuKey;
+        const hideKey = hideTarget.dataset.dsoKey;
         const hideRect = hideTarget.getBoundingClientRect();
         pointer("pointerdown", hideTarget, hideRect.left + 40, hideRect.top + hideRect.height / 2);
         await wait(420);
-        log("hide gesture dragging: " + Boolean(window.__dshModmenu.status().dragging));
+        log("hide gesture dragging: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
         pointer("pointermove", document, moreRect.left + moreRect.width / 2, moreRect.top + moreRect.height / 2);
         await wait(60);
         pointer("pointerup", document, moreRect.left + moreRect.width / 2, moreRect.top + moreRect.height / 2);
         await wait(220);
-        log("hidden=" + JSON.stringify(window.__dshModmenu.status().hidden));
+        log("hidden=" + JSON.stringify(window.__dshSidebarOrganizer.status().hidden));
         log("hiddenKey=" + hideKey + " display=" + JSON.stringify(hideTarget.style.display));
         log("visualAfterHide=" + JSON.stringify(visualOrder()));
 
         // --- and get it back via the API (the More menu uses the same path) --
-        window.__dshModmenu.reveal(hideKey);
+        window.__dshSidebarOrganizer.reveal(hideKey);
         await wait(220);
-        log("hiddenAfterReveal=" + JSON.stringify(window.__dshModmenu.status().hidden));
+        log("hiddenAfterReveal=" + JSON.stringify(window.__dshSidebarOrganizer.status().hidden));
         log("displayAfterReveal=" + JSON.stringify(hideTarget.style.display));
         log("visualAfterReveal=" + JSON.stringify(visualOrder()));
 
@@ -213,11 +214,11 @@
         const visibleNow = visualOrder();
         const hideA = visibleNow[0];
         const hideB = visibleNow[1];
-        window.__dshModmenu.hide(hideA);
+        window.__dshSidebarOrganizer.hide(hideA);
         await wait(120);
-        window.__dshModmenu.hide(hideB);
+        window.__dshSidebarOrganizer.hide(hideB);
         await wait(200);
-        const tucked = window.__dshModmenu.status().hidden;
+        const tucked = window.__dshSidebarOrganizer.status().hidden;
         log("tucked=" + JSON.stringify(tucked));
 
         const menu = document.createElement("div");
@@ -226,7 +227,7 @@
           "z-index:5;display:flex;flex-direction:column;gap:4px";
         for (const key of tucked) {
           const item = document.createElement("div");
-          item.setAttribute("data-modmenu-more-key", key);
+          item.setAttribute("data-dso-more-key", key);
           item.style.cssText = "height:32px;line-height:32px;padding:0 10px;background:#333;color:#fff";
           item.textContent = key;
           menu.appendChild(item);
@@ -235,23 +236,23 @@
         await wait(120);
 
         if (tucked.length >= 2) {
-          const items = Array.from(menu.querySelectorAll("[data-modmenu-more-key]"));
+          const items = Array.from(menu.querySelectorAll("[data-dso-more-key]"));
           const firstItem = items[0];
           const secondItem = items[1];
           const a = firstItem.getBoundingClientRect();
           const b = secondItem.getBoundingClientRect();
           pointer("pointerdown", firstItem, a.left + 30, a.top + a.height / 2);
           await wait(420);
-          log("menu drag dragging=" + Boolean(window.__dshModmenu.status().dragging));
+          log("menu drag dragging=" + Boolean(window.__dshSidebarOrganizer.status().dragging));
           pointer("pointermove", document, b.left + 30, b.top + b.height - 2);
           await wait(80);
           pointer("pointerup", document, b.left + 30, b.top + b.height - 2);
           await wait(240);
-          log("tuckedAfterMenuDrag=" + JSON.stringify(window.__dshModmenu.status().hidden));
+          log("tuckedAfterMenuDrag=" + JSON.stringify(window.__dshSidebarOrganizer.status().hidden));
         }
         menu.remove();
         await wait(120);
-        window.__dshModmenu.reset();
+        window.__dshSidebarOrganizer.reset();
         await wait(200);
 
 
@@ -260,7 +261,7 @@
         const grabRect = grabRow.getBoundingClientRect();
         log(
           "resilience target=" +
-            grabRow.dataset.modmenuKey +
+            grabRow.dataset.dsoKey +
             " rect=" +
             Math.round(grabRect.left) +
             "," +
@@ -276,24 +277,24 @@
         await wait(60);
         log(
           "pressing=" +
-            Boolean(document.querySelector(".dshmodmenu-pressing")) +
+            Boolean(document.querySelector(".dso-pressing")) +
             " draggingSoon=" +
-            window.__dshModmenu.status().dragging
+            window.__dshSidebarOrganizer.status().dragging
         );
         await wait(360);
-        log("resilience dragging: " + Boolean(window.__dshModmenu.status().dragging));
+        log("resilience dragging: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
         // simulate React replacing a row, plus unrelated page scrolling
         const churnClone = churnRow.cloneNode(true);
         churnRow.replaceWith(churnClone);
         document.dispatchEvent(new Event("scroll"));
         await wait(140);
-        log("draggingAfterMutation: " + Boolean(window.__dshModmenu.status().dragging));
+        log("draggingAfterMutation: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
         const dropRect = churnClone.getBoundingClientRect();
         pointer("pointermove", document, grabRect.left + 40, dropRect.top + 2);
         await wait(80);
         pointer("pointerup", document, grabRect.left + 40, dropRect.top + 2);
         await wait(240);
-        log("draggingAfterDrop: " + Boolean(window.__dshModmenu.status().dragging));
+        log("draggingAfterDrop: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
         log("visualAfterResilience=" + JSON.stringify(visualOrder()));
         log("DONE");
       }
