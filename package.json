@@ -1,0 +1,36 @@
+{
+  "name": "dsh-modmenu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "左侧栏全局面板栏：长按拖动排序，拖入/拖出「更多」以收纳面板",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.1-rc.3"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
+}

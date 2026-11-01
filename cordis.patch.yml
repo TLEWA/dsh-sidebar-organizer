@@ -1,0 +1,8 @@
+# dsh-modmenu bundle patch
+#
+# Installed by the DSH plugin manager (or `dsh plugin add <path>`); this
+# patch inserts the plugin row into the active profile.
+- insert:
+    - id: modmenu
+      name: 'dsh-modmenu'
+      config: {}

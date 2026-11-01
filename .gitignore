@@ -1,0 +1,10 @@
+# local tooling / scratch space
+.tools/
+.shots/
+
+# workspace-local memory bank (not part of this plugin)
+.dsh-meow/
+
+node_modules/
+*.log
+.DS_Store
