@@ -1,8 +1,8 @@
 {
   "name": "dsh-sidebar-organizer",
-  "version": "0.3.6",
-  "private": true,
-  "description": "左侧栏全局面板栏：长按拖动排序、拖入/拖出「更多」收纳、键盘排序",
+  "version": "0.4.0",
+  "private": false,
+  "description": "DSH 侧栏面板整理器：长按拖动排序、拖入/拖出「更多」收纳、键盘排序",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -12,10 +12,37 @@
   },
   "files": [
     "lib",
+    "src",
+    "scripts",
     "cordis.patch.yml",
     "README.md",
+    "README.en.md",
+    "NOTICE.md",
+    "NOTICE.en.md",
     "LICENSE"
   ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node --check lib/client.js && node --check lib/index.js"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "sidebar",
+    "panel",
+    "drag-and-drop",
+    "reorder",
+    "organizer"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TLEWA/dsh-sidebar-organizer.git"
+  },
+  "homepage": "https://github.com/TLEWA/dsh-sidebar-organizer#readme",
+  "bugs": {
+    "url": "https://github.com/TLEWA/dsh-sidebar-organizer/issues"
+  },
   "license": "MIT",
   "dsh": {
     "engines": {

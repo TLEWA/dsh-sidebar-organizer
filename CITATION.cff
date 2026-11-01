@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "dsh-sidebar-organizer: Drag-to-reorder and tuck-away for the DSH sidebar panel strip"
+version: 0.4.0
+date-released: "2026-11-02"
+license: MIT
+type: software
+authors:
+  - alias: TLEWA
+    name: TLEWA
+repository-code: "https://github.com/TLEWA/dsh-sidebar-organizer"
+url: "https://github.com/TLEWA/dsh-sidebar-organizer"
+abstract: >-
+  A DSH (DeepSeek Harness) sidebar plugin that adds long-press drag reordering and
+  tuck-away-to-More for the global panel strip, implemented with read-only slot
+  access and inline DOM ordering to avoid re-registration feedback loops.
+keywords:
+  - DSH plugin
+  - DeepSeek Harness
+  - sidebar
+  - drag and drop
+  - UI customization

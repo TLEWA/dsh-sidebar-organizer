@@ -1,6 +1,7 @@
 # local tooling / scratch space
 .tools/
 .shots/
+.npm-cache/
 
 # workspace-local memory bank (not part of this plugin)
 .dsh-meow/
