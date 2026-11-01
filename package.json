@@ -1,6 +1,6 @@
 {
   "name": "dsh-modmenu",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
   "description": "左侧栏全局面板栏：长按拖动排序、拖入/拖出「更多」收纳、键盘排序",
   "type": "module",
