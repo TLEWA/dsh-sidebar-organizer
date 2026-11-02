@@ -6,7 +6,7 @@ Adds **custom ordering** and **tucking away** to six strips of buttons/cards in
 DSH (DeepSeek Harness): the left sidebar, sidebar footer, conversation tabs,
 composer dock, right sidebar, and settings navigation.
 
-> Version **0.5.5-preview.1** (preview): the organizer now covers the same six
+> Version **0.5.6-preview.1** (preview): the organizer now covers the same six
 > locations as `dsh-plugin-layout-organizer`, with a settings page. There is no
 > right-click menu.
 
@@ -228,6 +228,7 @@ churn during drag, and `dispose()` restoration).
 - [x] 0.5.3 — 0.4.x absorb animation, rounded More ring, centered horizontal insertion line
 - [x] 0.5.4 — hidden menu source while dragging, per-section drag switches, right-guide insertion order
 - [x] 0.5.5 — repair already-persisted trailing right-guide entries, center the horizontal drop line, remove the short-press scale
+- [x] 0.5.6 — no blank band between the guide compass and the first card (the host's `::after` spacer was sorted ahead of the ordered rows)
 - [ ] 0.6.0 — accessibility (screen-reader announcements for order changes, menu up/down actions)
 
 ## Notices

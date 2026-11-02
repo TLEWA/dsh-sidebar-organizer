@@ -12,7 +12,9 @@
   nav.sidebar button, .footer button, .tabs button, .composer button,
   .right button, .settings button { display: flex; align-items: center; gap: 6px; min-height: 30px; }
   .footer, .tabs, .composer, .right, .settings-list { display: flex; gap: 6px; }
-  .right { flex-direction: column; width: 200px; }
+  .right { flex-direction: column; width: 200px; min-height: 420px; justify-content: center; }
+  /* Mirrors the shipped guide's trailing spacer; it must stay after every row. */
+  .right::after { content: ""; flex: 0 10%; }
   .tabs { flex-direction: row; }
   .composer { align-items: center; }
   [data-slot="conversation.composer.dock"] { display: contents; }
@@ -466,6 +468,17 @@
         rightOrder.join(",")
       );
       assert("right-guide chrome stays after entry rows", Number(document.querySelector('[data-testid="right-chrome"]').style.order) > 1000, document.querySelector('[data-testid="right-chrome"]').style.order);
+
+      // Regression: the host guide ends with a 10%-tall ::after spacer. Rows
+      // carry order values, so a spacer left at order 0 would sort between the
+      // first child and the rows and open a blank band (0.5.5 and earlier).
+      const guideSpacer = Number(getComputedStyle(rightGuide, "::after").order);
+      const lastRowOrder = Number(rightGuide.querySelector("[data-dso-key]").style.order);
+      assert(
+        "right-guide spacer stays after every ordered row",
+        guideSpacer > lastRowOrder && guideSpacer > 1000,
+        `spacer ${guideSpacer} vs row ${lastRowOrder}`
+      );
 
       api.dispose();
       assert("dispose clears row marks", document.querySelectorAll("[data-dso-key]").length === 0);

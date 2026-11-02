@@ -3,6 +3,22 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.5.6-preview.1 — 2026-11-02
+
+- 修复安装后右侧栏起始页（「开始」）的入口被整体向下挤压：宿主的
+  `.guide::after` 占位伪元素（`flex: 0 10%`）原本固定在末尾，而本插件给行写入
+  的 `order` 让它插到了标题图标与第一张卡片之间，窗口越高空隙越大。现在用
+  样式把它固定在所有行之后，恢复安装前的排布。
+
+### English
+
+- Fix the right sidebar's start page being pushed down after installing the
+  organizer: the host's `.guide::after` spacer (`flex: 0 10%`) is meant to sit
+  last, but the `order` values written on our rows made it land between the
+  compass and the first card, so the blank band grew with the pane height. A
+  style rule now pins the spacer past every ordered row, restoring the original
+  layout.
+
 ## 0.5.5-preview.1 — 2026-11-02
 
 首个 0.5.x 预览版，仅以 GitHub Pre-release 发布，未发布到 npm。包含

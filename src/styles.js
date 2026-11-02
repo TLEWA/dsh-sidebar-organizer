@@ -2,6 +2,15 @@
    without extra network requests. */
 
 const CSS = `
+/* Host compatibility: the shipped right-guide ends with a spacer pseudo-element
+   (.guide::after, flex: 0 10%) that must stay last to bias the list upward.
+   Our rows carry explicit order values, so the spacer (order 0) would sort
+   between the compass and the first card — opening a blank band that grows
+   with the pane height. Pin it past every row we order. */
+[data-sidebar-right-guide][data-sidebar-right-guide]::after {
+  order: 2147483647;
+}
+
 .dso-ghost {
   position: fixed;
   box-sizing: border-box;
