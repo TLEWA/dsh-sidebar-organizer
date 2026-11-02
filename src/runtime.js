@@ -1,421 +1,665 @@
-/* The DOM runtime: locate the panel list, apply order/visibility, drag gesture. */
+/* Multi-scope drag, ordering and "More" tucking runtime. */
 
 function createRuntime(ctx) {
   const state = {
-    stopped: true,
-    nav: null,
+    stopped: false,
     passScheduled: false,
     passTimes: [],
     gesture: null,
     guardUntil: 0,
     pollTimer: 0,
+    passFrame: 0,
     listenerCleanup: [],
-    decorated: new Set(),
-    warnedMissingNav: false,
-    warnedMissingRows: false,
+    decorated: new Map(),
+    warned: new Set(),
     readyLogged: false,
     passDeferred: false,
     menuListeners: new Set(),
     dismissMenu: null,
-    absorbing: null,
+    found: {},
   };
 
-  function log(...args) {
-    // eslint-disable-next-line no-console
-    console.debug("[dsh-sidebar-organizer]", ...args);
+  let observer = null;
+
+  function warnOnce(key, message) {
+    if (state.warned.has(key)) return;
+    state.warned.add(key);
+    try {
+      ctx.logger?.debug?.(`[dsh-sidebar-organizer] ${message}`);
+    } catch (err) {
+      /* ignore */
+    }
   }
 
-  function alive() {
-    return !state.stopped;
+  function notify() {
+    for (const listener of Array.from(state.menuListeners)) {
+      try {
+        listener();
+      } catch (err) {
+        /* a broken menu must not break the runtime */
+      }
+    }
   }
 
-  /* --- DOM projection ---------------------------------------------- */
-
-  /**
-   * Locate the panel list. The sidebar styles its rows through CSS modules
-   * (`wtg9ga_panelRow` and friends), so class selectors are useless here: the
-   * hash changes between releases. Attributes are the stable contract —
-   * `aria-haspopup="menu"` marks the "More" anchor, `aria-label` every row.
-   */
-  function findNav() {
-    const navs = Array.from(document.querySelectorAll("nav"));
-    if (navs.length === 0) return null;
-
-    const labels = new Set();
-    for (const entry of readPanelEntries(ctx)) {
-      const { label } = describeEntry(entry);
-      if (label) labels.add(label);
-    }
-
-    // Score every nav by how many of its rows match a known panel label. This
-    // keeps us away from other navs (workspace list and friends) that may also
-    // contain menu buttons. The More anchor is only a tie-breaker.
-    let best = null;
-    let bestScore = 0;
-    for (const nav of navs) {
-      let score = 0;
-      for (const button of nav.querySelectorAll("button[aria-label]")) {
-        if (labels.size > 0 ? labels.has(button.getAttribute("aria-label")) : true) score += 1;
-      }
-      if (nav.querySelector('button[aria-haspopup="menu"]')) score += 0.5;
-      if (score > bestScore) {
-        best = nav;
-        bestScore = score;
-      }
-    }
-    return best;
-  }
-
-  /**
-   * Map rendered rows to stable keys.
-   * Preferred key: the slot entry id owning the cell. The sidebar renders rows
-   * in `entriesOfSlot` order, so index is a reliable fallback; the resolved
-   * label bridges the two when a shipped plugin registers a panel that another
-   * plugin shadows.
-   */
-  function collectRows(nav) {
-    const buttons = Array.from(nav.querySelectorAll("button[aria-label]")).filter(
-      (button) =>
-        !button.hasAttribute("aria-haspopup") && !button.classList.contains("dso-ghost")
-    );
-    if (buttons.length === 0) return { rows: [], moreHost: null, moreButton: null };
-
-    const entries = readPanelEntries(ctx);
-    // Without the slot projection we cannot map rows to stable ids; touching the
-    // DOM anyway would persist label-based keys and lose an id-based order.
-    if (entries.length === 0) return { rows: [], moreHost: null, moreButton: null };
-    const labelToId = new Map();
-    const ids = [];
-    for (const entry of entries) {
-      const { id, label } = describeEntry(entry);
-      if (!id) continue;
-      if (label) {
-        // duplicate labels cannot disambiguate — drop them from the index
-        labelToId.set(label, labelToId.has(label) ? null : id);
-      }
-      ids.push(id);
-    }
-
-    const layout = readLayout();
-    const hiddenSet = new Set(layout.hidden);
-    const used = new Set();
-    const rows = buttons.map((button, index) => {
-      const label = button.getAttribute("aria-label") || "";
-      let key = label ? labelToId.get(label) : null;
-      if (!key && ids[index]) key = ids[index];
-      if (!key) key = `label:${label || `#${index}`}`;
-      let unique = key;
-      let suffix = 1;
-      while (used.has(unique)) {
-        unique = `${key}~${suffix}`;
-        suffix += 1;
-      }
-      used.add(unique);
-      // The flex item is the button when the Tooltip renders no wrapper, and the
-      // closest non-nav ancestor otherwise; `order` only matters on flex items.
-      const parent = button.parentElement;
-      const host = parent && parent !== nav ? parent : button;
-      return { key: unique, button, host, hidden: hiddenSet.has(unique) };
+  function remember(element) {
+    if (!element || state.decorated.has(element)) return;
+    state.decorated.set(element, {
+      order: element.style.order,
+      display: element.style.display,
     });
-
-    const moreButton = nav.querySelector('button[aria-haspopup="menu"]');
-    const moreHost = moreButton ? moreButton.parentElement || moreButton : null;
-    return { rows, moreHost, moreButton };
   }
 
-  function visibleRows() {
-    const nav = findNav() || state.nav;
-    if (!nav) return { nav: null, rows: [] };
-    const { rows, moreHost, moreButton } = collectRows(nav);
-    return { nav, rows, moreHost, moreButton };
+  function applyOrder(element, value) {
+    if (!element) return;
+    remember(element);
+    const next = String(value);
+    if (element.style.order !== next) element.style.order = next;
   }
 
-  /**
-   * Keys of the rows currently visible in the strip, in the order the user sees
-   * them — i.e. the persisted layout order, NOT the DOM order. The sidebar keeps
-   * rendering rows in registration order and we only move them with CSS
-   * `order`, so a DOM-order list would shift every time a drag committed and
-   * make drops land somewhere other than where the user released the pointer.
-   */
-  function visibleKeys(rows) {
-    const layout = readLayout();
-    const visible = rows.filter((row) => !row.hidden).map((row) => row.key);
-    const ordered = [];
-    for (const key of layout.order) {
-      if (visible.includes(key) && !ordered.includes(key)) ordered.push(key);
+  function applyDisplay(element, hidden) {
+    if (!element) return;
+    remember(element);
+    const original = state.decorated.get(element);
+    if (hidden) {
+      if (element.style.display !== "none") element.style.display = "none";
+    } else if (original && element.style.display !== original.display) {
+      element.style.display = original.display;
     }
-    for (const key of visible) {
-      if (!ordered.includes(key)) ordered.push(key);
-    }
-    return ordered;
   }
 
-  function applyOrder(nav, rows, moreHost, moreButton) {
-    const layout = readLayout();
-    const keys = rows.map((row) => row.key);
-    const hiddenSet = new Set(layout.hidden.filter((key) => keys.includes(key)));
-    const visible = keys.filter((key) => !hiddenSet.has(key));
+  function markRow(row, scope, hidden) {
+    if (!row || !row.target) return;
+    row.target.dataset.dsoScope = scope;
+    row.target.dataset.dsoKey = row.id;
+    if (hidden) row.target.dataset.dsoHidden = "1";
+    else delete row.target.dataset.dsoHidden;
+  }
 
-    const desiredVisible = [];
-    for (const key of layout.order) {
-      if (visible.includes(key) && !desiredVisible.includes(key)) desiredVisible.push(key);
+  function normalizedLayout(scope) {
+    const found = state.found[scope];
+    const rows = found ? found.rows : [];
+    const ids = rows.map((row) => row.id);
+    const current = readScope(scope);
+    const order = [];
+    for (const id of current.order) {
+      if (ids.indexOf(id) !== -1 && order.indexOf(id) === -1) order.push(id);
     }
-    for (const key of visible) {
-      if (!desiredVisible.includes(key)) desiredVisible.push(key);
-    }
-    const desiredHidden = [];
-    for (const key of layout.order) {
-      if (hiddenSet.has(key) && !desiredHidden.includes(key)) desiredHidden.push(key);
-    }
-    for (const key of keys) {
-      if (hiddenSet.has(key) && !desiredHidden.includes(key)) desiredHidden.push(key);
-    }
-
-    const nextOrder = [...desiredVisible, ...desiredHidden];
-    if (!isSameOrder(nextOrder, layout.order) || !isSameOrder(desiredHidden, layout.hidden)) {
-      writeLayout({ order: nextOrder, hidden: desiredHidden });
-    }
-
-    // rank starts at 1 so that unranked siblings (the "More" anchor, separators)
-    // never tie with the first panel row and win the tie-break by DOM order
-    const rank = new Map(desiredVisible.map((key, index) => [key, index * 2 + 1]));
-    for (const row of rows) {
-      if (hiddenSet.has(row.key)) {
-        if (row.host.style.display !== "none") row.host.style.display = "none";
-        if (row.button !== row.host && row.button.style.display !== "none") {
-          row.button.style.display = "none";
+    // A plugin can add an entry after we persisted a layout. Appending every
+    // unseen id pushes that new entry below unrelated rows (the right guide's
+    // "new terminal" ended up after the whole list). Insert it next to the
+    // host's own DOM neighbours instead, so an untouched section keeps the
+    // host order and a customised one only gains the new row at its source.
+    for (let index = 0; index < ids.length; index += 1) {
+      const id = ids[index];
+      if (order.indexOf(id) !== -1) continue;
+      let anchor = null;
+      for (let next = index + 1; next < ids.length; next += 1) {
+        if (order.indexOf(ids[next]) !== -1) {
+          anchor = ids[next];
+          break;
         }
-        if (row.button.dataset.dsoHidden !== "1") row.button.dataset.dsoHidden = "1";
-        // Keep the key on hidden rows too: the More menu uses it to locate the
-        // row when it needs the localized label and the glyph.
-        if (row.button.dataset.dsoKey !== row.key) {
-          row.button.dataset.dsoKey = row.key;
-        }
-        state.decorated.add(row.host);
+      }
+      if (anchor) {
+        order.splice(order.indexOf(anchor), 0, id);
         continue;
       }
-      if (row.host.style.display === "none") row.host.style.display = "";
-      if (row.button !== row.host && row.button.style.display === "none") {
-        row.button.style.display = "";
+      let previous = null;
+      for (let prev = index - 1; prev >= 0; prev -= 1) {
+        if (order.indexOf(ids[prev]) !== -1) {
+          previous = ids[prev];
+          break;
+        }
       }
-      if (row.button.dataset.dsoHidden) delete row.button.dataset.dsoHidden;
-      const value = String(rank.get(row.key) ?? 0);
-      setOrder(row.host, value);
-      state.decorated.add(row.host);
-      if (row.button !== row.host) {
-        setOrder(row.button, value);
-        state.decorated.add(row.button);
-      }
-      if (row.button.dataset.dsoKey !== row.key) {
-        row.button.dataset.dsoKey = row.key;
-      }
+      if (previous) order.splice(order.indexOf(previous) + 1, 0, id);
+      else order.push(id);
+    }
+    const hidden = current.hidden.filter((id) => order.indexOf(id) !== -1);
+    return { order, hidden };
+  }
+
+  // 0.5.4 appended a newly discovered row to the end of the persisted order
+  // instead of inserting it at the host position. Existing layouts keep that
+  // bad order forever, because the id is no longer "new" to normalizedLayout.
+  // Repair the one safe shape once: every row except the trailing one is in
+  // host order, so the trailing row was almost certainly appended by that bug.
+  function repairAppendedOrder(found) {
+    const scope = found.scope;
+    if (isScopeRepaired(scope)) return;
+    const layout = readScope(scope);
+    const hostIds = found.rows.map((row) => row.id);
+    if (!layout.order.length || layout.order.length !== hostIds.length) {
+      // No persisted order yet, or a new row was just added. applyFound will
+      // write the host order; examine the repaired order on the next pass.
+      return;
+    }
+    if (hostIds.some((id) => layout.order.indexOf(id) === -1)) {
+      return;
+    }
+    const hidden = new Set(layout.hidden);
+    const visible = layout.order.filter((id) => !hidden.has(id));
+    const hostVisible = hostIds.filter((id) => !hidden.has(id));
+    if (visible.length !== hostVisible.length || isSameOrder(visible, hostVisible)) {
+      markScopeRepaired(scope);
+      return;
+    }
+    const last = visible[visible.length - 1];
+    const rest = visible.slice(0, -1);
+    const hostRest = hostVisible.filter((id) => id !== last);
+    if (!isSameOrder(rest, hostRest)) {
+      markScopeRepaired(scope);
+      return;
+    }
+    writeScope(scope, { order: hostIds, hidden: layout.hidden });
+    markScopeRepaired(scope);
+  }
+
+  function applyFound(found) {
+    if (!found || !found.rows.length) return;
+    const scope = found.scope;
+    const layout = normalizedLayout(scope);
+    const byId = new Map();
+    for (const row of found.rows) byId.set(row.id, row);
+
+    const hiddenSet = new Set(layout.hidden);
+    const visible = layout.order.filter((id) => !hiddenSet.has(id));
+
+    for (let index = 0; index < visible.length; index += 1) {
+      const row = byId.get(visible[index]);
+      if (!row) continue;
+      markRow(row, scope, false);
+      applyOrder(row.unit, index * 2 + 1);
+      applyDisplay(row.unit, false);
+      if (row.unit !== row.target) applyDisplay(row.target, false);
     }
 
-    const tail = String(desiredVisible.length * 2 + 1000);
-    if (moreHost) {
-      setOrder(moreHost, tail);
-      state.decorated.add(moreHost);
+    for (const id of layout.hidden) {
+      const row = byId.get(id);
+      if (!row) continue;
+      markRow(row, scope, true);
+      applyDisplay(row.unit, true);
+      if (row.unit !== row.target) applyDisplay(row.target, true);
     }
-    if (moreButton && moreButton !== moreHost) {
-      setOrder(moreButton, tail);
-      state.decorated.add(moreButton);
+
+    // Non-row host chrome beside the outlet (composer ContextMeter, etc.)
+    // stays at the end instead of being tagged as a row.
+    const tailBase = visible.length * 2 + 1000;
+    const tails = found.tails || [];
+    for (let index = 0; index < tails.length; index += 1) {
+      applyOrder(tails[index], tailBase + index);
+      applyDisplay(tails[index], false);
+    }
+    if (found.more) {
+      applyOrder(found.more, tailBase + tails.length + 1);
+      applyDisplay(found.more, false);
+    }
+
+    const nextOrder = visible.concat(layout.hidden);
+    const current = readScope(scope);
+    if (!isSameOrder(current.order, nextOrder) || !isSameOrder(current.hidden, layout.hidden)) {
+      writeScope(scope, { order: nextOrder, hidden: layout.hidden });
     }
   }
 
   function pass(force) {
-    if (!alive()) return;
-    // A pass would fight the drag ghost for layout: rows must not move while a
-    // row is being carried. Re-run once the gesture is over. `force` is used
-    // right before a drag starts to make sure the DOM already reflects the
-    // persisted order, so frozen rects and the committed order agree.
+    if (state.stopped) return;
     if (state.gesture && !force) {
       state.passDeferred = true;
       return;
     }
-
     const now = Date.now();
-    state.passTimes.push(now);
+    state.passTimes = state.passTimes.filter((time) => now - time < PASS_WINDOW_MS);
     if (state.passTimes.length > PASS_LIMIT) {
-      state.passTimes = state.passTimes.filter((time) => now - time < PASS_WINDOW_MS);
-      if (state.passTimes.length > PASS_LIMIT) {
-        log("watchdog tripped: too many layout passes, disabling observer");
-        stop();
-        return;
-      }
+      warnOnce("watchdog", "layout pass loop detected; backing off");
+      return;
     }
+    state.passTimes.push(now);
 
-    const nav = findNav();
-    state.nav = nav;
-    if (!nav) {
-      if (!state.warnedMissingNav) {
-        state.warnedMissingNav = true;
-        log("panel list not found yet; retrying on DOM changes");
+    let seen = 0;
+    for (const def of SCOPE_DEFS) {
+      let found = null;
+      try {
+        found = discoverScope(ctx, def.key);
+      } catch (err) {
+        found = null;
       }
-      return;
-    }
-    const { rows, moreHost, moreButton } = collectRows(nav);
-    if (rows.length === 0) {
-      if (!state.warnedMissingRows) {
-        state.warnedMissingRows = true;
-        log("panel list found but its rows did not match any slot entry");
+      if (!found || !found.rows.length) {
+        warnOnce(`missing:${def.key}`, `no rows found for scope "${def.key}"`);
+        continue;
       }
-      return;
+      state.found[def.key] = found;
+      repairAppendedOrder(found);
+      applyFound(found);
+      seen += 1;
     }
-    if (!state.readyLogged) {
+    if (seen && !state.readyLogged) {
       state.readyLogged = true;
-      log("ready:", rows.length, "panel rows");
+      try {
+        ctx.logger?.debug?.(`[dsh-sidebar-organizer] tracking ${seen} layout regions`);
+      } catch (err) {
+        /* ignore */
+      }
     }
-    applyOrder(nav, rows, moreHost, moreButton);
   }
 
   function schedulePass() {
-    if (state.passScheduled || !alive()) return;
+    if (state.stopped || state.passScheduled) return;
     state.passScheduled = true;
-    window.requestAnimationFrame(() => {
+    state.passFrame = window.requestAnimationFrame(() => {
       state.passScheduled = false;
-      if (!alive()) return;
-      try {
-        pass();
-      } catch (error) {
-        log("layout pass failed", error);
-      }
+      pass(false);
     });
   }
 
-  /* --- layout mutations -------------------------------------------- */
-
-  function notifyMenu() {
-    for (const listener of Array.from(state.menuListeners)) {
-      try {
-        listener();
-      } catch (error) {
-        /* ignore a broken menu subscriber */
-      }
-    }
+  function refreshScope(scope) {
+    const found = state.found[scope];
+    if (found) applyFound(found);
+    else schedulePass();
   }
 
-  function hideKey(key) {
-    const rows = collectRows(findNav() || state.nav).rows;
-    if (rows.length === 0) return;
-    const visible = visibleKeys(rows);
-    if (!visible.includes(key)) return;
-    // Never hide the last visible panel: an empty bar is a trap for the user.
-    if (visible.length <= 1) {
-      log("cannot hide the last visible panel");
-      return;
-    }
-    const layout = readLayout();
-    const hidden = layout.hidden.includes(key) ? layout.hidden : layout.hidden.concat(key);
-    const order = layout.order.includes(key) ? layout.order : layout.order.concat(key);
-    writeLayout({ order, hidden });
-    log("hidden", key, hidden);
-    notifyMenu();
-    schedulePass();
-  }
-
-  function revealKey(key, index) {
-    const layout = readLayout();
-    const hidden = layout.hidden.filter((item) => item !== key);
-    const hiddenSet = new Set(hidden);
-    const visible = layout.order.filter((item) => item !== key && !hiddenSet.has(item));
-    const next = visible.slice();
-    const position =
-      index === null || index === undefined
-        ? next.length
-        : Math.max(0, Math.min(index, next.length));
-    next.splice(position, 0, key);
-    const tailKeys = [];
-    for (const item of layout.order) {
-      if (item !== key && hiddenSet.has(item) && !tailKeys.includes(item)) tailKeys.push(item);
-    }
-    writeLayout({ order: [...next, ...tailKeys], hidden });
-    log("revealed", key, "at", position);
-    notifyMenu();
-    schedulePass();
-  }
-
-  function reorderKey(key, index) {
-    const { rows } = visibleRows();
-    const visible = visibleKeys(rows);
-    if (!visible.includes(key)) return;
-    const others = visible.filter((item) => item !== key);
-    const position = Math.max(0, Math.min(index, others.length));
-    const next = others.slice();
-    next.splice(position, 0, key);
-    const layout = readLayout();
+  function visibleIds(scope) {
+    const layout = normalizedLayout(scope);
     const hiddenSet = new Set(layout.hidden);
-    const tailKeys = [];
-    for (const item of layout.order) {
-      if (hiddenSet.has(item) && !visible.includes(item) && !tailKeys.includes(item)) {
-        tailKeys.push(item);
+    return layout.order.filter((id) => !hiddenSet.has(id));
+  }
+
+  function rowFor(found, id) {
+    if (!found) return null;
+    for (const row of found.rows) if (row.id === id) return row;
+    return null;
+  }
+
+  function canHide(scope, id) {
+    const found = state.found[scope];
+    const row = rowFor(found, id);
+    if (!row || row.pinned) return false;
+    const visible = visibleIds(scope);
+    return visible.indexOf(id) !== -1 && visible.length > 1;
+  }
+
+  function hide(scope, id) {
+    if (!canHide(scope, id)) return false;
+    const layout = readScope(scope);
+    const order = normalizedLayout(scope).order;
+    const hidden = order.filter((key) => layout.hidden.indexOf(key) !== -1);
+    if (hidden.indexOf(id) === -1) hidden.push(id);
+    const nextOrder = order.filter((key) => hidden.indexOf(key) === -1).concat(hidden);
+    writeScope(scope, { order: nextOrder, hidden });
+    refreshScope(scope);
+    notify();
+    return true;
+  }
+
+  function reveal(scope, id, index) {
+    const found = state.found[scope];
+    const row = rowFor(found, id);
+    if (!row) return false;
+    const layout = normalizedLayout(scope);
+    if (layout.hidden.indexOf(id) === -1) return false;
+    const hidden = layout.hidden.filter((key) => key !== id);
+    const visible = layout.order.filter((key) => hidden.indexOf(key) === -1);
+    const at = typeof index === "number" ? Math.max(0, Math.min(visible.length, index)) : visible.length;
+    visible.splice(at, 0, id);
+    writeScope(scope, { order: visible.concat(hidden), hidden });
+    refreshScope(scope);
+    notify();
+    return true;
+  }
+
+  function reorder(scope, id, index) {
+    const found = state.found[scope];
+    const row = rowFor(found, id);
+    if (!row || row.pinned) return false;
+    const layout = normalizedLayout(scope);
+    const visible = layout.order.filter((key) => layout.hidden.indexOf(key) === -1);
+    const from = visible.indexOf(id);
+    if (from === -1) return false;
+    const others = visible.filter((key) => key !== id);
+    const at = Math.max(0, Math.min(others.length, typeof index === "number" ? index : others.length));
+    others.splice(at, 0, id);
+    writeScope(scope, { order: others.concat(layout.hidden), hidden: layout.hidden });
+    refreshScope(scope);
+    notify();
+    return true;
+  }
+
+  function reorderHidden(scope, id, index) {
+    const layout = normalizedLayout(scope);
+    const from = layout.hidden.indexOf(id);
+    if (from === -1) return false;
+    const others = layout.hidden.filter((key) => key !== id);
+    const at = Math.max(0, Math.min(others.length, typeof index === "number" ? index : others.length));
+    others.splice(at, 0, id);
+    writeScope(scope, { order: layout.order, hidden: others });
+    notify();
+    return true;
+  }
+
+  function resetScope(scope) {
+    resetScopeState(scope);
+    refreshScope(scope);
+    notify();
+  }
+
+  function resetRegion(region) {
+    const scopes = REGION_SCOPES[region] || [];
+    for (const scope of scopes) {
+      resetScopeState(scope);
+      refreshScope(scope);
+    }
+    notify();
+  }
+
+  function reset() {
+    forgetLayout();
+    for (const scope of SCOPE_KEYS) refreshScope(scope);
+    notify();
+  }
+
+  function isCustomized(scope) {
+    const scopes = scope ? [scope] : SCOPE_KEYS;
+    for (const key of scopes) {
+      const layout = readScope(key);
+      if (layout.hidden.length) return true;
+      const found = state.found[key];
+      if (!found) continue;
+      const visible = layout.order.filter((id) => layout.hidden.indexOf(id) === -1);
+      const defaultOrder = found.rows.map((row) => row.id);
+      if (!isSameOrder(visible, defaultOrder)) return true;
+    }
+    return false;
+  }
+
+  function isCustomizedRegion(region) {
+    for (const scope of REGION_SCOPES[region] || []) {
+      if (isCustomized(scope)) return true;
+    }
+    return false;
+  }
+
+  function isDragEnabled(scope) {
+    return readDragEnabled(scope);
+  }
+
+  function setDragEnabled(scope, enabled) {
+    if (!writeDragEnabled(scope, enabled)) return false;
+    if (!enabled && state.gesture && state.gesture.scope === scope) cancelGesture();
+    notify();
+    return true;
+  }
+
+  function snapshot() {
+    const out = [];
+    for (const def of SCOPE_DEFS) {
+      const found = state.found[def.key];
+      if (!found || !found.rows.length) {
+        out.push({
+          scope: def.key,
+          axis: def.axis,
+          rows: [],
+          hasMore: false,
+          dragEnabled: isDragEnabled(def.key),
+        });
+        continue;
+      }
+      const layout = normalizedLayout(def.key);
+      const hiddenSet = new Set(layout.hidden);
+      const byId = new Map();
+      for (const row of found.rows) byId.set(row.id, row);
+      const rows = [];
+      for (const id of layout.order) {
+        const row = byId.get(id);
+        if (!row) continue;
+        rows.push({
+          scope: def.key,
+          id: row.id,
+          label: row.label || id,
+          hidden: hiddenSet.has(id),
+          pinned: !!row.pinned,
+        });
+      }
+      out.push({
+        scope: def.key,
+        axis: def.axis,
+        rows,
+        hasMore: !!found.more,
+        dragEnabled: isDragEnabled(def.key),
+      });
+    }
+    return out;
+  }
+
+  function labelFor(scope, id) {
+    const found = state.found[scope];
+    const row = rowFor(found, id);
+    if (row && row.label) return row.label;
+    const def = scopeDef(scope);
+    if (def && def.slot) {
+      for (const entry of readEntries(ctx, def.slot)) {
+        const info = describeEntry(entry);
+        if (info.id === id && info.label) return info.label;
       }
     }
-    writeLayout({ order: [...next, ...tailKeys], hidden: layout.hidden });
-    log("moved", key, "to", position, next);
-    notifyMenu();
-    schedulePass();
+    return id;
   }
 
-  /** Reorder entries inside the "More" menu (the tucked-away set). */
-  function reorderHidden(key, index) {
-    const layout = readLayout();
-    const hidden = layout.hidden.slice();
-    const from = hidden.indexOf(key);
-    if (from < 0) return;
-    hidden.splice(from, 1);
-    const position = Math.max(0, Math.min(index, hidden.length));
-    hidden.splice(position, 0, key);
-    const hiddenSet = new Set(hidden);
-    const visible = [];
-    for (const item of layout.order) {
-      if (item !== key && !hiddenSet.has(item) && !visible.includes(item)) visible.push(item);
+  function iconFor(scope, id) {
+    const found = state.found[scope];
+    const row = rowFor(found, id);
+    if (!row || !row.target) return null;
+    const glyph = row.target.querySelector('[aria-hidden="true"]') || row.target.querySelector("svg");
+    const svg = glyph && (glyph.tagName === "svg" ? glyph : glyph.querySelector("svg"));
+    if (!svg) return null;
+    try {
+      const markup = new XMLSerializer().serializeToString(svg);
+      return scopeMarkupIds(markup, "dso-icon-" + (++iconSeq));
+    } catch (err) {
+      return null;
     }
-    writeLayout({ order: [...visible, ...hidden], hidden });
-    log("reordered hidden", key, "to", position, hidden);
-    notifyMenu();
-    schedulePass();
   }
 
-  function hiddenKeys() {
-    const layout = readLayout();
-    const known = new Set();
-    for (const entry of readPanelEntries(ctx)) {
-      const { id } = describeEntry(entry);
-      if (id) known.add(id);
+  function hiddenForRegion(region) {
+    const scopes = REGION_SCOPES[region] || [];
+    const out = [];
+    for (const scope of scopes) {
+      const found = state.found[scope];
+      if (!found) continue;
+      const layout = normalizedLayout(scope);
+      const byId = new Map();
+      for (const row of found.rows) byId.set(row.id, row);
+      for (const id of layout.hidden) {
+        const row = byId.get(id);
+        if (!row) continue;
+        out.push({
+          scope,
+          id,
+          label: row.label || labelFor(scope, id),
+          icon: iconFor(scope, id),
+        });
+      }
     }
-    return layout.hidden.filter((key) => known.size === 0 || known.has(key));
+    return out;
   }
 
-  function defaultOrder() {
-    return readPanelEntries(ctx).map((entry) => describeEntry(entry).id).filter(Boolean);
+  function activate(scope, id) {
+    const found = state.found[scope] || (() => {
+      try {
+        return discoverScope(ctx, scope);
+      } catch (err) {
+        return null;
+      }
+    })();
+    const row = rowFor(found, id);
+    if (!row || !row.target) return false;
+    try {
+      row.target.click();
+      return true;
+    } catch (err) {
+      return false;
+    }
   }
 
-  function isCustomized() {
-    const layout = readLayout();
-    if (layout.hidden.length > 0) return true;
-    const known = layout.order.filter((key) => !key.startsWith("label:"));
-    const fallback = defaultOrder().filter((key) => known.includes(key));
-    return known.some((key, index) => fallback[index] !== key);
+  function status() {
+    const scopes = {};
+    for (const def of SCOPE_DEFS) {
+      const found = state.found[def.key];
+      const layout = readScope(def.key);
+      scopes[def.key] = {
+        found: !!found,
+        rows: found ? found.rows.map((row) => ({ id: row.id, label: row.label, hidden: layout.hidden.indexOf(row.id) !== -1, pinned: !!row.pinned })) : [],
+        hidden: layout.hidden.slice(),
+        dragEnabled: isDragEnabled(def.key),
+      };
+    }
+    return {
+      version: VERSION,
+      scopes,
+      gesture: state.gesture ? { scope: state.gesture.scope, id: state.gesture.id, started: state.gesture.started } : null,
+    };
   }
 
-  /* --- drag gesture ------------------------------------------------ */
+  // ---------------------------------------------------------------- gestures
 
-  function clearGesture(options) {
-    const gesture = state.gesture;
+  function findRowElement(scope, id) {
+    const nodes = document.querySelectorAll("[data-dso-key]");
+    for (const node of nodes) {
+      if (node.dataset.dsoScope === scope && node.dataset.dsoKey === id) return node;
+    }
+    return null;
+  }
+
+  function menuKey(element) {
+    const raw = element && element.dataset ? element.dataset.dsoMoreKey : "";
+    if (!raw) return null;
+    const at = raw.indexOf(":");
+    if (at <= 0) return null;
+    return { scope: raw.slice(0, at), id: raw.slice(at + 1) };
+  }
+
+  function parseMenuRow(element) {
+    return menuKey(element);
+  }
+
+  // Rows are stored in host DOM order, but `style.order` can make the visible
+  // order different. Drop indexes are expressed in VISUAL order (the same
+  // order `reorder` uses), so the snapshot must be sorted by geometry, not by
+  // DOM order. Sorting by the primary axis is enough for a single strip; the
+  // secondary coordinate breaks ties/wrapped lines deterministically.
+  function visualOrder(a, b, axis) {
+    const ar = a.rect;
+    const br = b.rect;
+    if (axis === "x") {
+      const lineA = Math.round(ar.top / 8);
+      const lineB = Math.round(br.top / 8);
+      if (lineA !== lineB) return ar.top - br.top;
+      return ar.left - br.left;
+    }
+    const columnA = Math.round(ar.left / 8);
+    const columnB = Math.round(br.left / 8);
+    if (columnA !== columnB) return ar.left - br.left;
+    return ar.top - br.top;
+  }
+
+  function buildSnapshot(gesture) {
+    let found = null;
+    try {
+      found = discoverScope(ctx, gesture.scope);
+    } catch (err) {
+      found = null;
+    }
+    if (!found) found = state.found[gesture.scope] || null;
+    if (!found) return null;
+    const layout = readScope(gesture.scope);
+    const hiddenSet = new Set(layout.hidden);
+    const items = [];
+    for (const row of found.rows) {
+      if (hiddenSet.has(row.id)) continue;
+      const rect = row.unit.getBoundingClientRect();
+      if (!rect.width && !rect.height) continue;
+      items.push({ id: row.id, unit: row.unit, target: row.target, rect });
+    }
+    items.sort((a, b) => visualOrder(a, b, found.axis));
+    if (gesture.source === "row" && items.every((item) => item.id !== gesture.id)) items.length = 0;
+
+    const menuItems = [];
+    if (gesture.source === "menu") {
+      for (const node of document.querySelectorAll("[data-dso-more-key]")) {
+        const parsed = parseMenuRow(node);
+        if (!parsed || parsed.scope !== gesture.scope) continue;
+        menuItems.push({ id: parsed.id, element: node, rect: node.getBoundingClientRect() });
+      }
+      menuItems.sort((a, b) => a.rect.top - b.rect.top);
+    }
+    let menuRect = null;
+    if (menuItems.length) {
+      let left = Infinity;
+      let top = Infinity;
+      let right = -Infinity;
+      let bottom = -Infinity;
+      for (const item of menuItems) {
+        left = Math.min(left, item.rect.left);
+        top = Math.min(top, item.rect.top);
+        right = Math.max(right, item.rect.right);
+        bottom = Math.max(bottom, item.rect.bottom);
+      }
+      menuRect = { left, top, right, bottom, width: right - left, height: bottom - top };
+    }
+
+    const container = found.container.getBoundingClientRect();
+    const moreTarget = found.moreTarget || found.more;
+    const more = moreTarget ? moreTarget.getBoundingClientRect() : null;
+    return {
+      found,
+      axis: found.axis,
+      container,
+      items,
+      menuItems,
+      menuRect,
+      moreRect: more,
+    };
+  }
+
+  function createGhost(element, rect) {
+    if (!element) return null;
+    const clone = element.cloneNode(true);
+    clone.removeAttribute("id");
+    clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+    // The live row carries inline styles and state attributes from the host
+    // (position, transform, aria-current, our own order/display marks). Keeping
+    // any of them on the fixed-position clone pins it to the host layout or
+    // drags it back into the sidebar. The old implementation stripped all of
+    // these before positioning the ghost; the generalized version must too.
+    clone.removeAttribute("style");
+    clone.removeAttribute("aria-current");
+    clone.removeAttribute("data-dso-key");
+    clone.removeAttribute("data-dso-scope");
+    clone.removeAttribute("data-dso-hidden");
+    clone.removeAttribute("data-dso-more-key");
+    clone.classList.remove("dso-dragging", "dso-pressing", "dso-ghost-armed");
+    clone.classList.add("dso-ghost");
+    clone.style.width = rect.width + "px";
+    clone.style.height = rect.height + "px";
+    clone.style.left = rect.left + "px";
+    clone.style.top = rect.top + "px";
+    document.body.appendChild(clone);
+    return clone;
+  }
+
+  function createIndicator() {
+    const indicator = document.createElement("div");
+    indicator.className = "dso-indicator";
+    indicator.dataset.visible = "0";
+    document.body.appendChild(indicator);
+    return indicator;
+  }
+
+  function removeGhost(gesture) {
     if (!gesture) return;
-    const keepGhost = Boolean(options && options.keepGhost);
-    state.gesture = null;
-    if (gesture.timer) window.clearTimeout(gesture.timer);
-    if (gesture.pressTimer) window.clearTimeout(gesture.pressTimer);
-    if (gesture.frame) {
-      window.cancelAnimationFrame(gesture.frame);
-      gesture.frame = 0;
+    if (gesture.ghost) gesture.ghost.remove();
+    if (gesture.indicator) gesture.indicator.remove();
+    if (gesture.element && gesture.element.classList) {
+      gesture.element.classList.remove("dso-dragging", "dso-pressing");
     }
-    if (gesture.anchorFrame) {
-      window.cancelAnimationFrame(gesture.anchorFrame);
-      gesture.anchorFrame = 0;
-    }
-    if (gesture.pointerId !== undefined && gesture.element) {
+    if (gesture.element && gesture.pointerId !== undefined) {
       try {
         if (gesture.element.hasPointerCapture(gesture.pointerId)) {
           gesture.element.releasePointerCapture(gesture.pointerId);
@@ -424,231 +668,217 @@ function createRuntime(ctx) {
         /* the element may already be detached */
       }
     }
+    if (gesture.snapshot && gesture.snapshot.found) {
+      const more = gesture.snapshot.found.moreTarget || gesture.snapshot.found.more;
+      // Leave `dso-drop-receive` on the anchor: it is a one-shot 260 ms pulse
+      // owned by pulseClass(), not by the drag session.
+      if (more) more.classList.remove("dso-drop-more");
+    }
+    gesture.ghost = null;
+    gesture.indicator = null;
+    gesture.moreElement = null;
+  }
+
+  function markDropMore(gesture, active) {
+    if (gesture && gesture.ghost) {
+      gesture.ghost.classList.toggle("dso-ghost-armed", Boolean(active));
+    }
+    if (!gesture || !gesture.snapshot || !gesture.snapshot.found) return;
+    // `found.more` may be the flex wrapper (needed for style.order), while the
+    // rounded surface belongs to the actual button. Put the drop ring there so
+    // its outline follows the button's border-radius.
+    const element = gesture.snapshot.found.moreTarget || gesture.snapshot.found.more;
+    if (!element) return;
+    if (active) {
+      // Hover only arms the anchor. The receive bounce is a one-shot pulse on
+      // release; playing it on hover made the 0.4.x hover feel completely
+      // different (and made the anchor look like it was bouncing constantly).
+      element.classList.add("dso-drop-more");
+    } else {
+      element.classList.remove("dso-drop-more");
+    }
+  }
+
+  function pointIn(rect, x, y, pad) {
+    if (!rect) return false;
+    const margin = pad || 0;
+    return x >= rect.left - margin && x <= rect.right + margin && y >= rect.top - margin && y <= rect.bottom + margin;
+  }
+
+  function gapBoundary(axis, before, after) {
+    if (before && after) {
+      return axis === "x"
+        ? (before.right + after.left) / 2
+        : (before.bottom + after.top) / 2;
+    }
+    if (before) return axis === "x" ? before.right : before.bottom;
+    return axis === "x" ? after.left : after.top;
+  }
+
+  function indexAt(items, x, y, axis, allItems) {
+    if (!items.length) return { index: 0, boundary: axis === "x" ? x : y };
+    const coordinate = axis === "x" ? x : y;
+    for (let index = 0; index < items.length; index += 1) {
+      const rect = items[index].rect;
+      const middle = axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
+      if (coordinate < middle) {
+        // The source row is removed from `items`, but it still occupies its
+        // layout slot. Use the full visual list to find the REAL gap, including
+        // the source and any hidden row. Otherwise dropping at the end anchors
+        // the line to the last remaining row's edge (visually inside the tab).
+        const all = allItems && allItems.length ? allItems : items;
+        const at = all.findIndex((item) => item.id === items[index].id);
+        const previous = at > 0 ? all[at - 1].rect : null;
+        return { index, boundary: gapBoundary(axis, previous, rect) };
+      }
+    }
+    const last = items[items.length - 1].rect;
+    const all = allItems && allItems.length ? allItems : items;
+    const at = all.findIndex((item) => item.id === items[items.length - 1].id);
+    const next = at >= 0 && at + 1 < all.length ? all[at + 1].rect : null;
+    return { index: items.length, boundary: gapBoundary(axis, last, next) };
+  }
+
+  function showIndicator(gesture, axis, boundary, rect) {
+    const indicator = gesture.indicator;
+    if (!indicator) return;
+    indicator.dataset.visible = "1";
+    indicator.className = "dso-indicator " + (axis === "x" ? "dso-indicator-v" : "dso-indicator-h");
+    if (axis === "x") {
+      indicator.style.left = boundary - 1 + "px";
+      indicator.style.top = rect.top + 4 + "px";
+      indicator.style.width = "2px";
+      indicator.style.height = Math.max(0, rect.height - 8) + "px";
+    } else {
+      indicator.style.left = rect.left + 4 + "px";
+      indicator.style.top = boundary - 1 + "px";
+      indicator.style.width = Math.max(0, rect.width - 8) + "px";
+      indicator.style.height = "2px";
+    }
+  }
+
+  function hideIndicator(gesture) {
+    if (gesture && gesture.indicator) gesture.indicator.dataset.visible = "0";
+  }
+
+  function updateDragTarget(gesture, x, y) {
+    const snapshot = gesture.snapshot;
+    if (!snapshot) return;
+    gesture.target = null;
+    hideIndicator(gesture);
+    markDropMore(gesture, false);
+
+    if (gesture.source === "menu" && snapshot.menuRect && pointIn(snapshot.menuRect, x, y)) {
+      const others = snapshot.menuItems.filter((item) => item.id !== gesture.id);
+      const hit = indexAt(others, x, y, "y", snapshot.menuItems);
+      gesture.target = { kind: "menu", index: hit.index, beforeId: others[hit.index] ? others[hit.index].id : null };
+      showIndicator(gesture, "y", hit.boundary, snapshot.menuRect);
+      return;
+    }
+
+    if (snapshot.moreRect && pointIn(snapshot.moreRect, x, y, 2)) {
+      gesture.target = { kind: "hide" };
+      markDropMore(gesture, true);
+      return;
+    }
+
+    if (!pointIn(snapshot.container, x, y, 10)) return;
+    const others = snapshot.items.filter((item) => item.id !== gesture.id);
+    const hit = indexAt(others, x, y, snapshot.axis, snapshot.items);
+    gesture.target = { kind: "place", index: hit.index, beforeId: others[hit.index] ? others[hit.index].id : null };
+    showIndicator(gesture, snapshot.axis, hit.boundary, snapshot.container);
+  }
+
+  function positionGhost(gesture) {
+    if (!gesture || !gesture.ghost) return;
+    gesture.ghost.style.left = gesture.x - gesture.offsetX + "px";
+    gesture.ghost.style.top = gesture.y - gesture.offsetY + "px";
+  }
+
+  function beginDrag(gesture) {
+    if (!gesture || state.gesture !== gesture || gesture.started) return;
+    if (!isDragEnabled(gesture.scope)) {
+      cancelGesture();
+      return;
+    }
+    // Commit any queued layout pass before measuring the frozen rects. Without
+    // this, a drag started in the same frame as a previous drop can snapshot
+    // the pre-order positions and make the ghost and indicator jump.
+    if (gesture.source === "row") pass(true);
+    let element = gesture.source === "row" ? findRowElement(gesture.scope, gesture.id) : gesture.element;
+    if (!element && gesture.source === "row") element = gesture.element;
+    const snapshot = buildSnapshot(gesture);
+    if (!snapshot || !snapshot.items.length || !element) {
+      cancelGesture();
+      return;
+    }
+    gesture.started = true;
+    gesture.snapshot = snapshot;
+    gesture.element = element;
+    const rect = element.getBoundingClientRect();
+    try {
+      if (gesture.pointerId !== undefined && element.setPointerCapture) {
+        element.setPointerCapture(gesture.pointerId);
+      }
+    } catch (error) {
+      /* pointer capture is an enhancement, not a requirement */
+    }
+    element.classList.add("dso-dragging");
+    gesture.ghost = createGhost(element, rect);
+    gesture.indicator = createIndicator();
     if (gesture.ghost) {
-      gesture.ghost.classList.remove("dso-ghost-armed");
-      // A drop on the "More" anchor keeps the ghost alive for the absorb flight.
-      if (!keepGhost && gesture.ghost.parentNode) gesture.ghost.remove();
+      gesture.offsetX = gesture.startX - rect.left;
+      gesture.offsetY = gesture.startY - rect.top;
+      gesture.x = gesture.startX;
+      gesture.y = gesture.startY;
+      positionGhost(gesture);
     }
-    if (gesture.indicator && gesture.indicator.parentNode) gesture.indicator.remove();
-    if (gesture.element) {
-      gesture.element.classList.remove("dso-dragging");
-      gesture.element.classList.remove("dso-pressing");
-    }
-    if (gesture.moreButton) gesture.moreButton.classList.remove("dso-drop-more");
+    document.body.classList.add("dso-dragging");
+    updateDragTarget(gesture, gesture.x, gesture.y);
+  }
+
+  function cancelGesture() {
+    endGesture(false);
+  }
+
+  function onWindowBlur() {
+    // A window can lose focus mid-drag (Alt+Tab, devtools, native menu); the
+    // pointerup then goes elsewhere and the indicator would stay on screen.
+    if (state.gesture) endGesture(false);
+  }
+
+  function endGesture(guard) {
+    const gesture = state.gesture;
+    if (!gesture) return;
+    if (gesture.timer) window.clearTimeout(gesture.timer);
+    state.gesture = null;
+    removeGhost(gesture);
     document.body.classList.remove("dso-dragging");
+    if (guard) state.guardUntil = Date.now() + CLICK_GUARD_MS;
     if (state.passDeferred) {
       state.passDeferred = false;
       schedulePass();
     }
   }
 
-  function onPointerDown(event) {
-    if (!alive() || state.gesture) return;
-    if (event.button !== 0 || event.isPrimary === false) return;
-    const target = event.target instanceof Element ? event.target : null;
-    if (!target) return;
-    if (target.closest("input, textarea, select, [contenteditable='true']")) return;
-
-    const navButton = target.closest("button[data-dso-key]");
-    const menuRow = target.closest("[data-dso-more-key]");
-    let source = null;
-    let element = null;
-    let key = null;
-    if (navButton && !navButton.hasAttribute("aria-haspopup")) {
-      source = "nav";
-      element = navButton;
-      key = navButton.dataset.dsoKey;
-    } else if (menuRow) {
-      source = "menu";
-      element = menuRow;
-      key = menuRow.getAttribute("data-dso-more-key");
-    }
-    if (!source || !element || !key) return;
-
-    const gesture = {
-      source,
-      key,
-      element,
-      startX: event.clientX,
-      startY: event.clientY,
-      lastX: event.clientX,
-      lastY: event.clientY,
-      phase: "pending",
-      timer: 0,
-      ghost: null,
-      indicator: null,
-      target: null,
-      moreButton: null,
-    };
-    gesture.timer = window.setTimeout(() => beginDrag(gesture), LONG_PRESS_MS);
-    // Early feedback: a slight "press" shrink tells the user to keep holding.
-    gesture.pressTimer = window.setTimeout(() => {
-      if (state.gesture === gesture && gesture.phase === "pending") {
-        element.classList.add("dso-pressing");
-      }
-    }, 140);
-    state.gesture = gesture;
-    // Deliberately NO pointer capture here: capturing on pointerdown retargets
-    // pointerup to this element, and the browser then dispatches `click` on the
-    // capturing element instead of the button inside — which broke plain taps
-    // ("cannot open a tucked-away entry"). Capture is taken only once the
-    // long-press actually turns into a drag.
-    gesture.pointerId = event.pointerId;
+  function shakeGhost(gesture) {
+    if (!gesture || !gesture.ghost) return;
+    gesture.ghost.classList.add("dso-drop-reject");
+    window.setTimeout(() => {
+      if (state.gesture === gesture) endGesture(true);
+    }, 180);
   }
 
-  function beginDrag(gesture) {
-    if (state.gesture !== gesture || gesture.phase !== "pending") return;
-    // React may replace the row between pointerdown and the long-press deadline;
-    // locate it again by stable key instead of giving up.
-    let element = gesture.element;
-    if (!element.isConnected) element = locateRowButton(gesture.key) || element;
-    gesture.element = element;
-    if (!element.isConnected) {
-      clearGesture();
-      return;
-    }
-    // Flush any pending layout before freezing rects: after a previous drop the
-    // rAF pass may not have run yet, and stale visuals would make the next drop
-    // land somewhere else than where the pointer is.
-    try {
-      pass(true);
-    } catch (error) {
-      /* a failed flush must not block the drag */
-    }
-    if (!element.isConnected) element = locateRowButton(gesture.key) || element;
-    gesture.element = element;
-    const rect = element.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) {
-      clearGesture();
-      return;
-    }
-
-    gesture.phase = "dragging";
-    gesture.grabX = gesture.lastX - rect.left;
-    gesture.grabY = gesture.lastY - rect.top;
-    gesture.snapshot = buildDragSnapshot(gesture);
-
-    const ghost = element.cloneNode(true);
-    ghost.removeAttribute("data-dso-key");
-    ghost.removeAttribute("data-dso-more-key");
-    ghost.removeAttribute("aria-current");
-    ghost.removeAttribute("style");
-    ghost.classList.remove("dso-dragging");
-    ghost.classList.remove("dso-pressing");
-    ghost.classList.add("dso-ghost");
-    ghost.style.width = `${rect.width}px`;
-    ghost.style.height = `${rect.height}px`;
-    document.body.appendChild(ghost);
-    gesture.ghost = ghost;
-
-    const indicator = document.createElement("div");
-    indicator.className = "dso-indicator";
-    document.body.appendChild(indicator);
-    gesture.indicator = indicator;
-
-    element.classList.add("dso-dragging");
-    element.classList.remove("dso-pressing");
-    document.body.classList.add("dso-dragging");
-    // Now that this is a real drag, capture the pointer so a fast flick cannot
-    // lose the gesture to the page underneath.
-    if (gesture.pointerId !== undefined) {
-      try {
-        element.setPointerCapture(gesture.pointerId);
-      } catch (error) {
-        /* capture is a nicety; document listeners carry the gesture anyway */
-      }
-    }
-    moveGhost(gesture);
-    updateTarget(gesture);
+  function pulseClass(element, className, duration) {
+    if (!element) return;
+    element.classList.remove(className);
+    // Force a style flush so a repeated pulse restarts instead of being ignored.
+    void element.offsetWidth;
+    element.classList.add(className);
+    window.setTimeout(() => element.classList.remove(className), duration);
   }
 
-  function locateRowButton(key) {
-    for (const button of document.querySelectorAll("button[data-dso-key]")) {
-      if (button.dataset.dsoKey === key) return button;
-    }
-    return null;
-  }
-
-  /**
-   * Freeze every rect the drag needs. The list does not move while a row is
-   * carried, so measuring once keeps the pointer loop free of layout reads;
-   * when the DOM does change underneath, `reanchorDrag` rebuilds the snapshot.
-   */
-  function buildDragSnapshot(gesture) {
-    const { nav, rows, moreButton } = visibleRows();
-    if (!nav) return null;
-    const others = [];
-    for (const row of rows) {
-      if (row.hidden || row.key === gesture.key) continue;
-      const rect = row.button.getBoundingClientRect();
-      if (rect.height === 0) continue;
-      others.push({ key: row.key, rect });
-    }
-    others.sort((a, b) => a.rect.top - b.rect.top);
-
-    // Dragging inside the "More" menu reorders the tucked-away entries.
-    let menu = null;
-    if (gesture.source === "menu") {
-      const items = [];
-      for (const node of document.querySelectorAll("[data-dso-more-key]")) {
-        const key = node.getAttribute("data-dso-more-key");
-        if (!key || key === gesture.key) continue;
-        const rect = node.getBoundingClientRect();
-        if (rect.height === 0) continue;
-        items.push({ key, rect });
-      }
-      items.sort((a, b) => a.rect.top - b.rect.top);
-      if (items.length > 0) {
-        const left = Math.min(...items.map((item) => item.rect.left));
-        const right = Math.max(...items.map((item) => item.rect.right));
-        const top = Math.min(...items.map((item) => item.rect.top));
-        const bottom = Math.max(...items.map((item) => item.rect.bottom));
-        menu = { items, rect: { left, right, top, bottom }, lastIndex: -1 };
-      }
-    }
-
-    return {
-      navRect: nav.getBoundingClientRect(),
-      moreRect: moreButton ? moreButton.getBoundingClientRect() : null,
-      moreButton,
-      others,
-      menu,
-      lastIndex: -1,
-    };
-  }
-
-  function reanchorDrag(gesture) {
-    if (state.gesture !== gesture || gesture.phase !== "dragging") return;
-    const snapshot = buildDragSnapshot(gesture);
-    if (snapshot) gesture.snapshot = snapshot;
-    const current = locateRowButton(gesture.key);
-    if (current && current !== gesture.element) {
-      if (gesture.element) {
-        gesture.element.classList.remove("dso-dragging");
-        gesture.element.classList.remove("dso-pressing");
-      }
-      gesture.element = current;
-      current.classList.add("dso-dragging");
-    }
-  }
-
-  function moveGhost(gesture) {
-    const ghost = gesture.ghost;
-    if (!ghost) return;
-    ghost.style.left = `${gesture.lastX - gesture.grabX}px`;
-    ghost.style.top = `${gesture.lastY - gesture.grabY}px`;
-  }
-
-  function insideRect(rect, x, y, padding) {
-    return (
-      x >= rect.left - padding &&
-      x <= rect.right + padding &&
-      y >= rect.top - padding &&
-      y <= rect.bottom + padding
-    );
-  }
-
-  function prefersReducedMotion() {
+  function reduceMotion() {
     try {
       return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     } catch (error) {
@@ -656,50 +886,30 @@ function createRuntime(ctx) {
     }
   }
 
-  /** Replay a one-shot CSS animation class, even if it is already on. */
-  function pulseClass(element, className, duration) {
-    if (!element) return;
-    element.classList.remove(className);
-    // force a style flush so a repeated pulse restarts instead of being ignored
-    void element.offsetWidth;
-    element.classList.add(className);
-    window.setTimeout(() => element.classList.remove(className), duration);
-  }
-
-  /** The carried row leans towards the anchor: dim and shrink the ghost. */
-  function setGhostArmed(gesture, armed) {
-    const ghost = gesture.ghost;
-    if (!ghost || !ghost.isConnected) return;
-    if (ghost.classList.contains("dso-ghost-armed") === armed) return;
-    ghost.classList.toggle("dso-ghost-armed", armed);
-  }
-
-  /**
-   * Fly the carried ghost into the "More" anchor, then tuck the row away.
-   * Only transform/opacity animate, and only one flight runs at a time; a drop
-   * that arrives mid-flight lands immediately so ghosts can never pile up.
-   */
-  function absorbIntoMore(gesture) {
-    const moreButton =
-      gesture.moreButton && gesture.moreButton.isConnected ? gesture.moreButton : null;
-    const ghost = gesture.ghost;
-    if (!ghost || !ghost.isConnected || !moreButton || prefersReducedMotion() || state.absorbing) {
-      if (moreButton) pulseClass(moreButton, "dso-drop-receive", 260);
-      if (ghost && ghost.parentNode) ghost.remove();
-      if (alive()) hideKey(gesture.key);
+  // 0.4.x absorb feel: a three-keyframe flight into the More anchor plus a
+  // one-shot receive pulse. The generalized CSS-transition version snapped the
+  // transform in one step and dropped the receive bounce, which read as ugly.
+  function absorbGhost(gesture, after) {
+    const found = gesture && gesture.snapshot && gesture.snapshot.found;
+    const more = found ? found.moreTarget || found.more : null;
+    const ghost = gesture && gesture.ghost;
+    if (!ghost || !ghost.isConnected || !more || reduceMotion()) {
+      if (more) pulseClass(more, "dso-drop-receive", 260);
+      endGesture(true);
+      if (after) after();
       return;
     }
-
     const ghostRect = ghost.getBoundingClientRect();
-    const moreRect = moreButton.getBoundingClientRect();
+    const moreRect = more.getBoundingClientRect();
     const dx = moreRect.left + moreRect.width / 2 - (ghostRect.left + ghostRect.width / 2);
     const dy = moreRect.top + moreRect.height / 2 - (ghostRect.top + ghostRect.height / 2);
-
+    const armed = ghost.classList.contains("dso-ghost-armed");
+    markDropMore(gesture, false);
     let animation = null;
     try {
       animation = ghost.animate(
         [
-          { transform: "translate(0px, 0px) scale(1)", opacity: 0.96, offset: 0 },
+          { transform: `translate(0px, 0px) scale(${armed ? 0.94 : 1})`, opacity: 0.96, offset: 0 },
           {
             transform: `translate(${dx * 0.55}px, ${dy * 0.55}px) scale(0.7)`,
             opacity: 0.9,
@@ -716,469 +926,341 @@ function createRuntime(ctx) {
     } catch (error) {
       animation = null;
     }
-
-    pulseClass(moreButton, "dso-drop-receive", 260);
-
+    pulseClass(more, "dso-drop-receive", 260);
     if (!animation) {
-      if (ghost.parentNode) ghost.remove();
-      if (alive()) hideKey(gesture.key);
+      endGesture(true);
+      if (after) after();
       return;
     }
-
-    state.absorbing = animation;
-    const finish = () => {
-      if (state.absorbing === animation) state.absorbing = null;
-      if (ghost.parentNode) ghost.remove();
-      if (alive()) hideKey(gesture.key);
-    };
-    if (animation.finished && typeof animation.finished.then === "function") {
-      animation.finished.then(finish, finish);
+    if (typeof animation.finished?.then === "function") {
+      animation.finished.then(
+        () => {
+          if (state.gesture === gesture) endGesture(true);
+          if (after) after();
+        },
+        () => {
+          if (state.gesture === gesture) endGesture(true);
+          if (after) after();
+        }
+      );
     } else {
-      window.setTimeout(finish, 200);
+      window.setTimeout(() => {
+        if (state.gesture === gesture) endGesture(true);
+        if (after) after();
+      }, 200);
     }
   }
 
-  function updateTarget(gesture) {
-    const indicator = gesture.indicator;
-    if (!indicator) return;
-    let snapshot = gesture.snapshot;
-    if (!snapshot) {
-      snapshot = buildDragSnapshot(gesture);
-      if (!snapshot) return;
-      gesture.snapshot = snapshot;
-    }
-    const x = gesture.lastX;
-    const y = gesture.lastY;
-    const others = snapshot.others;
-
-    // Dragging a tucked-away row: reorder inside the menu while the pointer
-    // stays over it; carry it onto the sidebar to reveal it there.
-    if (gesture.source === "menu" && snapshot.menu) {
-      const menu = snapshot.menu;
-      if (insideRect(menu.rect, x, y, 8)) {
-        let index = menu.items.length;
-        for (let i = 0; i < menu.items.length; i += 1) {
-          const rect = menu.items[i].rect;
-          if (y < rect.top + rect.height / 2) {
-            index = i;
-            break;
-          }
-        }
-        gesture.target = { kind: "place-menu", index };
-        if (index === menu.lastIndex && indicator.dataset.visible === "1") return;
-        menu.lastIndex = index;
-        let top;
-        if (index >= menu.items.length) {
-          const last = menu.items[menu.items.length - 1].rect;
-          top = last.top + last.height + 1;
-        } else {
-          top = menu.items[index].rect.top - 2;
-        }
-        indicator.style.left = `${menu.rect.left + 4}px`;
-        indicator.style.width = `${Math.max(0, menu.rect.right - menu.rect.left - 8)}px`;
-        indicator.style.top = `${top}px`;
-        indicator.dataset.visible = "1";
-        return;
-      }
-      if (indicator.dataset.visible !== "0") indicator.dataset.visible = "0";
-      gesture.target = null;
-    }
-
-    // Dropping a sidebar row on the "More" anchor tucks it away. The anchor is
-    // a small target: require the pointer to be inside its own rectangle
-    // (no padding) and strictly below the last row, otherwise a drop meant for
-    // "end of the strip" would quietly hide the row instead of reordering it.
-    if (gesture.source === "nav" && snapshot.moreRect) {
-      const lastBottom = others.length
-        ? others[others.length - 1].rect.top + others[others.length - 1].rect.height
-        : -Infinity;
-      const overMore = insideRect(snapshot.moreRect, x, y, 0) && y > lastBottom + 1;
-      if (overMore) {
-        if (gesture.moreButton !== snapshot.moreButton) {
-          if (gesture.moreButton) gesture.moreButton.classList.remove("dso-drop-more");
-          gesture.moreButton = snapshot.moreButton;
-          if (gesture.moreButton) gesture.moreButton.classList.add("dso-drop-more");
-        }
-        setGhostArmed(gesture, true);
-        if (indicator.dataset.visible !== "0") indicator.dataset.visible = "0";
-        gesture.target = { kind: "hide" };
-        return;
-      }
-    }
-    if (gesture.moreButton) {
-      gesture.moreButton.classList.remove("dso-drop-more");
-      gesture.moreButton = null;
-    }
-    setGhostArmed(gesture, false);
-
-    if (!insideRect(snapshot.navRect, x, y, 24) || others.length === 0) {
-      if (indicator.dataset.visible !== "0") indicator.dataset.visible = "0";
-      gesture.target = null;
+  function commitDrag() {
+    const gesture = state.gesture;
+    if (!gesture) return;
+    if (!gesture.started || !gesture.target) {
+      endGesture(true);
       return;
     }
-
-    let index = others.length;
-    for (let i = 0; i < others.length; i += 1) {
-      const rect = others[i].rect;
-      if (y < rect.top + rect.height / 2) {
-        index = i;
-        break;
-      }
-    }
-    // Remember which row the drop line sits in front of. Indices are computed
-    // from frozen rects (the visual order at drag start) while commits apply to
-    // the persisted order, so carrying the neighbour key keeps the two aligned
-    // even when another drop has just rewritten the layout.
-    gesture.target = {
-      kind: "place",
-      index,
-      beforeKey: index < others.length ? others[index].key : null,
-    };
-
-    if (index === snapshot.lastIndex) {
-      if (indicator.dataset.visible !== "1") indicator.dataset.visible = "1";
-      return;
-    }
-    snapshot.lastIndex = index;
-
-    let top;
-    if (index >= others.length) {
-      const last = others[others.length - 1].rect;
-      top = last.top + last.height + 1;
-    } else {
-      top = others[index].rect.top - 2;
-    }
-    indicator.style.left = `${snapshot.navRect.left + 4}px`;
-    indicator.style.width = `${Math.max(0, snapshot.navRect.width - 8)}px`;
-    indicator.style.top = `${top}px`;
-    indicator.dataset.visible = "1";
-  }
-
-  function commitDrag(gesture) {
-    const { key, target, source } = gesture;
-    if (!target) return;
+    const target = gesture.target;
     if (target.kind === "hide") {
-      // Last-visible-row protection lives in hideKey; bounce the anchor instead
-      // of starting an absorb flight that would end in nothing.
-      const { rows } = visibleRows();
-      const visible = visibleKeys(rows);
-      if (!visible.includes(key) || visible.length <= 1) {
-        pulseClass(gesture.moreButton, "dso-drop-reject", 240);
+      if (!canHide(gesture.scope, gesture.id)) {
+        shakeGhost(gesture);
         return;
       }
-      absorbIntoMore(gesture);
+      // 0.4.x hid the row only after the flight ended. Hiding first makes the
+      // list jump under the ghost while it is still animating.
+      absorbGhost(gesture, () => hide(gesture.scope, gesture.id));
       return;
     }
-    if (target.kind === "place-menu") {
-      reorderHidden(key, target.index);
+    if (target.kind === "menu") {
+      reorderHidden(gesture.scope, gesture.id, target.index);
+      endGesture(true);
       return;
     }
     if (target.kind === "place") {
-      // Map the drop position onto the persisted order (see visibleKeys): the
-      // anchor row is the key we resolved from the frozen rects.
-      const { rows } = visibleRows();
-      const others = visibleKeys(rows).filter((item) => item !== key);
-      let index = Math.max(0, Math.min(target.index, others.length));
-      if (target.beforeKey && others.includes(target.beforeKey)) {
-        index = others.indexOf(target.beforeKey);
-      }
-      if (source === "menu") {
-        revealKey(key, index);
-        if (state.dismissMenu) {
-          try {
-            state.dismissMenu();
-          } catch (error) {
-            /* ignore */
-          }
-        }
-      } else {
-        reorderKey(key, index);
-      }
+      if (gesture.source === "menu") reveal(gesture.scope, gesture.id, target.index);
+      else reorder(gesture.scope, gesture.id, target.index);
+      endGesture(true);
     }
+  }
+
+  function onPointerDown(event) {
+    if (state.stopped || state.gesture) return;
+    if (typeof event.button === "number" && event.button !== 0) return;
+    const target = event.target;
+    if (!target || target.nodeType !== 1) return;
+    if (target.closest(".dso-config")) return;
+
+    const menuRow = target.closest("[data-dso-more-key]");
+    if (menuRow) {
+      const parsed = parseMenuRow(menuRow);
+      if (!parsed) return;
+      if (!isDragEnabled(parsed.scope)) return;
+      startGesture(menuRow, parsed.scope, parsed.id, "menu", event);
+      return;
+    }
+
+    const row = target.closest("[data-dso-key]");
+    if (!row) return;
+    const scope = row.dataset.dsoScope;
+    const id = row.dataset.dsoKey;
+    if (!scope || !id) return;
+    if (!isDragEnabled(scope)) return;
+    const found = state.found[scope];
+    const info = rowFor(found, id);
+    if (info && info.pinned) return;
+    startGesture(row, scope, id, "row", event);
+  }
+
+  function startGesture(element, scope, id, source, event) {
+    const gesture = {
+      element,
+      scope,
+      id,
+      source,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      started: false,
+      target: null,
+      snapshot: null,
+      ghost: null,
+      indicator: null,
+      offsetX: 0,
+      offsetY: 0,
+      timer: 0,
+      moreElement: null,
+    };
+    if (source === "row") {
+      gesture.element = element;
+    }
+    state.gesture = gesture;
+    gesture.timer = window.setTimeout(() => {
+      if (source === "row") element.classList.remove("dso-pressing");
+      beginDrag(gesture);
+    }, LONG_PRESS_MS);
   }
 
   function onPointerMove(event) {
     const gesture = state.gesture;
     if (!gesture) return;
-    gesture.lastX = event.clientX;
-    gesture.lastY = event.clientY;
-    if (gesture.phase === "pending") {
-      const dx = event.clientX - gesture.startX;
-      const dy = event.clientY - gesture.startY;
-      if (Math.hypot(dx, dy) > MOVE_TOLERANCE) clearGesture();
+    gesture.x = event.clientX;
+    gesture.y = event.clientY;
+    if (!gesture.started) {
+      if (Math.abs(event.clientX - gesture.startX) > MOVE_TOLERANCE || Math.abs(event.clientY - gesture.startY) > MOVE_TOLERANCE) {
+        if (gesture.element) gesture.element.classList.remove("dso-pressing");
+        if (gesture.timer) window.clearTimeout(gesture.timer);
+        cancelGesture();
+      }
       return;
     }
-    if (gesture.phase !== "dragging") return;
     event.preventDefault();
-    // Coalesce into one paint per frame: pointermove can fire twice per frame on
-    // high-polling mice, and each pass writes ghost + indicator styles.
-    if (gesture.frame) return;
-    gesture.frame = window.requestAnimationFrame(() => {
-      gesture.frame = 0;
-      if (state.gesture !== gesture || gesture.phase !== "dragging") return;
-      moveGhost(gesture);
-      updateTarget(gesture);
-    });
+    positionGhost(gesture);
+    updateDragTarget(gesture, event.clientX, event.clientY);
   }
 
   function onPointerUp() {
     const gesture = state.gesture;
     if (!gesture) return;
-    if (gesture.phase === "dragging") {
-      const pending = gesture;
-      // A drop on the anchor keeps the ghost for the absorb flight; every other
-      // drop tears the drag down first so commits never see stale classes.
-      const absorbing = Boolean(pending.target && pending.target.kind === "hide");
-      clearGesture({ keepGhost: absorbing });
-      commitDrag(pending);
-      state.guardUntil = Date.now() + CLICK_GUARD_MS;
-      return;
-    }
-    clearGesture();
+    if (gesture.started) commitDrag();
+    else cancelGesture();
   }
 
   function onClickCapture(event) {
-    if (Date.now() >= state.guardUntil) return;
-    const target = event.target instanceof Element ? event.target : null;
-    if (!target) return;
-    if (!target.closest("button[data-dso-key]") && !target.closest("[data-dso-more-key]")) {
-      return;
+    if (Date.now() < state.guardUntil) {
+      event.preventDefault();
+      event.stopPropagation();
     }
-    event.preventDefault();
-    event.stopPropagation();
   }
 
   function onKeyDown(event) {
     if (event.key === "Escape" && state.gesture) {
-      clearGesture();
+      event.preventDefault();
+      cancelGesture();
       return;
     }
-    if (!event.altKey) return;
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    const target = event.target instanceof Element ? event.target : null;
-    if (!target) return;
-    const button = target.closest("button[data-dso-key]");
-    if (!button) return;
-    const key = button.dataset.dsoKey;
-    if (!key) return;
-    const { rows } = visibleRows();
-    const visible = visibleKeys(rows);
-    const index = visible.indexOf(key);
-    if (index < 0) return;
-    const delta = event.key === "ArrowUp" ? -1 : 1;
-    const next = Math.max(0, Math.min(visible.length - 1, index + delta));
-    if (next === index) return;
+    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown" && event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
+      return;
+    }
+    const target = event.target;
+    if (!target || target.nodeType !== 1) return;
+    const element = target.closest("[data-dso-key]");
+    if (!element) return;
+    const scope = element.dataset.dsoScope;
+    const id = element.dataset.dsoKey;
+    if (!scope || !id) return;
+    const def = scopeDef(scope);
+    const delta = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1;
+    if (def && def.axis === "x" && (event.key === "ArrowUp" || event.key === "ArrowDown")) return;
+    if (def && def.axis === "y" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) return;
     event.preventDefault();
-    event.stopPropagation();
-    reorderKey(key, next);
+    const visible = visibleIds(scope);
+    const index = visible.indexOf(id);
+    if (index === -1) return;
+    reorder(scope, id, index + delta);
+    const next = findRowElement(scope, id);
+    if (next && next.focus) next.focus();
   }
 
   function onScroll() {
     const gesture = state.gesture;
-    if (!gesture || gesture.phase !== "dragging") return;
-    // Extra DOM churn (chat streaming) can also scroll things around us. Scrolling
-    // is not a reason to abort a drag the user is still holding: re-measure and
-    // keep the gesture alive.
-    if (gesture.anchorFrame) return;
-    gesture.anchorFrame = window.requestAnimationFrame(() => {
-      gesture.anchorFrame = 0;
-      if (state.gesture === gesture) reanchorDrag(gesture);
-    });
+    if (!gesture || !gesture.started) return;
+    const snapshot = buildSnapshot(gesture);
+    if (snapshot) gesture.snapshot = snapshot;
+    positionGhost(gesture);
+    updateDragTarget(gesture, gesture.x, gesture.y);
   }
 
-  /* --- lifecycle ---------------------------------------------------- */
-
-  function installObservers() {
-    const target = document.body || document.documentElement;
-    const observer = new MutationObserver((mutations) => {
-      // Cheap relevance filter: ignore the app's own DOM churn (chat streaming,
-      // etc.) unless it touches the panel list. If our cached nav is gone we
-      // cannot tell, so let the pass re-locate it.
-      const nav = state.nav;
-      const relevant =
-        !nav ||
-        !nav.isConnected ||
-        mutations.some((mutation) => {
-          const node = mutation.target;
-          return node === nav || nav.contains(node);
-        });
-      if (!relevant) return;
-      if (state.gesture && state.gesture.phase === "dragging") {
-        // Re-anchor instead of cancelling: React re-renders must not abort a drag.
-        state.gesture.anchorFrame = state.gesture.anchorFrame || 0;
-        if (!state.gesture.anchorFrame) {
-          const gesture = state.gesture;
-          gesture.anchorFrame = window.requestAnimationFrame(() => {
-            gesture.anchorFrame = 0;
-            if (state.gesture === gesture) reanchorDrag(gesture);
-          });
-        }
-        return;
+  function relevantMutation(mutation) {
+    if (mutation.type !== "childList") return false;
+    const target = mutation.target;
+    if (target && target.nodeType === 1) {
+      for (const def of SCOPE_DEFS) {
+        const found = state.found[def.key];
+        if (found && found.container && found.container.contains(target)) return true;
       }
-      schedulePass();
-    });
-    observer.observe(target, { childList: true, subtree: true });
+      if (target.closest && target.closest('[data-slot], [data-shortcut-modal], [data-conversation-tabs], [data-sidebar-right-guide]')) return true;
+    }
+    for (const def of SCOPE_DEFS) {
+      const found = state.found[def.key];
+      if (found && found.container && !found.container.isConnected) return true;
+    }
+    const nodes = Array.from(mutation.addedNodes).concat(Array.from(mutation.removedNodes));
+    for (const node of nodes) {
+      if (!node || node.nodeType !== 1) continue;
+      if (node.matches && node.matches('[data-slot], [data-shortcut-modal], [data-conversation-tabs], [data-sidebar-right-guide], [data-dso-key]')) return true;
+      if (node.querySelector && node.querySelector('[data-slot], [data-shortcut-modal], [data-conversation-tabs], [data-sidebar-right-guide], [data-dso-key]')) return true;
+    }
+    return false;
+  }
 
-    const bind = (node, type, handler, options) => {
-      node.addEventListener(type, handler, options);
-      state.listenerCleanup.push(() => node.removeEventListener(type, handler, options));
-    };
-    bind(document, "pointerdown", onPointerDown, true);
-    bind(document, "click", onClickCapture, true);
-    bind(document, "keydown", onKeyDown, true);
-    bind(document, "pointermove", onPointerMove, true);
-    bind(document, "pointerup", onPointerUp, true);
-    bind(document, "pointercancel", () => clearGesture(), true);
-    bind(document, "scroll", onScroll, true);
-    bind(window, "blur", () => clearGesture());
-
-    state.listenerCleanup.push(() => observer.disconnect());
+  function addListener(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    state.listenerCleanup.push(() => target.removeEventListener(type, handler, options));
   }
 
   function start() {
-    if (!state.stopped) return;
-    let disabled = false;
+    if (state.stopped) return;
     try {
-      disabled =
-        window.localStorage.getItem(DISABLED_KEY) === "1" ||
-        window.localStorage.getItem(LEGACY_DISABLED_KEY) === "1";
-    } catch (error) {
-      disabled = false;
+      if (window.localStorage.getItem(DISABLED_KEY) === "1" || window.localStorage.getItem(LEGACY_DISABLED_KEY) === "1") {
+        ctx.logger?.debug?.("[dsh-sidebar-organizer] disabled by " + DISABLED_KEY);
+        return;
+      }
+    } catch (err) {
+      /* ignore */
     }
-    if (disabled) {
-      log("disabled by localStorage switch");
-      return;
-    }
-    state.stopped = false;
-    installObservers();
-    schedulePass();
 
-    let attempts = 0;
+    addListener(document, "pointerdown", onPointerDown, true);
+    addListener(document, "pointermove", onPointerMove, { capture: true, passive: false });
+    addListener(document, "pointerup", onPointerUp, true);
+    addListener(document, "pointercancel", onPointerUp, true);
+    addListener(document, "click", onClickCapture, true);
+    addListener(document, "keydown", onKeyDown, true);
+    addListener(window, "scroll", onScroll, true);
+    addListener(window, "blur", onWindowBlur);
+
+    if (typeof MutationObserver !== "undefined") {
+      observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (relevantMutation(mutation)) {
+            schedulePass();
+            return;
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    let ticks = 0;
     state.pollTimer = window.setInterval(() => {
-      attempts += 1;
-      if (attempts > 20 || !alive()) {
+      ticks += 1;
+      if (state.stopped || ticks > 20) {
         window.clearInterval(state.pollTimer);
         state.pollTimer = 0;
         return;
       }
-      if (!state.nav || !state.nav.isConnected) schedulePass();
+      for (const def of SCOPE_DEFS) {
+        if (!state.found[def.key]) {
+          schedulePass();
+          return;
+        }
+      }
     }, 500);
+
+    pass(true);
   }
 
   function stop() {
+    if (state.stopped) return;
     state.stopped = true;
-    clearGesture();
-    if (state.absorbing) {
-      try {
-        state.absorbing.cancel();
-      } catch (error) {
-        /* ignore */
-      }
-      state.absorbing = null;
-    }
-    // the absorb flight may have left a ghost or a one-shot class behind
-    for (const ghost of document.querySelectorAll(".dso-ghost")) ghost.remove();
-    for (const node of document.querySelectorAll(
-      ".dso-drop-more, .dso-drop-receive, .dso-drop-reject"
-    )) {
-      node.classList.remove("dso-drop-more", "dso-drop-receive", "dso-drop-reject");
-    }
-    if (state.pollTimer) {
-      window.clearInterval(state.pollTimer);
-      state.pollTimer = 0;
-    }
+    if (state.passFrame) window.cancelAnimationFrame(state.passFrame);
+    if (state.pollTimer) window.clearInterval(state.pollTimer);
+    if (observer) observer.disconnect();
+    observer = null;
+    cancelGesture();
     for (const cleanup of state.listenerCleanup.splice(0)) {
       try {
         cleanup();
-      } catch (error) {
+      } catch (err) {
         /* ignore */
       }
     }
-    // restore the rows we decorated
-    for (const element of state.decorated) {
-      if (!element || !element.isConnected) continue;
-      element.style.order = "";
-      if (element.style.display === "none") element.style.display = "";
+    for (const [element, original] of state.decorated) {
+      try {
+        element.style.order = original.order;
+        element.style.display = original.display;
+        delete element.dataset.dsoKey;
+        delete element.dataset.dsoScope;
+        delete element.dataset.dsoHidden;
+      } catch (err) {
+        /* element may already be gone */
+      }
     }
     state.decorated.clear();
-    for (const button of document.querySelectorAll("[data-dso-key]")) {
-      delete button.dataset.dsoKey;
-    }
-    for (const button of document.querySelectorAll("[data-dso-hidden]")) {
-      delete button.dataset.dsoHidden;
-    }
-    state.menuListeners.clear();
+    document.body.classList.remove("dso-dragging");
+    state.found = {};
+  }
+
+  function subscribe(listener) {
+    if (typeof listener !== "function") return () => {};
+    state.menuListeners.add(listener);
+    return () => state.menuListeners.delete(listener);
   }
 
   return {
     start,
     stop,
     pass: schedulePass,
+    refresh: pass,
     state,
-    subscribeMenu(listener) {
-      state.menuListeners.add(listener);
-      return () => state.menuListeners.delete(listener);
-    },
-    setDismiss(dismiss) {
-      state.dismissMenu = dismiss || null;
+    subscribe,
+    subscribeMenu: subscribe,
+    setDismiss(fn) {
+      state.dismissMenu = typeof fn === "function" ? fn : null;
     },
     dismiss() {
-      if (!state.dismissMenu) return;
       try {
-        state.dismissMenu();
-      } catch (error) {
+        state.dismissMenu?.();
+      } catch (err) {
         /* ignore */
       }
     },
-    hiddenKeys,
+    snapshot,
+    hide,
+    reveal,
+    reorder,
+    reorderHidden,
+    resetScope,
+    resetRegion,
+    reset,
+    canHide,
     isCustomized,
-    /** The row's own rendered label: already locale-resolved by the sidebar. */
-    labelFor(key) {
-      const button = locateRowButton(key);
-      if (button) {
-        const label = button.getAttribute("aria-label");
-        if (label) return label;
-      }
-      for (const entry of readPanelEntries(ctx)) {
-        const described = describeEntry(entry);
-        if (described.id === key && described.label) return described.label;
-      }
-      return key;
-    },
-    /** Serialise the panel's own glyph so it can travel through the React icon prop. */
-    iconFor(key) {
-      const button = locateRowButton(key);
-      if (!button) return null;
-      const glyph = button.querySelector('[aria-hidden="true"]');
-      if (!glyph) return null;
-      // The row wraps its glyph in a sizing span; the menu wants the bare icon.
-      const shape = glyph.querySelector("svg") || glyph.firstElementChild || glyph;
-      if (!shape || !shape.isConnected) return null;
-      let markup;
-      try {
-        markup = new XMLSerializer().serializeToString(shape);
-      } catch (error) {
-        return null;
-      }
-      if (!markup) return null;
-      iconSeq += 1;
-      return scopeMarkupIds(markup, `dso-icon-${iconSeq}`);
-    },
-    hide(key) {
-      hideKey(key);
-    },
-    reveal(key) {
-      revealKey(key, null);
-    },
-    reset() {
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } catch (error) {
-        /* ignore */
-      }
-      forgetLayout();
-      notifyMenu();
-      schedulePass();
-    },
+    isCustomizedRegion,
+    isDragEnabled,
+    setDragEnabled,
+    activate,
+    hiddenForRegion,
+    labelFor,
+    iconFor,
+    status,
   };
 }

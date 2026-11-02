@@ -1,366 +1,481 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <title>dsh-sidebar-organizer harness</title>
-    <style>
-      :root { color-scheme: dark; }
-      body { margin: 0; font-family: system-ui, sans-serif; background: #18181b; color: #e4e4e7; }
-      .shell { width: 260px; padding: 12px; }
-      .wtg9ga_panelList { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-      .wtg9ga_panelRow {
-        display: flex; align-items: center; gap: 8px; min-height: 36px;
-        margin: 0 2px; padding: 7px 8px; line-height: 22px; font: inherit;
-        color: #e4e4e7; background: 0 0; border: none; border-radius: 6px;
-        cursor: pointer; text-align: left;
-      }
-      .wtg9ga_panelRow:hover { background: #27272a; }
-      .wtg9ga_panelGlyph { display: inline-flex; width: 18px; justify-content: center; }
-      .wtg9ga_panelTitle { flex: 1; }
-      #log { position: fixed; right: 12px; top: 12px; width: 520px; font: 12px/1.5 monospace;
-             white-space: pre-wrap; background: #09090b; border: 1px solid #3f3f46;
-             border-radius: 8px; padding: 10px; max-height: 90vh; overflow: auto; }
-    </style>
-  </head>
-  <body>
-    <div class="shell">
-      <nav class="wtg9ga_panelList" aria-label="全局面板" id="nav"></nav>
+<head>
+<meta charset="utf-8" />
+<title>dsh-sidebar-organizer harness</title>
+<style>
+  html, body { margin: 0; background: #17171b; color: #ddd; font: 13px/1.5 system-ui, sans-serif; }
+  #stage { display: flex; flex-wrap: wrap; gap: 18px; padding: 18px; }
+  .fixture { border: 1px solid #333; border-radius: 8px; padding: 8px; }
+  .caption { color: #888; font-size: 11px; margin-bottom: 6px; }
+  nav.sidebar { display: flex; flex-direction: column; gap: 4px; width: 180px; }
+  nav.sidebar button, .footer button, .tabs button, .composer button,
+  .right button, .settings button { display: flex; align-items: center; gap: 6px; min-height: 30px; }
+  .footer, .tabs, .composer, .right, .settings-list { display: flex; gap: 6px; }
+  .right { flex-direction: column; width: 200px; }
+  .tabs { flex-direction: row; }
+  .composer { align-items: center; }
+  [data-slot="conversation.composer.dock"] { display: contents; }
+  [data-slot="sidebar.footer.action"] { display: flex; gap: 6px; }
+  .settings nav { display: block; }
+  .settings-list { flex-direction: column; width: 200px; }
+  .settings-list > div { display: block; }
+  #result { white-space: pre-wrap; padding: 12px 18px; font-family: ui-monospace, monospace; }
+  .ok { color: #6ee7a8; }
+  .bad { color: #ff7b72; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="fixture">
+    <div class="caption">sidebar.panellist</div>
+    <!-- Decoy: a session/workspace nav before the real panel list. The runtime
+         must not tag or reorder any of these rows. -->
+    <nav class="sidebar" id="decoy" style="display:none" aria-label="会话导航">
+      <button aria-label="会话A" data-testid="decoy-session-a"><span aria-hidden="true">A</span><span>会话A</span></button>
+      <button aria-label="会话B" data-testid="decoy-session-b"><span aria-hidden="true">B</span><span>会话B</span></button>
+      <button aria-label="会话C" data-testid="decoy-session-c"><span aria-hidden="true">C</span><span>会话C</span></button>
+      <button aria-haspopup="menu" aria-label="会话更多"><span aria-hidden="true">…</span><span>会话更多</span></button>
+    </nav>
+    <nav class="sidebar" id="sidebar">
+      <button aria-label="插件" data-testid="plugins"><span data-slot="sidebar.panellist" aria-hidden="true">P</span><span>插件</span></button>
+      <button aria-label="计划" data-testid="schedules"><span aria-hidden="true">S</span><span>计划</span></button>
+      <button aria-label="文件" data-testid="files"><span aria-hidden="true">F</span><span>文件</span></button>
+      <button aria-label="浏览器" data-testid="browser"><span aria-hidden="true">B</span><span>浏览器</span></button>
+      <button aria-label="终端" data-testid="terminal"><span aria-hidden="true">T</span><span>终端</span></button>
+      <button aria-label="任务" data-testid="tasks"><span aria-hidden="true">J</span><span>任务</span></button>
+      <button aria-haspopup="menu" aria-label="更多"><span aria-hidden="true">…</span><span>更多</span></button>
+    </nav>
+  </div>
+
+  <div class="fixture">
+    <div class="caption">sidebar.footer.action</div>
+    <div data-slot="sidebar.footer.action" class="footer" id="footer">
+      <button aria-haspopup="menu" aria-label="设置" data-testid="settings-entry"><span aria-hidden="true">G</span><span>设置</span></button>
+      <button aria-label="帮助" data-testid="help"><span aria-hidden="true">H</span><span>帮助</span></button>
+      <button aria-label="反馈" data-testid="feedback"><span aria-hidden="true">R</span><span>反馈</span></button>
+      <button aria-haspopup="menu" aria-label="更多"><span aria-hidden="true">…</span><span>更多</span></button>
     </div>
-    <pre id="log">booting</pre>
+  </div>
 
-    <script>
-      // --- fake module loader -------------------------------------------------
-      window.__loadedModules = {};
-      window.__ModuleLoader__ = {
-        load({ id, factory }) {
-          const plugin = factory((name) => {
-            throw new Error("harness does not provide module: " + name);
-          });
-          window.__loadedModules[id] = plugin;
-          window.__plugin = plugin;
-        },
-      };
-    </script>
-    <script src="../lib/client.js"></script>
-    <script>
-      const ENTRIES = [
-        ["plugins", "插件"],
-        ["dsh-market", "插件市场"],
-        ["skills-manager", "技能"],
-        ["schedules", "定时任务"],
-        ["dsh-context", "上下文"],
-        ["mcp-connector", "MCP 连接器"],
-      ];
+  <div class="fixture">
+    <div class="caption">conversation.view</div>
+    <div class="tabs-wrap" id="tabs-wrap">
+      <div data-conversation-tabs class="tabs" id="tabs">
+        <button role="tab" aria-label="对话" data-testid="chat"><span aria-hidden="true">C</span><span>对话</span></button>
+        <button role="tab" aria-label="轨迹" data-testid="trajectory"><span aria-hidden="true">T</span><span>轨迹</span></button>
+        <button role="tab" aria-label="变更" data-testid="diff"><span aria-hidden="true">D</span><span>变更</span></button>
+      </div>
+      <button aria-haspopup="menu" aria-label="更多标签"><span aria-hidden="true">…</span><span>更多</span></button>
+    </div>
+  </div>
 
-      const nav = document.getElementById("nav");
-      for (const [, label] of ENTRIES) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "wtg9ga_panelRow";
-        button.setAttribute("aria-label", label);
-        const glyph = document.createElement("span");
-        glyph.className = "wtg9ga_panelGlyph";
-        glyph.textContent = "\u25c9";
-        const title = document.createElement("span");
-        title.className = "wtg9ga_panelTitle";
-        title.textContent = label;
-        button.append(glyph, title);
-        button.addEventListener("click", () => log("click fired on " + label));
-        nav.appendChild(button);
+  <div class="fixture">
+    <div class="caption">conversation.composer.dock</div>
+    <div class="composer" id="composer">
+      <div data-slot="conversation.composer.dock">
+        <button aria-label="统计" data-testid="stats"><span aria-hidden="true">S</span><span>统计</span></button>
+        <button aria-label="上下文" data-testid="context"><span aria-hidden="true">C</span><span>上下文</span></button>
+        <button aria-label="活动" data-testid="activity"><span aria-hidden="true">A</span><span>活动</span></button>
+      </div>
+      <div class="composer-tail" data-testid="composer-tail"><span>上下文用量</span></div>
+      <button aria-haspopup="menu" aria-label="更多工具"><span aria-hidden="true">…</span><span>更多</span></button>
+    </div>
+  </div>
+
+  <div class="fixture">
+    <div class="caption">right sidebar guide</div>
+    <div data-sidebar-right-guide class="right" id="right">
+      <div data-sidebar-right-guide-entry="files"><button><span class="entryTitle">文件</span><span aria-hidden="true">F</span></button></div>
+      <div data-sidebar-right-guide-entry="browser"><button><span class="entryTitle">浏览器</span><span aria-hidden="true">B</span></button></div>
+      <div data-sidebar-right-guide-entry="new-terminal"><button><span class="entryTitle">New terminal</span><span aria-hidden="true">N</span></button></div>
+      <div data-sidebar-right-guide-entry="terminal"><button><span class="entryTitle">终端</span><span aria-hidden="true">T</span></button></div>
+      <div class="right-chrome" data-testid="right-chrome"><button aria-label="联动">联动</button></div>
+      <button aria-haspopup="menu" aria-label="更多工具"><span class="entryTitle">更多工具</span><span aria-hidden="true">…</span></button>
+    </div>
+  </div>
+
+  <div class="fixture settings" id="settings">
+    <div class="caption">settings.section</div>
+    <div data-shortcut-modal="settings">
+      <nav>
+        <div class="settings-list" id="settings-list">
+          <div><button aria-label="账户"><span aria-hidden="true">A</span><span>账户</span></button></div>
+          <div><button aria-label="通用"><span aria-hidden="true">G</span><span>通用</span></button></div>
+          <div><button aria-label="模型"><span aria-hidden="true">M</span><span>模型</span></button></div>
+          <div><button aria-label="插件"><span aria-hidden="true">P</span><span>插件</span></button></div>
+          <div><button aria-label="布局整理" data-testid="layout-organizer"><span aria-hidden="true">L</span><span>布局整理</span></button></div>
+          <div><button aria-label="Better Sidebar" data-testid="better-settings" data-dsh-better-sidebar-settings-nav><span aria-hidden="true">B</span><span>Better Sidebar</span></button></div>
+          <div><button aria-label="关于"><span aria-hidden="true">I</span><span>关于</span></button></div>
+        </div>
+      </nav>
+    </div>
+  </div>
+</div>
+<div id="result">running…</div>
+
+<script>
+  const log = [];
+  const failures = [];
+  function note(text, ok) {
+    log.push((ok ? "PASS " : "FAIL ") + text);
+    if (!ok) failures.push(text);
+  }
+  function assert(name, condition, extra) {
+    note(name + (condition ? "" : " — " + (extra === undefined ? "" : String(extra))), !!condition);
+  }
+  function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+  function orderOf(scope) {
+    return Array.from(document.querySelectorAll('[data-dso-scope="' + scope + '"]'))
+      .filter((node) => !node.dataset.dsoHidden)
+      .sort((a, b) => Number(a.style.order) - Number(b.style.order))
+      .map((node) => node.dataset.dsoKey);
+  }
+
+  // Minimal React surface: enough for createMenuEntry/createSettingsPage to
+  // register real components; the runtime tests below never render them.
+  const ReactStub = {
+    createElement() { return {}; },
+    useState() { return [0, function () {}]; },
+    useEffect() {},
+    useRef() { return { current: null }; },
+    Fragment: "fragment",
+    Component: class { constructor(props) { this.props = props; this.state = {}; } },
+  };
+  const slots = new Map();
+  function addEntry(slot, options) {
+    if (!slots.has(slot)) slots.set(slot, []);
+    slots.get(slot).push({ options });
+  }
+  addEntry("sidebar.panellist", { id: "plugins", label: "插件" });
+  addEntry("sidebar.panellist", { id: "schedules", label: "计划" });
+  addEntry("sidebar.panellist", { id: "files", label: "文件" });
+  addEntry("sidebar.panellist", { id: "browser", label: "浏览器" });
+  addEntry("sidebar.panellist", { id: "terminal", label: "终端" });
+  addEntry("sidebar.panellist", { id: "tasks", label: "任务" });
+  addEntry("sidebar.footer.action", { id: "footer-settings", label: "设置" });
+  addEntry("sidebar.footer.action", { id: "footer-help", label: "帮助" });
+  addEntry("sidebar.footer.action", { id: "footer-feedback", label: "反馈" });
+  addEntry("conversation.view", { id: "chat", label: "对话" });
+  addEntry("conversation.view", { id: "trajectory", label: "轨迹" });
+  addEntry("conversation.view", { id: "diff", label: "变更" });
+  addEntry("conversation.composer.dock", { id: "stats", label: "统计" });
+  addEntry("conversation.composer.dock", { id: "context", label: "上下文" });
+  addEntry("conversation.composer.dock", { id: "activity", label: "活动" });
+  addEntry("settings.section", { id: "account", label: "账户" });
+  addEntry("settings.section", { id: "general", label: "通用" });
+  addEntry("settings.section", { id: "models", label: "模型" });
+  addEntry("settings.section", { id: "plugins", label: "插件" });
+  addEntry("settings.section", { id: "better", label: "Better Sidebar" });
+  addEntry("settings.section", { id: "about", label: "关于" });
+
+  const ctx = {
+    logger: { debug() {}, info() {}, warn() {} },
+    effect(fn) { this.__cleanup = fn(); return () => this.__cleanup && this.__cleanup(); },
+    slots: {
+      entriesOfSlot(slot) { return (slots.get(slot) || []).slice(); },
+      inject(slot, callback) { callback(); },
+      register() { throw new Error("register used outside inject"); },
+    },
+  };
+  // register needs the slot name; wrap it with the inject closure.
+  ctx.slots.inject = function (slot, callback) {
+    const previous = ctx.slots.register;
+    ctx.slots.register = function (options, component) {
+      addEntry(slot, options);
+      if (slot === "settings.section") {
+        // make the host render our settings row, like the real settings nav
+        const list = document.getElementById("settings-list");
+        if (list && !document.querySelector('[data-testid="layout-organizer"]')) {
+          const wrapper = document.createElement("div");
+          const button = document.createElement("button");
+          button.setAttribute("aria-label", "布局整理");
+          button.dataset.testid = "layout-organizer";
+          button.innerHTML = '<span aria-hidden="true">L</span><span>布局整理</span>';
+          wrapper.appendChild(button);
+          list.appendChild(wrapper);
+        }
       }
-      nav.appendChild(moreButton());
+      return { dispose() {} };
+    };
+    callback();
+    ctx.slots.register = previous;
+  };
 
-      function moreButton() {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "wtg9ga_panelRow";
-        button.setAttribute("aria-label", "更多");
-        button.setAttribute("aria-haspopup", "menu");
-        button.textContent = "\u22ef";
-        return button;
-      }
+  // v3 layout. The sidebar part is the shape a v2 flat layout migrates to;
+  // the right part deliberately reproduces the 0.5.4 bug where a newly
+  // discovered entry ("new-terminal") was persisted at the end instead of at
+  // its host position. The one-shot repair must move it back.
+  localStorage.clear();
+  localStorage.setItem("dsh.sidebar-organizer.layout.v1", JSON.stringify({
+    version: 3,
+    scopes: {
+      sidebar: {
+        order: ["terminal", "browser", "files", "plugins", "schedules", "tasks"],
+        hidden: ["tasks"],
+      },
+      right: {
+        order: ["files", "browser", "terminal", "new-terminal"],
+        hidden: [],
+      },
+    },
+  }));
 
-      const logEl = document.getElementById("log");
-      const lines = [];
-      function log(message) {
-        lines.push(message);
-        logEl.textContent = lines.join("\n");
-        console.log("[harness]", message);
-      }
-      window.__harnessLog = log;
-      function check(label, ok) {
-        log((ok ? "PASS " : "FAIL ") + label);
-        if (!ok) throw new Error("check failed: " + label);
-      }
+  window.__ModuleLoader__ = {
+    load({ factory }) {
+      window.__plugin = factory(function require(name) {
+        if (name === "react") return ReactStub;
+        if (name === "@deepseek-ai/dsh-client-ui-primitives") return {};
+        return null;
+      });
+    },
+  };
 
-      window.addEventListener("error", (event) => log("ERROR " + event.message));
-      window.addEventListener("unhandledrejection", (event) =>
-        log("REJECTION " + (event.reason && event.reason.message))
+  const result = document.getElementById("result");
+  function finish() {
+    const passed = failures.length === 0;
+    result.innerHTML = log.map((line) =>
+      '<div class="' + (line.startsWith("PASS") ? "ok" : "bad") + '">' + line + "</div>"
+    ).join("");
+    result.insertAdjacentHTML("afterbegin", '<div class="' + (passed ? "ok" : "bad") + '"><b>' + (passed ? "ALL PASS" : failures.length + " FAILURE(S)") + "</b></div>");
+    window.__harnessLog = log;
+    window.__harnessFailures = failures;
+    window.__harnessDone = true;
+  }
+
+  (async function run() {
+    try {
+      await new Promise((resolve) => {
+        const script = document.createElement("script");
+        script.src = "../lib/client.js";
+        script.onload = resolve;
+        script.onerror = () => { note("load lib/client.js", false); resolve(); };
+        document.head.appendChild(script);
+      });
+      if (!window.__plugin) throw new Error("bundle did not register a module");
+      window.__plugin.apply(ctx);
+      const api = window.__dshSidebarOrganizer;
+      assert("plugin handle exists", !!api);
+      await wait(250);
+
+      let status = api.status();
+      assert("sidebar scope found", status.scopes.sidebar.found, JSON.stringify(status.scopes.sidebar));
+      assert("footer scope found", status.scopes.footer.found);
+      assert("tabs scope found", status.scopes.tabs.found);
+      assert("composer scope found", status.scopes.composer.found);
+      assert("right scope found", status.scopes.right.found);
+      assert("settings scope found", status.scopes.settings.found);
+      assert("sidebar has 6 rows", status.scopes.sidebar.rows.length === 6, status.scopes.sidebar.rows.length);
+      const decoy = document.getElementById("decoy");
+      assert("sidebar ignores decoy nav rows", !!decoy && !decoy.querySelector("[data-dso-key]") && !decoy.querySelector('[style*="order"]'));
+      assert("sidebar marks only direct panel rows", document.querySelectorAll("#sidebar > [data-dso-key]").length === 6);
+      assert("footer has 3 rows", status.scopes.footer.rows.length === 3);
+      assert("footer keeps menu-trigger rows that are not More", status.scopes.footer.rows.some((row) => row.id === "footer-settings"), status.scopes.footer.rows.map((row) => row.id).join(","));
+      assert("right has 4 guide rows", status.scopes.right.rows.length === 4, status.scopes.right.rows.length);
+      assert("right ignores non-entry chrome", status.scopes.right.rows.every((row) => row.id !== "right-chrome"));
+      assert("composer ignores host chrome beside the outlet", status.scopes.composer.rows.length === 3, status.scopes.composer.rows.length);
+      const composerTail = document.querySelector('[data-testid="composer-tail"]');
+      assert("composer tail is not a row", !composerTail.hasAttribute("data-dso-key"));
+      assert("composer tail is pinned after rows", Number(composerTail.style.order) > 1000, composerTail.style.order);
+      assert("settings has 7 rows", status.scopes.settings.rows.length === 7, status.scopes.settings.rows.length);
+
+      const stored = JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1"));
+      assert("storage upgraded to v3", stored && stored.version === 3, JSON.stringify(stored));
+      assert("sidebar preset order preserved", stored.scopes.sidebar.order[0] === "terminal", JSON.stringify(stored.scopes.sidebar));
+      assert("sidebar preset hidden preserved", stored.scopes.sidebar.hidden.indexOf("tasks") !== -1);
+      assert("first visible row is terminal", orderOf("sidebar")[0] === "terminal", orderOf("sidebar").join(","));
+      assert(
+        "right repairs persisted trailing new entry",
+        orderOf("right").join(",") === "files,browser,new-terminal,terminal",
+        orderOf("right").join(",")
       );
 
-      const ctx = {
-        slots: {
-          entriesOfSlot() {
-            return ENTRIES.map(([id, label]) => ({ options: { id, label } }));
-          },
-        },
-        effect(fn) {
-          const dispose = fn();
-          return () => typeof dispose === "function" && dispose();
-        },
-      };
+      api.reorder("footer", "footer-feedback", 0);
+      assert("footer reorder writes state", orderOf("footer")[0] === "footer-feedback", orderOf("footer").join(","));
 
-      function panelButtons() {
-        return Array.from(nav.querySelectorAll("button[aria-label]")).filter(
-          (button) => !button.hasAttribute("aria-haspopup")
-        );
-      }
+      assert("hide composer stats", api.hide("composer", "stats") === true);
+      assert("composer stats hidden in DOM", document.querySelector('[data-testid="stats"]').dataset.dsoHidden === "1");
+      const conversationHidden = api.hiddenForRegion("conversation");
+      assert("conversation region lists hidden row", conversationHidden.some((row) => row.scope === "composer" && row.id === "stats"), JSON.stringify(conversationHidden));
 
-      function currentOrder() {
-        return panelButtons().map(
-          (button) => button.dataset.dsoKey || button.getAttribute("aria-label")
-        );
-      }
+      let clicks = 0;
+      document.querySelector('[data-testid="stats"]').addEventListener("click", () => { clicks += 1; });
+      assert("activate hidden row", api.activate("composer", "stats") === true);
+      assert("activate clicks the row", clicks === 1);
 
-      function visualOrder() {
-        return panelButtons()
-          .filter((button) => button.style.display !== "none")
-          .map((button) => ({ key: button.dataset.dsoKey, top: button.getBoundingClientRect().top }))
-          .sort((a, b) => a.top - b.top)
-          .map((item) => item.key);
-      }
+      api.resetRegion("conversation");
+      assert("resetRegion unhides the composer row", !document.querySelector('[data-testid="stats"]').dataset.dsoHidden);
+      assert("resetRegion clears conversation customization", api.isCustomizedRegion("conversation") === false);
+      assert("resetRegion leaves other regions alone", orderOf("footer")[0] === "footer-feedback", orderOf("footer").join(","));
 
-      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      assert("settings own row is pinned", api.hide("settings", "layout-organizer") === false);
+      assert("pinned row cannot be reordered", api.reorder("settings", "layout-organizer", 0) === false);
+      assert("better-sidebar settings row is pinned", api.hide("settings", "better") === false);
+      assert("can hide another settings row", api.hide("settings", "account") === true);
+      const snap = api.snapshot().find((scope) => scope.scope === "settings");
+      assert("snapshot marks hidden settings row", snap.rows.find((row) => row.id === "account").hidden === true);
 
-      function pointer(type, element, x, y, extra) {
-        const target = element || document;
-        const event = new PointerEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          composed: true,
-          clientX: x,
-          clientY: y,
-          button: 0,
-          buttons: type === "pointerup" ? 0 : 1,
-          isPrimary: true,
-          pointerId: 1,
-          pointerType: "mouse",
-          ...extra,
-        });
-        target.dispatchEvent(event);
-      }
+      api.resetScope("footer");
+      assert("resetScope restores DOM order", orderOf("footer").join(",") === "footer-settings,footer-help,footer-feedback", orderOf("footer").join(","));
 
-      async function run() {
-        localStorage.removeItem("dsh.sidebar-organizer.layout.v1");
-        localStorage.removeItem("dsh.modmenu.layout.v1");
-        log("module loaded: " + Object.keys(window.__loadedModules).join(","));
-        try {
-          window.__plugin.apply(ctx);
-        } catch (error) {
-          log("APPLY THREW: " + error.stack);
-          return;
-        }
-        await wait(300);
-        log("applied; rows=" + currentOrder().length);
-        log("order0=" + JSON.stringify(currentOrder()));
-        log("visual0=" + JSON.stringify(visualOrder()));
-        log("api=" + JSON.stringify(window.__dshSidebarOrganizer.status()));
+      api.setDragEnabled("footer", false);
+      assert("drag toggle is stored", api.isDragEnabled("footer") === false);
+      const disabledRow = document.querySelector('[data-testid="feedback"]');
+      const disabledRect = disabledRow.getBoundingClientRect();
+      disabledRow.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 9,
+        clientX: disabledRect.left + disabledRect.width / 2,
+        clientY: disabledRect.top + disabledRect.height / 2,
+      }));
+      await wait(330);
+      assert("disabled scope does not start a drag", !document.querySelector(".dso-ghost"));
+      assert("disabled scope leaves the row unpressed", !disabledRow.classList.contains("dso-pressing"));
+      api.setDragEnabled("footer", true);
+      assert("drag toggle can be re-enabled", api.isDragEnabled("footer") === true);
 
-        const buttons = panelButtons();
-        const last = buttons[buttons.length - 1];
-        const first = buttons[0];
-        const lastRect = last.getBoundingClientRect();
-        const firstRect = first.getBoundingClientRect();
-        const startX = lastRect.left + 40;
-        const startY = lastRect.top + lastRect.height / 2;
+      // A plain click must not look like a long-press: the old code added the
+      // press-scale class immediately on pointerdown, so every normal click
+      // briefly shrank the row.
+      const shortPressRow = document.querySelector('[data-testid="help"]');
+      const shortRect = shortPressRow.getBoundingClientRect();
+      shortPressRow.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 11,
+        clientX: shortRect.left + shortRect.width / 2,
+        clientY: shortRect.top + shortRect.height / 2,
+      }));
+      await wait(60);
+      assert("short press does not shrink the row", !shortPressRow.classList.contains("dso-pressing"));
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 11,
+        clientX: shortRect.left + shortRect.width / 2,
+        clientY: shortRect.top + shortRect.height / 2,
+      }));
+      await wait(20);
 
-        pointer("pointerdown", last, startX, startY);
-        await wait(420);
-        log("gesture after hold: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
-        pointer("pointermove", document, startX, firstRect.top + 2);
-        await wait(60);
-        pointer("pointerup", document, startX, firstRect.top + 2);
-        await wait(200);
+      // The drop line must sit in the middle of the visual gap. When the
+      // source is excluded, its old slot still provides the right-hand edge;
+      // anchoring to the last remaining row's edge puts the line inside the
+      // tab text (the "轨迹" offset reported in the real app).
+      api.resetScope("tabs");
+      const tabTrajectory = document.querySelector('[data-testid="trajectory"]');
+      const tabDiff = document.querySelector('[data-testid="diff"]');
+      const trajRect = tabTrajectory.getBoundingClientRect();
+      const diffRect = tabDiff.getBoundingClientRect();
+      const tabFromY = diffRect.top + diffRect.height / 2;
+      tabDiff.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 12,
+        clientX: diffRect.left + diffRect.width / 2, clientY: tabFromY,
+      }));
+      await wait(330);
+      const tabDropX = (trajRect.right + diffRect.left) / 2;
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 12,
+        clientX: tabDropX, clientY: tabFromY,
+      }));
+      const tabIndicator = document.querySelector(".dso-indicator");
+      const tabIndicatorX = tabIndicator ? parseFloat(tabIndicator.style.left) + 1 : NaN;
+      assert("tabs indicator sits in the host gap", Math.abs(tabIndicatorX - tabDropX) <= 1.5, `${tabIndicatorX} vs ${tabDropX}`);
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 12,
+        clientX: tabDropX, clientY: tabFromY,
+      }));
+      await wait(20);
 
-        log("order1=" + JSON.stringify(currentOrder()));
-        log("visual1=" + JSON.stringify(visualOrder()));
-        log("stored=" + localStorage.getItem("dsh.sidebar-organizer.layout.v1"));
+      // Make visual order (feedback, settings, help) differ from DOM order
+      // (settings, help, feedback). The next drop must use the visual order;
+      // using DOM order lands help before feedback instead of between them.
+      api.reorder("footer", "footer-feedback", 0);
+      assert("footer visual order diverges from DOM", orderOf("footer").join(",") === "footer-feedback,footer-settings,footer-help", orderOf("footer").join(","));
 
-        window.__dshSidebarOrganizer.reset();
-        await wait(200);
-        log("order2(after reset)=" + JSON.stringify(visualOrder()));
+      const help = document.querySelector('[data-testid="help"]');
+      const settingsRow = document.querySelector('[data-testid="settings-entry"]');
+      // Mimic a host row that ships inline positioning/state styles. The ghost
+      // must be sanitized, otherwise the clone is pinned to the host layout.
+      help.style.position = "relative";
+      help.style.transform = "translateY(3px)";
+      help.setAttribute("aria-current", "page");
+      const from = help.getBoundingClientRect();
+      const to = settingsRow.getBoundingClientRect();
+      const dropX = to.left + to.width * 0.2;
+      const dropY = to.top + to.height / 2;
+      help.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 1,
+        clientX: from.left + from.width / 2, clientY: from.top + from.height / 2,
+      }));
+      await wait(330);
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 1,
+        clientX: dropX, clientY: dropY,
+      }));
+      const ghost = document.querySelector(".dso-ghost");
+      assert("drag creates a fixed ghost", !!ghost && getComputedStyle(ghost).position === "fixed");
+      assert("ghost drops host inline style", !!ghost && ghost.style.position === "" && ghost.style.transform === "" && ghost.style.order === "", ghost && ghost.style.cssText);
+      assert("ghost drops host state marks", !!ghost && !ghost.hasAttribute("aria-current") && !ghost.hasAttribute("data-dso-key"));
+      assert("drag dims the source row", help.classList.contains("dso-dragging"));
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 1,
+        clientX: dropX, clientY: dropY,
+      }));
+      await wait(80);
+      help.style.position = "";
+      help.style.transform = "";
+      help.removeAttribute("aria-current");
+      assert("drop index follows visual order", orderOf("footer").join(",") === "footer-feedback,footer-help,footer-settings", orderOf("footer").join(","));
 
-        // --- drag a row onto the "More" anchor: it must be tucked away ------
-        const more = nav.querySelector('button[aria-haspopup="menu"]');
-        const moreRect = more.getBoundingClientRect();
-        const hideTarget = panelButtons()[0];
-        const hideKey = hideTarget.dataset.dsoKey;
-        const hideRect = hideTarget.getBoundingClientRect();
-        pointer("pointerdown", hideTarget, hideRect.left + 40, hideRect.top + hideRect.height / 2);
-        await wait(420);
-        log("hide gesture dragging: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
-        pointer("pointermove", document, moreRect.left + moreRect.width / 2, moreRect.top + moreRect.height / 2);
-        await wait(220);
-        const armedGhost = document.querySelector(".dso-ghost");
-        log("more armed: " + more.classList.contains("dso-drop-more"));
-        const armedWidth = more.getBoundingClientRect().width;
-        const armedRatio = armedWidth / moreRect.width;
-        log("more scale ratio: " + armedRatio.toFixed(3));
-        check("anchor shrinks as a whole", armedRatio > 0.9 && armedRatio < 0.96);
-        log(
-          "ghost armed: " +
-            Boolean(armedGhost && armedGhost.classList.contains("dso-ghost-armed"))
-        );
-        log("more pulse: " + getComputedStyle(more).animationName);
-        pointer("pointerup", document, moreRect.left + moreRect.width / 2, moreRect.top + moreRect.height / 2);
-        const flyingGhost = document.querySelector(".dso-ghost");
-        log(
-          "absorb flying: " +
-            Boolean(
-              flyingGhost &&
-                typeof flyingGhost.getAnimations === "function" &&
-                flyingGhost.getAnimations().length > 0
-            )
-        );
-        await wait(260);
-        log("ghost after absorb: " + Boolean(document.querySelector(".dso-ghost")));
-        log("receive class cleared: " + !more.classList.contains("dso-drop-receive"));
-        log("hidden=" + JSON.stringify(window.__dshSidebarOrganizer.status().hidden));
-        log("hiddenKey=" + hideKey + " display=" + JSON.stringify(hideTarget.style.display));
-        log("visualAfterHide=" + JSON.stringify(visualOrder()));
+      // Same check on the vertical sidebar, where the dragged row sits between
+      // visual neighbors but not between DOM neighbors.
+      api.resetScope("sidebar");
+      api.reorder("sidebar", "terminal", 0);
+      const plugins = document.querySelector('[data-testid="plugins"]');
+      const browserRow = document.querySelector('[data-testid="browser"]');
+      const pFrom = plugins.getBoundingClientRect();
+      const bTo = browserRow.getBoundingClientRect();
+      const sideX = pFrom.left + pFrom.width / 2;
+      const sideY = bTo.top + bTo.height * 0.25;
+      plugins.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 2,
+        clientX: sideX, clientY: pFrom.top + pFrom.height / 2,
+      }));
+      await wait(330);
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 2,
+        clientX: sideX, clientY: sideY,
+      }));
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 2,
+        clientX: sideX, clientY: sideY,
+      }));
+      await wait(80);
+      assert("sidebar drop follows visual order", orderOf("sidebar").slice(0, 5).join(",") === "terminal,schedules,files,plugins,browser", orderOf("sidebar").join(","));
 
-        // --- and get it back via the API (the More menu uses the same path) --
-        window.__dshSidebarOrganizer.reveal(hideKey);
-        await wait(220);
-        log("hiddenAfterReveal=" + JSON.stringify(window.__dshSidebarOrganizer.status().hidden));
-        log("displayAfterReveal=" + JSON.stringify(hideTarget.style.display));
-        log("visualAfterReveal=" + JSON.stringify(visualOrder()));
+      // A plugin registered after us can add a right-guide entry. It must keep
+      // the host's insertion point, not get appended below every old row.
+      const rightGuide = document.getElementById("right");
+      const terminalCell = rightGuide.querySelector('[data-sidebar-right-guide-entry="terminal"]');
+      const addedCell = document.createElement("div");
+      addedCell.setAttribute("data-sidebar-right-guide-entry", "dynamic-terminal");
+      addedCell.innerHTML = '<button aria-label="新建终端"><span class="entryTitle">新建终端</span></button>';
+      rightGuide.insertBefore(addedCell, terminalCell);
+      api.refresh();
+      await wait(30);
+      const rightOrder = orderOf("right");
+      assert(
+        "new right-guide entry keeps its host position",
+        rightOrder.indexOf("dynamic-terminal") !== -1 && rightOrder.indexOf("dynamic-terminal") < rightOrder.indexOf("terminal"),
+        rightOrder.join(",")
+      );
+      assert("right-guide chrome stays after entry rows", Number(document.querySelector('[data-testid="right-chrome"]').style.order) > 1000, document.querySelector('[data-testid="right-chrome"]').style.order);
 
-        // --- reorder inside the "More" menu ---------------------------------
-        const visibleNow = visualOrder();
-        const hideA = visibleNow[0];
-        const hideB = visibleNow[1];
-        window.__dshSidebarOrganizer.hide(hideA);
-        await wait(120);
-        window.__dshSidebarOrganizer.hide(hideB);
-        await wait(200);
-        const tucked = window.__dshSidebarOrganizer.status().hidden;
-        log("tucked=" + JSON.stringify(tucked));
-
-        const menu = document.createElement("div");
-        menu.style.cssText =
-          "position:fixed;left:420px;top:120px;width:220px;padding:6px;background:#222;" +
-          "z-index:5;display:flex;flex-direction:column;gap:4px";
-        for (const key of tucked) {
-          const item = document.createElement("div");
-          item.setAttribute("data-dso-more-key", key);
-          item.style.cssText = "height:32px;line-height:32px;padding:0 10px;background:#333;color:#fff";
-          item.textContent = key;
-          menu.appendChild(item);
-        }
-        document.body.appendChild(menu);
-        await wait(120);
-
-        if (tucked.length >= 2) {
-          const items = Array.from(menu.querySelectorAll("[data-dso-more-key]"));
-          const firstItem = items[0];
-          const secondItem = items[1];
-          const a = firstItem.getBoundingClientRect();
-          const b = secondItem.getBoundingClientRect();
-          pointer("pointerdown", firstItem, a.left + 30, a.top + a.height / 2);
-          await wait(420);
-          log("menu drag dragging=" + Boolean(window.__dshSidebarOrganizer.status().dragging));
-          pointer("pointermove", document, b.left + 30, b.top + b.height - 2);
-          await wait(80);
-          pointer("pointerup", document, b.left + 30, b.top + b.height - 2);
-          await wait(240);
-          log("tuckedAfterMenuDrag=" + JSON.stringify(window.__dshSidebarOrganizer.status().hidden));
-        }
-        menu.remove();
-        await wait(120);
-        window.__dshSidebarOrganizer.reset();
-        await wait(200);
-
-        // --- repeated drags: each drop must follow the pointer, not the DOM
-        // order. Dragging the visually first row to the bottom three times in a
-        // row must rotate the strip each time; with a DOM-ordered reorder the
-        // second and third drops land somewhere else ("jitter").
-        for (let round = 0; round < 3; round += 1) {
-          const before = visualOrder();
-          const visibleButtons = panelButtons()
-            .filter((button) => button.style.display !== "none")
-            .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-          const row = visibleButtons[0];
-          const lastRow = visibleButtons[visibleButtons.length - 1];
-          const rowRect = row.getBoundingClientRect();
-          const lastRectNow = lastRow.getBoundingClientRect();
-          const dropX = rowRect.left + 40;
-          const dropY = lastRectNow.bottom - 1;
-          pointer("pointerdown", row, dropX, rowRect.top + rowRect.height / 2);
-          await wait(420);
-          pointer("pointermove", document, dropX, dropY);
-          await wait(80);
-          pointer("pointerup", document, dropX, dropY);
-          await wait(280);
-          const after = visualOrder();
-          const expected = before.slice(1).concat(before[0]);
-          log(
-            "repeat" +
-              round +
-              " match=" +
-              (JSON.stringify(after) === JSON.stringify(expected)) +
-              " after=" +
-              JSON.stringify(after)
-          );
-        }
-        await wait(300);
-        log("repeatFinal=" + JSON.stringify(visualOrder()));
-
-
-        const grabRow = panelButtons()[0];
-        const churnRow = panelButtons()[3];
-        const grabRect = grabRow.getBoundingClientRect();
-        log(
-          "resilience target=" +
-            grabRow.dataset.dsoKey +
-            " rect=" +
-            Math.round(grabRect.left) +
-            "," +
-            Math.round(grabRect.top) +
-            "," +
-            Math.round(grabRect.width) +
-            "x" +
-            Math.round(grabRect.height) +
-            " display=" +
-            getComputedStyle(grabRow).display
-        );
-        pointer("pointerdown", grabRow, grabRect.left + 40, grabRect.top + grabRect.height / 2);
-        await wait(60);
-        log(
-          "pressing=" +
-            Boolean(document.querySelector(".dso-pressing")) +
-            " draggingSoon=" +
-            window.__dshSidebarOrganizer.status().dragging
-        );
-        await wait(360);
-        log("resilience dragging: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
-        // simulate React replacing a row, plus unrelated page scrolling
-        const churnClone = churnRow.cloneNode(true);
-        churnRow.replaceWith(churnClone);
-        document.dispatchEvent(new Event("scroll"));
-        await wait(140);
-        log("draggingAfterMutation: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
-        const dropRect = churnClone.getBoundingClientRect();
-        pointer("pointermove", document, grabRect.left + 40, dropRect.top + 2);
-        await wait(80);
-        pointer("pointerup", document, grabRect.left + 40, dropRect.top + 2);
-        await wait(240);
-        log("draggingAfterDrop: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
-        log("visualAfterResilience=" + JSON.stringify(visualOrder()));
-        log("DONE");
-      }
-
-      run();
-    </script>
-  </body>
+      api.dispose();
+      assert("dispose clears row marks", document.querySelectorAll("[data-dso-key]").length === 0);
+      assert("dispose restores order", document.querySelector('[data-testid="feedback"]').style.order === "", 'order=' + document.querySelector('[data-testid="feedback"]').style.order);
+    } catch (error) {
+      note("uncaught: " + (error && error.stack ? error.stack : error), false);
+    } finally {
+      finish();
+    }
+  })();
+</script>
+</body>
 </html>

@@ -3,9 +3,32 @@
 // Replaced at build time from package.json by scripts/build.mjs.
 const VERSION = "__VERSION__";
 
+const PLUGIN_ID = "dsh-sidebar-organizer";
 const PANEL_SLOT = "sidebar.panellist";
 const ACTIONS_SLOT = "sidebar.panellist.actions";
+const FOOTER_SLOT = "sidebar.footer.action";
+const TABS_SLOT = "conversation.view";
+const COMPOSER_SLOT = "conversation.composer.dock";
+const SETTINGS_SLOT = "settings.section";
+const SETTINGS_ID = "layout-organizer";
+// The three host "More" menus this plugin can add rows to. Each one owns a
+// region: sidebar, conversation header, right sidebar.
+const MORE_SLOTS = {
+  sidebar: "sidebar.panellist.actions",
+  conversation: "conversation.session.header.views.actions",
+  rightbar: "sidebar.right.tab.guide.actions",
+};
+const REGION_SCOPES = {
+  sidebar: ["sidebar", "footer"],
+  conversation: ["tabs", "composer"],
+  rightbar: ["right"],
+};
+const SCOPE_KEYS = ["sidebar", "footer", "tabs", "composer", "right", "settings"];
 const STORAGE_KEY = "dsh.sidebar-organizer.layout.v1";
+// One-shot repair ledger: 0.5.4 appended newly discovered rows to the end of
+// the persisted order instead of inserting them at the host position.
+const REPAIR_KEY = "dsh.sidebar-organizer.repair.v1";
+const DRAG_KEY = "dsh.sidebar-organizer.drag.v1";
 const DISABLED_KEY = "dsh.sidebar-organizer.disabled";
 // The plugin was called dsh-modmenu up to 0.3.6; keep reading the old keys so a
 // rename does not drop the user's saved layout.
@@ -29,10 +52,48 @@ const STRINGS = {
   zh: {
     hidden: "已收纳",
     reset: "恢复默认排序",
+    settingsTitle: "布局整理",
+    resetScope: "恢复本组",
+    restore: "恢复显示",
+    tuck: "收进更多",
+    up: "上移",
+    down: "下移",
+    empty: "此位置暂无可整理项",
+    pinned: "固定",
+    drag: "拖动",
+    dragOn: "此区域可拖动",
+    dragOff: "此区域拖动已关闭",
+    scopeNames: {
+      sidebar: "左侧边栏",
+      footer: "侧栏底部",
+      tabs: "对话标签",
+      composer: "输入框工具条",
+      right: "右侧栏",
+      settings: "设置导航",
+    },
   },
   en: {
-    hidden: "Hidden panels",
+    hidden: "Hidden",
     reset: "Reset layout",
+    settingsTitle: "Layout organizer",
+    resetScope: "Reset section",
+    restore: "Restore",
+    tuck: "Move into More",
+    up: "Move up",
+    down: "Move down",
+    empty: "Nothing to organize here yet",
+    pinned: "Pinned",
+    drag: "Drag",
+    dragOn: "Dragging enabled in this section",
+    dragOff: "Dragging disabled in this section",
+    scopeNames: {
+      sidebar: "Sidebar",
+      footer: "Sidebar footer",
+      tabs: "Conversation tabs",
+      composer: "Composer dock",
+      right: "Right sidebar",
+      settings: "Settings navigation",
+    },
   },
 };
 

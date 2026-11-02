@@ -21,8 +21,10 @@ const MODULES = [
   "storage.js",
   "icons.js",
   "slot.js",
+  "scopes.js",
   "runtime.js",
   "menu.js",
+  "settings.js",
   "plugin.js",
 ];
 

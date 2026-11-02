@@ -16,7 +16,6 @@ const CSS = `
 .dso-indicator {
   position: fixed;
   box-sizing: border-box;
-  height: 2px;
   margin: 0;
   padding: 0;
   border-radius: 2px;
@@ -28,12 +27,11 @@ const CSS = `
   transition: opacity 120ms ease;
 }
 .dso-indicator[data-visible="1"] { opacity: 1; }
-button[data-dso-key].dso-dragging { opacity: 0.35; }
-button[data-dso-key].dso-pressing { transform: scale(0.94); transition: transform 120ms ease; }
-button[data-dso-key] { -webkit-user-select: none; user-select: none; }
+[data-dso-key].dso-dragging { opacity: 0.35; }
+[data-dso-key] { -webkit-user-select: none; user-select: none; }
 /* The "More" anchor, armed: it breathes a ring and shrinks as a whole (icon and
    label together) to read as "release here and this row drops into me". */
-button.dso-drop-more {
+.dso-drop-more {
   outline: 2px dashed var(--dsw-alias-state-business-primary, #4d6bfe);
   outline-offset: -2px;
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
@@ -52,7 +50,7 @@ button.dso-drop-more {
   70% { transform: scale(1.06); }
   100% { transform: scale(1); }
 }
-button.dso-drop-receive { animation: dso-more-receive 260ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+.dso-drop-receive { animation: dso-more-receive 260ms cubic-bezier(0.2, 0.7, 0.3, 1); }
 @keyframes dso-drop-reject {
   0%, 100% { transform: translateX(0); }
   20% { transform: translateX(-4px); }
@@ -60,7 +58,7 @@ button.dso-drop-receive { animation: dso-more-receive 260ms cubic-bezier(0.2, 0.
   60% { transform: translateX(-3px); }
   80% { transform: translateX(2px); }
 }
-button.dso-drop-reject { animation: dso-drop-reject 240ms ease; }
+.dso-drop-reject { animation: dso-drop-reject 240ms ease; }
 /* Carrying a row towards the anchor: the ghost dims and shrinks a little, so
    its eventual absorption does not feel like a jump. */
 .dso-ghost.dso-ghost-armed {
@@ -69,10 +67,10 @@ button.dso-drop-reject { animation: dso-drop-reject 240ms ease; }
   transition: transform 140ms ease, opacity 140ms ease;
 }
 @media (prefers-reduced-motion: reduce) {
-  button.dso-drop-more,
-  button.dso-drop-receive,
-  button.dso-drop-reject { animation: none !important; }
-  button.dso-drop-more { transform: none !important; transition: none !important; }
+  .dso-drop-more,
+  .dso-drop-receive,
+  .dso-drop-reject { animation: none !important; }
+  .dso-drop-more { transform: none !important; transition: none !important; }
   .dso-ghost,
   .dso-ghost.dso-ghost-armed { transition: none !important; }
 }
@@ -80,9 +78,9 @@ body.dso-dragging,
 body.dso-dragging * { cursor: grabbing !important; }
 /* While a drag is in flight the rows under the pointer must not react at all:
    no :hover highlight, no tooltip. Hit-testing is done from rects, not events. */
-body.dso-dragging button[data-dso-key],
+body.dso-dragging [data-dso-key],
 body.dso-dragging [data-dso-more-key] { pointer-events: none !important; }
-body.dso-dragging button[data-dso-key]:hover { background: transparent !important; }
+body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
 
 /* rows appended to the shipped "More" menu */
 .dso-menu-caption {
@@ -94,7 +92,10 @@ body.dso-dragging button[data-dso-key]:hover { background: transparent !importan
   user-select: none;
 }
 .dso-menu-item { display: block; }
-.dso-menu-item.dso-dragging { opacity: 0.4; }
+/* The ghost is a clone positioned under the pointer. Leave the source row in
+   the layout (so the menu does not jump) but make it invisible, otherwise the
+   two labels stack and the preview looks like it is sitting on itself. */
+.dso-menu-item.dso-dragging { opacity: 0; }
 /* icon wrapper handed to MenuItemButton: same 16px footprint as the shipped rows */
 .dso-menu-icon {
   display: inline-flex;
@@ -142,5 +143,207 @@ body.dso-dragging button[data-dso-key]:hover { background: transparent !importan
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Settings page / plugin-detail page */
+.dso-config {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 760px;
+  padding: 4px 0 28px;
+  color: var(--dsw-alias-label-primary, #ebebf5);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.dso-config * { box-sizing: border-box; }
+.dso-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+}
+.dso-config-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.dso-config-card {
+  border: 1px solid var(--dsw-alias-border-secondary, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-secondary, rgba(255, 255, 255, 0.025));
+  overflow: hidden;
+}
+.dso-config-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--dsw-alias-bg-tertiary, rgba(255, 255, 255, 0.035));
+  border-bottom: 1px solid var(--dsw-alias-border-secondary, rgba(255, 255, 255, 0.08));
+}
+.dso-config-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.dso-config-card-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary, #ebebf5);
+}
+.dso-config-switch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 1px 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.dso-config-switch:hover,
+.dso-config-switch:focus-visible { color: var(--dsw-alias-label-primary, #ebebf5); }
+.dso-config-switch:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #4d6bfe));
+  outline-offset: 2px;
+}
+.dso-config-switch-track {
+  position: relative;
+  display: inline-block;
+  width: 22px;
+  height: 13px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-secondary, rgba(255, 255, 255, 0.16));
+  transition: background 120ms ease;
+}
+.dso-config-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.72));
+  transition: transform 120ms ease, background 120ms ease;
+}
+.dso-config-switch.is-on .dso-config-switch-track {
+  background: var(--dsw-alias-state-business-primary, #4d6bfe);
+}
+.dso-config-switch.is-on .dso-config-switch-thumb {
+  transform: translateX(9px);
+  background: #fff;
+}
+.dso-config-reset {
+  flex: none;
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.dso-config-reset:hover,
+.dso-config-reset:focus-visible {
+  color: var(--dsw-alias-label-primary, #ebebf5);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+}
+.dso-config-reset:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #4d6bfe));
+  outline-offset: 1px;
+}
+.dso-config-list { display: flex; flex-direction: column; }
+.dso-config-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 8px 4px 10px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.dso-config-row + .dso-config-row {
+  border-top: 1px solid var(--dsw-alias-border-secondary, rgba(255, 255, 255, 0.06));
+}
+.dso-config-row:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.05)); }
+.dso-config-row.is-hidden { opacity: 0.62; }
+.dso-config-row.is-drop {
+  box-shadow: inset 0 2px 0 var(--dsw-alias-state-business-primary, #4d6bfe);
+}
+.dso-config-grip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  color: var(--dsw-alias-label-tertiary, rgba(235, 235, 245, 0.38));
+  cursor: grab;
+}
+.dso-config-grip.is-pinned { cursor: default; opacity: 0.4; }
+.dso-config-row:active .dso-config-grip { cursor: grabbing; }
+.dso-config-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 20px;
+}
+.dso-config-chip {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-tertiary, rgba(255, 255, 255, 0.06));
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+  font-size: 11px;
+  line-height: 18px;
+}
+.dso-config-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+  cursor: pointer;
+}
+.dso-config-btn:hover,
+.dso-config-btn:focus-visible {
+  color: var(--dsw-alias-label-primary, #ebebf5);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+}
+.dso-config-btn:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #4d6bfe));
+  outline-offset: 1px;
+}
+.dso-config-btn:disabled { opacity: 0.3; cursor: default; background: transparent; }
+.dso-config-empty {
+  padding: 12px;
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.5));
+  font-size: 12px;
+  line-height: 18px;
 }
 `;

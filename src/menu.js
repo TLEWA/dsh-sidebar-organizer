@@ -1,20 +1,12 @@
-/* The single row this plugin registers into the sidebar's "More" menu. */
+/* Region-aware "More" menu rows: one component per host menu region. */
 
-function createMenuEntry() {
+function createMenuEntry(region) {
   const React = sharedReact;
   if (!React) return null;
 
   function Row(props) {
-    // Mirror the shipped rows ("Browse plugins" / "Create your plugin"): they
-    // hand their glyph to MenuItemButton through the `icon` prop, and the
-    // component owns the icon column, spacing and alignment.
-    //
-    // The glyph must reach React as markup, never as a live DOM node: React 18
-    // throws "Objects are not valid as a React child" for host nodes, the slot
-    // error boundary then abdicates this entry, and the whole "已收纳" group
-    // silently disappears from the menu (0.3.2 regression).
     const runtime = runtimeInstance;
-    const markup = props.icon === false || !runtime ? null : runtime.iconFor(props.id);
+    const markup = props.icon === false || !runtime ? null : runtime.iconFor(props.scope, props.id);
     const icon = markup
       ? React.createElement("span", {
           className: "dso-menu-icon",
@@ -25,7 +17,7 @@ function createMenuEntry() {
     if (sharedMenuButton) {
       return React.createElement(
         sharedMenuButton,
-        { key: props.id, icon, onSelect: props.onSelect },
+        { key: props.scope + ":" + props.id, icon, onSelect: props.onSelect },
         props.label
       );
     }
@@ -38,45 +30,50 @@ function createMenuEntry() {
     );
   }
 
-  /**
-   * Degraded list used if anything in the styled rows ever throws at render
-   * time. A thrown error would otherwise let the slot error boundary abdicate
-   * this entry and the whole "已收纳" group would vanish without a trace.
-   */
+  function openHidden(runtime, scope, id, props) {
+    const activated = runtime.activate(scope, id);
+    if (props && props.onDismiss) props.onDismiss();
+    if (!activated && props && props.onOpen) props.onOpen(id);
+  }
+
   function PlainRows(props) {
     const { runtime, text, onOpen, onDismiss } = props;
-    const hidden = runtime.hiddenKeys();
+    const hidden = runtime.hiddenForRegion(region);
     const children = [];
     if (hidden.length > 0) {
       children.push(
-        React.createElement(
-          "div",
-          { key: "caption", className: "dso-menu-caption" },
-          text.hidden
-        )
+        React.createElement("div", { key: "caption", className: "dso-menu-caption" }, text.hidden)
       );
-      for (const id of hidden) {
+      for (const item of hidden) {
         children.push(
           React.createElement(
             "div",
-            { key: id, className: "dso-menu-item", "data-dso-more-key": id },
+            {
+              key: item.scope + ":" + item.id,
+              className: "dso-menu-item",
+              "data-dso-more-key": item.scope + ":" + item.id,
+            },
             React.createElement(
               "button",
               {
                 type: "button",
                 className: "dso-menu-row",
                 onClick: () => {
-                  if (onDismiss) onDismiss();
-                  if (onOpen) onOpen(id);
+                  if (runtime.activate(item.scope, item.id)) {
+                    if (onDismiss) onDismiss();
+                  } else {
+                    if (onDismiss) onDismiss();
+                    if (onOpen) onOpen(item.id);
+                  }
                 },
               },
-              runtime.labelFor(id)
+              item.label
             )
           )
         );
       }
     }
-    if (runtime.isCustomized()) {
+    if (runtime.isCustomizedRegion(region)) {
       children.push(
         React.createElement(
           "button",
@@ -85,7 +82,7 @@ function createMenuEntry() {
             type: "button",
             className: "dso-menu-row",
             onClick: () => {
-              runtime.reset();
+              runtime.resetRegion(region);
               if (onDismiss) onDismiss();
             },
           },
@@ -116,12 +113,12 @@ function createMenuEntry() {
     }
   }
 
-  function ModmenuMenuContent(props) {
+  function RegionMenuContent(props) {
     const [, force] = React.useState(0);
     React.useEffect(() => {
       const runtime = runtimeInstance;
       if (!runtime) return undefined;
-      return runtime.subscribeMenu(() => force((value) => value + 1));
+      return runtime.subscribe(() => force((value) => value + 1));
     }, []);
     React.useEffect(() => {
       const runtime = runtimeInstance;
@@ -134,51 +131,43 @@ function createMenuEntry() {
     const runtime = runtimeInstance;
     if (!runtime) return null;
     const text = strings();
-    const hidden = runtime.hiddenKeys();
+    const hidden = runtime.hiddenForRegion(region);
     const children = [];
 
     if (hidden.length > 0) {
       children.push(
-        React.createElement(
-          "div",
-          { key: "caption", className: "dso-menu-caption" },
-          text.hidden
-        )
+        React.createElement("div", { key: "caption", className: "dso-menu-caption" }, text.hidden)
       );
-      for (const id of hidden) {
-        // Use the row's own rendered label ("插件"), never the raw slot id
-        // ("plugins"): the sidebar's More-menu projection deliberately drops the
-        // plugins entry, so ids alone leave that row untranslated.
-        const label = runtime.labelFor(id);
+      for (const item of hidden) {
         children.push(
           React.createElement(
             "div",
-            { key: id, className: "dso-menu-item", "data-dso-more-key": id },
+            {
+              key: item.scope + ":" + item.id,
+              className: "dso-menu-item",
+              "data-dso-more-key": item.scope + ":" + item.id,
+            },
             React.createElement(Row, {
-              id,
-              label,
-              // Open the panel and keep it tucked away: the More menu is a
-              // launcher, not a "restore" action. Restoring is done by dragging
-              // the row back onto the sidebar.
-              onSelect: () => {
-                if (props && props.onDismiss) props.onDismiss();
-                if (props && props.onOpen) props.onOpen(id);
-              },
+              scope: item.scope,
+              id: item.id,
+              label: item.label,
+              onSelect: () => openHidden(runtime, item.scope, item.id, props),
             })
           )
         );
       }
     }
 
-    if (runtime.isCustomized()) {
+    if (runtime.isCustomizedRegion(region)) {
       children.push(
         React.createElement(Row, {
           key: "reset",
+          scope: region,
           id: "__reset",
           label: text.reset,
           icon: false,
           onSelect: () => {
-            runtime.reset();
+            runtime.resetRegion(region);
             if (props && props.onDismiss) props.onDismiss();
           },
         })
@@ -188,10 +177,17 @@ function createMenuEntry() {
     if (children.length === 0) return null;
     return React.createElement(
       MenuBoundary,
-      { fallback: React.createElement(PlainRows, { runtime, text, onOpen: props && props.onOpen, onDismiss: props && props.onDismiss }) },
+      {
+        fallback: React.createElement(PlainRows, {
+          runtime,
+          text,
+          onOpen: props && props.onOpen,
+          onDismiss: props && props.onDismiss,
+        }),
+      },
       React.createElement(React.Fragment, null, children)
     );
   }
 
-  return ModmenuMenuContent;
+  return RegionMenuContent;
 }

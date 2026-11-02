@@ -1,4 +1,4 @@
-/* Read-only access to the sidebar panel slot projection. */
+/* Slot helpers: read registrations without ever writing to the host registry. */
 
 function describeEntry(entry) {
   const options = entry && entry.options ? entry.options : entry || {};
@@ -7,21 +7,24 @@ function describeEntry(entry) {
   if (typeof label === "function") {
     try {
       label = label();
-    } catch (error) {
+    } catch (err) {
       label = undefined;
     }
   }
   return { id, label: typeof label === "string" ? label : null };
 }
 
-/** Read the slot projection once per pass; failure is non-fatal. */
-function readPanelEntries(ctx) {
+function readEntries(ctx, slot) {
   try {
     const slots = ctx && ctx.slots;
     if (!slots || typeof slots.entriesOfSlot !== "function") return [];
-    const entries = slots.entriesOfSlot(PANEL_SLOT);
+    const entries = slots.entriesOfSlot(slot);
     return Array.isArray(entries) ? entries : [];
-  } catch (error) {
+  } catch (err) {
     return [];
   }
+}
+
+function readPanelEntries(ctx) {
+  return readEntries(ctx, PANEL_SLOT);
 }

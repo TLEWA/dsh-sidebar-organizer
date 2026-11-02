@@ -3,6 +3,193 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.5.5-preview.1 — 2026-11-02
+
+首个 0.5.x 预览版，仅以 GitHub Pre-release 发布，未发布到 npm。包含
+0.5.0–0.5.5 的全部改动：整理范围扩展到六处位置，新增「布局整理」设置页与
+分区拖动开关，并修复右侧栏入口回位、横向标签插入线、短按缩放等问题。各版本
+的细节见下方条目。
+
+### English
+
+First 0.5.x preview, published only as a GitHub pre-release (not on npm). It
+includes every change from 0.5.0 through 0.5.5: the organizer covers six
+locations, adds the "Layout organizer" settings page with per-section drag
+switches, and fixes right-guide entry placement, horizontal tab insertion
+lines, and the short-press scale. Details stay in the per-version entries below.
+
+## 0.5.5 — 2026-11-02
+
+- 修复 0.5.4 已写入的旧布局：新插件入口曾被追加到右侧栏末尾，现在会按宿主
+  顺序做一次性回正，同时保留用户之后主动调整的位置。
+- 横向标签的拖动指示线改为按完整视觉列表计算间隙中点，不再贴在最后一项的
+  右侧边缘，看起来落在标签文字中间。
+- 移除 pointerdown 时的按压缩放，短按不再触发 0.94 缩小；只有进入长按拖动
+  才出现拖动状态。
+
+### English
+
+- Repair layouts already persisted by 0.5.4: a newly discovered right-guide entry
+  that had been appended to the end is moved back to its host position once,
+  while later deliberate moves are preserved.
+- Horizontal tab drop lines now use the full visual list and land in the middle
+  of the real gap, instead of clinging to the last remaining row's edge.
+- Removed the pointerdown press scale, so a normal short click no longer shrinks
+  the row; only an actual long-press drag enters the dragging state.
+
+## 0.5.4 — 2026-11-02
+
+- 拖动「已收纳」菜单行时隐藏源行，只留下拖动预览，不再出现预览框与原行重叠、
+  文字重影的问题。
+- 每个区域新增独立的「拖动」开关（设置 → 布局整理 / 插件详情页）：关闭后该区域
+  不再响应长按拖动或菜单行拖拽，布局与排序保持不变。
+- 新安装的插件向右侧栏插入入口时，不再被追加到列表末尾，而是保留宿主原本的
+  插入位置；右侧栏中不归本插件管理的动态控件也固定排在入口卡片之后。
+- 拖动开关与布局分开保存，「恢复默认排序」不会悄悄重新打开已关闭的区域。
+
+### English
+
+- While dragging a row in the "Hidden" menu, the source row is now invisible so
+  the preview no longer overlaps and doubles its own label.
+- Each section has its own "Drag" switch in Settings → Layout organizer (and the
+  plugin detail page). Turning it off disables long-press and menu-row dragging
+  in that section without changing its saved layout.
+- A newly installed plugin's right-guide entry now keeps the host's insertion
+  position instead of being appended below the whole list; dynamic right-guide
+  chrome that this plugin does not own stays after the entry cards.
+- Drag switches are stored separately from layout, so "Reset layout" never
+  silently re-enables a section the user turned off.
+
+## 0.5.3 — 2026-11-02
+
+- 将「拖入更多」的收纳动画回滚到 0.4.x：三关键帧飞入 + 一次性接收脉冲，
+  且动画结束后才隐藏源行，不再先隐藏导致列表跳动。
+- 悬浮「更多」时只保留虚线框与呼吸描边，不再提前播放接收脉冲。
+- 虚线框始终画在真正的触发按钮上，不再落到无圆角的 Tooltip/flex 包裹层，
+  修复「更多」虚线框变成直角大框的问题。
+- 修正横向标签的插入指示线：落在两行之间的空隙中央，而不是贴着下一行
+  边缘，避免标签间距较大时看起来整体偏移。
+- 窗口失焦时取消拖拽，避免指示线残留在界面上。
+
+### English
+
+- Restored the 0.4.x absorb animation: three-keyframe flight plus a one-shot
+  receive pulse, and hide the source row only after the flight finishes.
+- Hovering More arms only the dashed ring and breathing outline; the receive
+  pulse no longer plays before release.
+- The dashed ring is always applied to the real trigger button instead of a
+  square-cornered Tooltip/flex wrapper.
+- Horizontal insertion lines now sit in the middle of the gap between rows
+  instead of hugging the next row's edge, so wide tab gaps no longer look
+  offset.
+- Cancel a drag when the window loses focus, preventing a stuck indicator.
+
+## 0.5.2 — 2026-11-02
+
+- 修复区域恢复：每个「更多」菜单只恢复自己所属区域（侧栏/对话区/右侧栏），
+  不再一次改掉全部六处；恢复时同步刷新 DOM，已收纳的行会立即重新出现。
+- 修复清理旧布局：`forgetLayout()` 同时删除 legacy 键，重置后旧平面布局不会
+  在下次读取时复活。
+- 修复 footer/composer 行识别：只有真正的「更多」溢出按钮才被当作收纳锚点；
+  设置齿轮、模型选择器等自带菜单的行不再被误判为 More，footer 与 composer
+  重新可以拖动。
+- composer 只收集 slot outlet 自己的子项；`ContextMeter` 等宿主 chrome 只 pin
+  到末尾，不参与排序、不写标记，修复输入框上方错位。
+- 右侧栏只接受带 `[data-sidebar-right-guide-entry]` 的 guide 卡片，忽略动态
+  chrome；better-sidebar 的设置入口固定不可拖动/收纳，避免破坏其恢复路径。
+- harness 增至 45 项断言，覆盖区域恢复、composer tail、right chrome、
+  better-sidebar 固定项和菜单触发器行。
+
+### English
+
+- Region-scoped reset: each More menu now resets only its own region
+  (sidebar / conversation / right sidebar) instead of all six scopes, and
+  refreshes synchronously so tucked rows reappear immediately.
+- Reset now also removes the legacy layout key, so an old flat layout cannot
+  be migrated back on the next read.
+- Footer/composer rows: only the actual overflow button counts as the More
+  anchor. Menu-opening rows such as the settings gear or model picker are no
+  longer mistaken for More, restoring dragging in those scopes.
+- The composer scope collects only the slot outlet's own children; host chrome
+  such as `ContextMeter` is pinned to the end without marks or drag handling,
+  fixing the misalignment above the composer.
+- The right scope accepts only guide cards carrying
+  `[data-sidebar-right-guide-entry]`; dynamic chrome is ignored, and
+  better-sidebar's settings entry is pinned so its recovery path stays intact.
+- Harness now has 45 assertions covering region reset, composer tails, right
+  chrome, better-sidebar pinning, and menu-trigger rows.
+
+## 0.5.1 — 2026-11-02
+
+- 修正六区域拖拽落点：快照按屏幕上的**视觉顺序**排序，不再按宿主 DOM 顺序。
+  在已经自定义排序后，拖到两行之间会准确插到指针位置，而不是被注册顺序带偏。
+- 拖影净化：克隆体移除宿主的 `style`、`aria-current`、`data-dso-*` 状态，
+  并以被拖动行自身的矩形定位，修复真实 DSH 中拖影错位/重影的观感。
+- 左侧边栏只从 `[data-slot="sidebar.panellist"]` 所在的按钮定位面板列表，
+  只收列表的直接子行，避免把工作区/会话导航误标成可拖动行。
+- 「更多」收纳高亮改挂在真正的按钮上，虚线轮廓贴合按钮圆角；外扩热区仍保持 0。
+- harness 增加视觉顺序落点、侧栏隔离、拖影净化和视觉顺序回归断言。
+
+### English
+
+- Fixed drop indexing in all six scopes: the drag snapshot is sorted by on-screen
+  visual order, not host DOM order, so drops land between the rows the user sees
+  even after a custom order has been applied.
+- Sanitized the drag ghost (host `style`, `aria-current`, `data-dso-*` marks) and
+  positioned it from the dragged row's own rect, fixing misaligned/duplicated
+  ghosts in the real DSH UI.
+- The sidebar scope now anchors on the button containing
+  `[data-slot="sidebar.panellist"]` and only collects direct child rows, so
+  workspace/session navigation can never be tagged as draggable panels.
+- The More tuck highlight is applied to the actual button, so its dashed outline
+  follows the button's rounded corners; the drop hot zone still has zero padding.
+- Harness coverage for visual-order drops, sidebar isolation, ghost sanitizing,
+  and the visual-order regression.
+
+## 0.5.0 — 2026-11-02
+
+- 整理范围从左侧边栏扩展到六处：左侧边栏、侧栏底部、对话标签、输入框工具条、
+  右侧栏「开始」页、设置导航。每处独立排序、独立收纳；横向区域显示竖线、纵向
+  区域显示横线，长按手势与键盘排序共用一套运行时。
+- 三处「更多」菜单分别只列本区域收纳项：侧栏底部与左侧边栏共用左侧菜单，
+  对话标签与输入框工具条共用对话区菜单，右侧栏使用自己的「更多工具」。
+  菜单项点击由运行时定位原按钮并触发，不再依赖宿主 `onOpen` 的 id 语义。
+- 新增配置界面：DSH 设置 →「布局整理」，以及本插件详情页。六张位置卡片支持
+  HTML5 拖拽、上移/下移、收起/恢复、恢复本组；本插件设置入口固定不可收起。
+- 存储升级为 v3 `{version:3, scopes:{…}}`；旧 v2 平面布局与
+  `dsh.modmenu.layout.v1` 自动迁移到 `sidebar` 区域。旧控制台 `hide(id)` /
+  `reveal(id)` 仍按 `sidebar` 语义兼容。
+- 安全设计更新：被整理的插槽保持只读；三处「更多」、设置页、插件详情页各只做
+  一次固定注册；继续使用 DOM `order` / `display`、rAF 合并、90 次/3 秒看门狗、
+  仅观察 `childList`。
+- 离线 harness 扩展为六区域夹具，覆盖 v2→v3 迁移、`resetScope()`、区域菜单清单、
+  设置页固定项、菜单内拖动与 `dispose()` 还原。
+
+### English
+
+- The organizer now covers six locations: left sidebar, sidebar footer,
+  conversation tabs, composer dock, right sidebar "Start" page, and settings
+  navigation. Each scope keeps its own order and tucked set; horizontal scopes
+  show a vertical drop line and vertical scopes a horizontal one, sharing the
+  same long-press and keyboard runtime.
+- Each of the three More menus lists only its own tucked items: sidebar footer
+  shares the left sidebar menu, tabs and composer share the conversation menu,
+  and the right sidebar uses its own "More tools". Menu items are activated by
+  the runtime locating the original button, not by host `onOpen` id semantics.
+- New settings UI: DSH Settings → "Layout organizer", plus this plugin's detail
+  page. Six location cards support native HTML5 drag, up/down, tuck/restore, and
+  reset-section. The plugin's own settings entry is pinned.
+- Storage is now v3 `{version:3, scopes:{…}}`; the old v2 flat layout and
+  `dsh.modmenu.layout.v1` migrate into `sidebar`. Console `hide(id)` /
+  `reveal(id)` keep their old `sidebar` semantics.
+- Safety updated: organized slots remain read-only; the three More menus,
+  settings page, and plugin-detail page each get one fixed registration; DOM
+  `order`/`display`, rAF coalescing, the 90-per-3s watchdog, and `childList`-only
+  observation remain.
+- The offline harness now uses six-scope fixtures and covers v2→v3 migration,
+  `resetScope()`, per-region menu lists, the pinned settings row, in-menu drag,
+  and `dispose()` restoration.
+
 ## 0.4.3 — 2026-11-02
 
 - 修正收纳动画的「悬停」反馈：此前只有「更多」按钮里的图标缩放，右侧文字不动，
