@@ -31,17 +31,15 @@ const CSS = `
 button[data-dso-key].dso-dragging { opacity: 0.35; }
 button[data-dso-key].dso-pressing { transform: scale(0.94); transition: transform 120ms ease; }
 button[data-dso-key] { -webkit-user-select: none; user-select: none; }
-/* The "More" anchor, armed: it breathes a ring and dips its glyph to read as
-   "release here and this row drops into me". */
+/* The "More" anchor, armed: it breathes a ring and shrinks as a whole (icon and
+   label together) to read as "release here and this row drops into me". */
 button.dso-drop-more {
   outline: 2px dashed var(--dsw-alias-state-business-primary, #4d6bfe);
   outline-offset: -2px;
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
-  animation: dso-more-breathe 1100ms ease-in-out infinite;
-}
-button.dso-drop-more span[aria-hidden="true"] {
-  transform: translateY(2px) scale(0.88);
+  transform: scale(0.94);
   transition: transform 160ms ease;
+  animation: dso-more-breathe 1100ms ease-in-out infinite;
 }
 @keyframes dso-more-breathe {
   0%, 100% { box-shadow: 0 0 0 0 rgba(77, 107, 254, 0.38); }
@@ -74,6 +72,7 @@ button.dso-drop-reject { animation: dso-drop-reject 240ms ease; }
   button.dso-drop-more,
   button.dso-drop-receive,
   button.dso-drop-reject { animation: none !important; }
+  button.dso-drop-more { transform: none !important; transition: none !important; }
   .dso-ghost,
   .dso-ghost.dso-ghost-armed { transition: none !important; }
 }

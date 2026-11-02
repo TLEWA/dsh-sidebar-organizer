@@ -3,6 +3,19 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.4.3 — 2026-11-02
+
+- 修正收纳动画的「悬停」反馈：此前只有「更多」按钮里的图标缩放，右侧文字不动，
+  看起来像图标单独塌陷。现在整个按钮（图标 + 文字）作为一体缩放，与松手时的
+  缩放节奏一致；`prefers-reduced-motion` 下不缩放。
+
+### English
+
+- Fixed the armed-state feedback on the “More” anchor: previously only the glyph
+  shrank while the label stayed put, which read as a broken dip. The whole button
+  (icon and label) now scales together, matching the release animation; scaling is
+  disabled under `prefers-reduced-motion`.
+
 ## 0.4.2 — 2026-11-02
 
 - 拖动到「更多」按钮上时新增收纳动画：按钮呼吸高亮、图标下沉，拖影微微缩小

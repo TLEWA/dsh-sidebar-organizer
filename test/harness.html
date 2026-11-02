@@ -88,6 +88,10 @@
         console.log("[harness]", message);
       }
       window.__harnessLog = log;
+      function check(label, ok) {
+        log((ok ? "PASS " : "FAIL ") + label);
+        if (!ok) throw new Error("check failed: " + label);
+      }
 
       window.addEventListener("error", (event) => log("ERROR " + event.message));
       window.addEventListener("unhandledrejection", (event) =>
@@ -196,9 +200,13 @@
         await wait(420);
         log("hide gesture dragging: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
         pointer("pointermove", document, moreRect.left + moreRect.width / 2, moreRect.top + moreRect.height / 2);
-        await wait(60);
+        await wait(220);
         const armedGhost = document.querySelector(".dso-ghost");
         log("more armed: " + more.classList.contains("dso-drop-more"));
+        const armedWidth = more.getBoundingClientRect().width;
+        const armedRatio = armedWidth / moreRect.width;
+        log("more scale ratio: " + armedRatio.toFixed(3));
+        check("anchor shrinks as a whole", armedRatio > 0.9 && armedRatio < 0.96);
         log(
           "ghost armed: " +
             Boolean(armedGhost && armedGhost.classList.contains("dso-ghost-armed"))
