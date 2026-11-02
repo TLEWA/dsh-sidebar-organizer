@@ -10,6 +10,10 @@
   现在拖影强制 `position: fixed !important`，不再参与页面布局。
 - 修复标签插入线偏下、不居中：宿主标签在底部预留 9px 给当前项的下划线，插入线
   原来按整个行盒居中，视觉上比文字低。现在按行的内容区居中，与标签文字对齐。
+- 修复把右侧栏组件拖进「更多」时松手会误触发一次点击：投放走 180ms 收纳动画，
+  点击护栏（500ms）原本要等动画结束才生效，而浏览器在 pointerup 当刻就派发了
+  click，于是被激活的是刚拖走的那一行。现在 pointerup 里先同步装上护栏再提交
+  投放，拖进「更多」只收纳、不激活。
 
 ### English
 
@@ -21,6 +25,12 @@
   bottom for the active underline, so centering on the padding box put the line
   below the labels. It now centers on the row's content box, aligned with the
   tab text.
+- Fix a component in the right sidebar being activated when it is dropped onto
+  "More": the drop runs a 180 ms absorb animation and the 500 ms click guard
+  was only armed when that animation ended, while the browser dispatches the
+  click immediately on pointerup, so the row that had just been dragged away
+  received it. The guard is now armed synchronously in pointerup before the
+  drop commits, so dropping onto "More" only tucks the row.
 
 ## 0.5.7-preview.1 — 2026-11-02
 

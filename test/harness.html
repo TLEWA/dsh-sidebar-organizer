@@ -639,6 +639,53 @@
       }));
       await wait(80);
 
+      // Regression: dropping a component onto the "More" anchor must only tuck
+      // it away. The hide commit animates the ghost for 180 ms before
+      // endGesture() arms the click guard, so the browser's click (dispatched
+      // right on pointerup, retargeted to the captured source row) used to slip
+      // through and activate the component. The pointerup must arm the guard
+      // before the commit, not after the animation.
+      api.resetScope("right");
+      await wait(40);
+      const rightMore = rightFixture.querySelector('button.guide-entry[aria-haspopup="menu"]');
+      const termForMore = rightFixture.querySelector('[data-sidebar-right-guide-entry="terminal"] button');
+      assert("right guide More anchor is present", !!rightMore && !!termForMore);
+      const termForMoreRect = termForMore.getBoundingClientRect();
+      const moreDropRect = rightMore.getBoundingClientRect();
+      const moreDropX = moreDropRect.left + moreDropRect.width / 2;
+      const moreDropY = moreDropRect.top + moreDropRect.height / 2;
+      let moreSourceClicks = 0;
+      const onMoreSourceClick = () => { moreSourceClicks += 1; };
+      termForMore.addEventListener("click", onMoreSourceClick);
+      termForMore.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 41,
+        clientX: termForMoreRect.left + termForMoreRect.width / 2,
+        clientY: termForMoreRect.top + termForMoreRect.height / 2,
+      }));
+      await wait(330);
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 41,
+        clientX: moreDropX, clientY: moreDropY,
+      }));
+      assert("More drop arms the anchor", rightMore.classList.contains("dso-drop-more"));
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 41,
+        clientX: moreDropX, clientY: moreDropY,
+      }));
+      // Same tick as the real pointerup: dispatch the click the browser would
+      // synthesize while the absorb animation is still running.
+      termForMore.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      assert("drop onto More swallows the follow-up click", moreSourceClicks === 0, moreSourceClicks);
+      termForMore.removeEventListener("click", onMoreSourceClick);
+      await wait(300);
+      assert("drop onto More tucks the row", termForMore.dataset.dsoHidden === "1", termForMore.dataset.dsoHidden);
+      // Let the one-shot guard lapse so the click assertions further down are
+      // not swallowed by it.
+      await wait(520);
+      // Restore the section: later checks use this row as a visible row.
+      api.resetScope("right");
+      await wait(40);
+
       // A plugin registered after us can add a right-guide entry. It must keep
       // the host's insertion point, not get appended below every old row.
       const rightGuide = document.getElementById("right");
