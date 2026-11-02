@@ -3,6 +3,25 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 未发布
+
+- 修复拖动对话标签（「对话 / 轨迹」）时页面右侧多出一条滚动条：宿主的标签样式
+  给克隆行带上了 `position: relative`，拖影于是落进 body 常规流、把文档撑高。
+  现在拖影强制 `position: fixed !important`，不再参与页面布局。
+- 修复标签插入线偏下、不居中：宿主标签在底部预留 9px 给当前项的下划线，插入线
+  原来按整个行盒居中，视觉上比文字低。现在按行的内容区居中，与标签文字对齐。
+
+### English
+
+- Fix a stray page scrollbar while dragging the conversation tabs: the host tab
+  class sets `position: relative`, so the cloned ghost fell into normal flow at
+  the bottom of the page and grew the document. The ghost is now pinned with
+  `position: fixed !important` and no longer affects layout.
+- Fix the tab insertion line sitting too low: the host tab reserves 9px at the
+  bottom for the active underline, so centering on the padding box put the line
+  below the labels. It now centers on the row's content box, aligned with the
+  tab text.
+
 ## 0.5.7-preview.1 — 2026-11-02
 
 - 修复从「已收纳」区域把条目拖出来的问题：拖拽源行（弹出菜单里的那一行）

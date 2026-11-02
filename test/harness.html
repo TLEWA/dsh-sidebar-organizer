@@ -11,6 +11,8 @@
   nav.sidebar { display: flex; flex-direction: column; gap: 4px; width: 180px; }
   nav.sidebar button, .footer button, .tabs button, .composer button,
   .right button, .settings button { display: flex; align-items: center; gap: 6px; min-height: 30px; }
+  /* Mirrors the host tab: the bottom padding reserves the active underline. */
+  .tabs button { padding: 0 0 9px; }
   .footer, .tabs, .composer, .right, .settings-list { display: flex; gap: 6px; }
   .right { flex-direction: column; width: 200px; min-height: 420px; justify-content: center; }
   /* Mirrors the shipped guide's trailing spacer; it must stay after every row. */
@@ -433,6 +435,21 @@
       const tabIndicator = document.querySelector(".dso-indicator");
       const tabIndicatorX = tabIndicator ? parseFloat(tabIndicator.style.left) + 1 : NaN;
       assert("tabs indicator sits in the host gap", Math.abs(tabIndicatorX - tabDropX) <= 1.5, `${tabIndicatorX} vs ${tabDropX}`);
+      // The host tab reserves 9px at the bottom for its active underline, so
+      // its padding box is taller than the label row. The line must center on
+      // the label content, otherwise it looks a few pixels low (0.5.7 bug).
+      const tabStyle = getComputedStyle(tabDiff);
+      const tabPadTop = parseFloat(tabStyle.paddingTop) || 0;
+      const tabPadBottom = parseFloat(tabStyle.paddingBottom) || 0;
+      const tabContentTop = diffRect.top + tabPadTop;
+      const tabContentHeight = diffRect.height - tabPadTop - tabPadBottom;
+      const tabIndicatorTop = tabIndicator ? parseFloat(tabIndicator.style.top) : NaN;
+      const tabIndicatorHeight = tabIndicator ? parseFloat(tabIndicator.style.height) : NaN;
+      assert(
+        "tabs indicator centers on the label row",
+        Math.abs(tabIndicatorTop - tabContentTop) <= 0.5 && Math.abs(tabIndicatorHeight - tabContentHeight) <= 0.5,
+        `top ${tabIndicatorTop} vs ${tabContentTop}, height ${tabIndicatorHeight} vs ${tabContentHeight}`
+      );
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       document.dispatchEvent(new PointerEvent("pointerup", {
         bubbles: true, cancelable: true, pointerId: 12,
@@ -457,6 +474,12 @@
       const to = settingsRow.getBoundingClientRect();
       const dropX = to.left + to.width * 0.2;
       const dropY = to.top + to.height / 2;
+      // Simulate a host sheet that pins the dragged row's own class to
+      // position: relative. The real tab bar does exactly this (0.5.7 shipped
+      // a ghost that fell to the bottom of the page and added a scrollbar).
+      const hostOverride = document.createElement("style");
+      hostOverride.textContent = ".dso-ghost { position: relative; }";
+      document.head.appendChild(hostOverride);
       help.dispatchEvent(new PointerEvent("pointerdown", {
         bubbles: true, cancelable: true, button: 0, pointerId: 1,
         clientX: from.left + from.width / 2, clientY: from.top + from.height / 2,
@@ -468,8 +491,10 @@
       }));
       const ghost = document.querySelector(".dso-ghost");
       assert("drag creates a fixed ghost", !!ghost && getComputedStyle(ghost).position === "fixed");
-      assert("ghost drops host inline style", !!ghost && ghost.style.position === "" && ghost.style.transform === "" && ghost.style.order === "", ghost && ghost.style.cssText);
+      assert("ghost ignores late host position rules", !!ghost && getComputedStyle(ghost).position === "fixed" && ghost.style.getPropertyPriority("position") === "important");
+      assert("ghost drops host inline style", !!ghost && ghost.style.transform === "" && ghost.style.order === "", ghost && ghost.style.cssText);
       assert("ghost drops host state marks", !!ghost && !ghost.hasAttribute("aria-current") && !ghost.hasAttribute("data-dso-key"));
+      hostOverride.remove();
       assert("drag dims the source row", help.classList.contains("dso-dragging"));
       document.dispatchEvent(new PointerEvent("pointerup", {
         bubbles: true, cancelable: true, pointerId: 1,

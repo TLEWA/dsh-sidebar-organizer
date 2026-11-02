@@ -12,7 +12,8 @@ const CSS = `
 }
 
 .dso-ghost {
-  position: fixed;
+  position: fixed !important;
+  margin: 0 !important;
   box-sizing: border-box;
   pointer-events: none;
   z-index: ${GHOST_Z};
