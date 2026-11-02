@@ -44,6 +44,10 @@ composer dock, right sidebar, and settings navigation.
   section stops responding to long-press drags without changing its layout or
   tucked rows. The plugin's own settings entry can be reordered but not tucked;
   better-sidebar's settings entry is fully fixed and cannot be moved or tucked.
+- **Import / export configuration**: "Export" in the settings header writes the
+  order, tucked rows, and drag switches of all six sections to a JSON file;
+  "Import" reads the same format and replaces the whole configuration. A
+  version mismatch or a broken file is rejected whole, never half-applied.
 - **Region-scoped reset**: "Reset default order" in each More menu resets only
   that region (left sidebar, conversation, or right sidebar) and immediately
   reveals its tucked rows. Resetting never changes the per-section drag
@@ -51,8 +55,8 @@ composer dock, right sidebar, and settings navigation.
 - The layout survives page reloads and DSH restarts.
 - While dragging, rows under the pointer do not react with `:hover` or tooltips
   (rows get `pointer-events: none`; hit-testing is pure geometry).
-- **No** right-click menu, floating launcher, shortcuts, import/export, search,
-  or grouping — those are out of scope for this version.
+- **No** right-click menu, floating launcher, shortcuts, search, or grouping —
+  those are out of scope for this version.
 
 ## Install
 
@@ -163,6 +167,10 @@ the page. Since 0.2.0 the mechanism is different:
 - Per-section drag switches live in a separate
   `dsh.sidebar-organizer.drag.v1` key (`{"sidebar": true, "footer": false, …}`),
   so layout resets do not change them.
+- The exported file is a `{ format, version, exportedAt, scopes, drag }` snapshot.
+  Import only accepts `version === 3` with a `scopes` object, normalizes it through
+  the same path as local storage, and marks all six scopes as already repaired so
+  the legacy trailing-row fix cannot rewrite the imported order.
 - Drag layer: document-capture `pointerdown` → 260 ms long-press timer (cancelled
   by >8 px movement) → ghost clone plus indicator; drop index from row midpoints
   along the scope axis; dropping inside that scope's More rect tucks the row;
@@ -206,7 +214,8 @@ npm run check   # syntax check
 Open `test/harness.html` in a browser for the self-checking regression run
 (six-scope discovery, ordering, persistence, v2→v3 migration, `resetScope()`,
 tuck/restore, per-region menu lists, pinned settings row, in-menu drag, DOM
-churn during drag, and `dispose()` restoration).
+churn during drag, config export/import with version rejection, and `dispose()`
+restoration).
 
 ## Compatibility
 

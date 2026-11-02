@@ -238,10 +238,31 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
 .dso-config * { box-sizing: border-box; }
 .dso-config-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   min-height: 30px;
+}
+.dso-config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-left: auto;
+}
+.dso-config-notice {
+  margin: -8px 0 -6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+}
+.dso-config-notice[data-tone="ok"] {
+  color: var(--dsw-alias-state-success-primary, #3fb950);
+}
+.dso-config-notice[data-tone="error"] {
+  color: var(--dsw-alias-state-error-primary, #f85149);
 }
 .dso-config-title {
   margin: 0;
@@ -326,7 +347,8 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   transform: translateX(9px);
   background: #fff;
 }
-.dso-config-reset {
+.dso-config-reset,
+.dso-config-action {
   flex: none;
   border: none;
   background: transparent;
@@ -339,11 +361,14 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   border-radius: 4px;
 }
 .dso-config-reset:hover,
-.dso-config-reset:focus-visible {
+.dso-config-reset:focus-visible,
+.dso-config-action:hover,
+.dso-config-action:focus-visible {
   color: var(--dsw-alias-label-primary, #ebebf5);
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
 }
-.dso-config-reset:focus-visible {
+.dso-config-reset:focus-visible,
+.dso-config-action:focus-visible {
   outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #4d6bfe));
   outline-offset: 1px;
 }

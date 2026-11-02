@@ -1,5 +1,71 @@
 /* Region-aware "More" menu rows: one component per host menu region. */
 
+const HOST_MENU_ITEM = '[role="menuitem"]';
+
+// The host's own menu rows are React components keyed by the view id they
+// stand for (e.g. "context"). Reading the key off the fiber chain is the only
+// way to tell a folded tucked view apart from an ordinary overflow row.
+function fiberKeys(node) {
+  const keys = [];
+  const field = Object.keys(node).find(
+    (name) => name.indexOf("__reactFiber$") === 0 || name.indexOf("__reactInternalInstance$") === 0
+  );
+  let fiber = field ? node[field] : null;
+  for (let depth = 0; depth < 8 && fiber; depth += 1, fiber = fiber.return) {
+    if (fiber.key !== null && fiber.key !== undefined) keys.push(String(fiber.key));
+  }
+  return keys;
+}
+
+function isOwnRow(node) {
+  return !!(node.closest && node.closest(".dso-menu-item"));
+}
+
+// Hide the row wrapper rather than the button so its padding and separator
+// spacing disappear with it. Restore the exact previous style attribute.
+function hideRow(node) {
+  const parent = node.parentElement;
+  const wrapper =
+    parent && parent !== document.body && parent.querySelectorAll(HOST_MENU_ITEM).length === 1
+      ? parent
+      : node;
+  const previous = wrapper.getAttribute("style");
+  wrapper.style.display = "none";
+  return () => {
+    if (!wrapper.isConnected) return;
+    if (previous === null) wrapper.removeAttribute("style");
+    else wrapper.setAttribute("style", previous);
+  };
+}
+
+function hideFoldedTuckedRows(menu, hidden, entries) {
+  const restores = [];
+  const rows = Array.from(menu.querySelectorAll(HOST_MENU_ITEM)).filter((node) => !isOwnRow(node));
+  const matched = new Set();
+  for (const node of rows) {
+    const hit = fiberKeys(node).find((key) => hidden.has(key));
+    if (!hit) continue;
+    matched.add(hit);
+    restores.push(hideRow(node));
+  }
+  // Fallback for a host build whose folded rows do not carry the view id on
+  // the fiber chain: folded entries render first, in registration order.
+  if (Array.isArray(entries) && entries.length && rows.length) {
+    for (let index = 0; index < entries.length && index < rows.length; index += 1) {
+      const entry = entries[index];
+      if (!entry || !hidden.has(entry.id) || matched.has(entry.id)) continue;
+      const node = rows[index];
+      const label = (node.textContent || "").trim();
+      if (entry.label && label !== entry.label) continue;
+      matched.add(entry.id);
+      restores.push(hideRow(node));
+    }
+  }
+  return () => {
+    for (const restore of restores) restore();
+  };
+}
+
 function createMenuEntry(region) {
   const React = sharedReact;
   if (!React) return null;
@@ -115,6 +181,7 @@ function createMenuEntry(region) {
 
   function RegionMenuContent(props) {
     const [, force] = React.useState(0);
+    const captionRef = React.useRef(null);
     React.useEffect(() => {
       const runtime = runtimeInstance;
       if (!runtime) return undefined;
@@ -128,6 +195,23 @@ function createMenuEntry(region) {
       };
     }, [props && props.onDismiss]);
 
+    // When the conversation pane is too narrow, the host stops rendering
+    // overflow tabs in the strip and puts them into this very menu. A tucked
+    // view then shows up as an ordinary host row above our "已收纳" block —
+    // the bug where tucked views leaked back into view. Drop those host rows;
+    // our own block lists the same views and opens them through onOpen.
+    const useLayoutEffect = React.useLayoutEffect || React.useEffect;
+    useLayoutEffect(() => {
+      const runtime = runtimeInstance;
+      if (region !== "conversation" || !runtime) return undefined;
+      const caption = captionRef.current;
+      const menu = caption && caption.closest ? caption.closest('[role="menu"]') : null;
+      if (!menu) return undefined;
+      const hidden = runtime.hiddenIds("tabs");
+      if (!hidden.length) return undefined;
+      return hideFoldedTuckedRows(menu, new Set(hidden), props && props.entries);
+    });
+
     const runtime = runtimeInstance;
     if (!runtime) return null;
     const text = strings();
@@ -136,7 +220,11 @@ function createMenuEntry(region) {
 
     if (hidden.length > 0) {
       children.push(
-        React.createElement("div", { key: "caption", className: "dso-menu-caption" }, text.hidden)
+        React.createElement(
+          "div",
+          { key: "caption", className: "dso-menu-caption", ref: captionRef },
+          text.hidden
+        )
       );
       for (const item of hidden) {
         children.push(

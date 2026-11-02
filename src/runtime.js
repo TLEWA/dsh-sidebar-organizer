@@ -180,9 +180,17 @@ function createRuntime(ctx) {
     const rows = found ? found.rows : [];
     const ids = rows.map((row) => row.id);
     const current = readScope(scope);
+    // Keep every remembered id, including rows this pass has not discovered
+    // yet. Component discovery is incremental at startup (each panel/plugin
+    // registers on its own schedule): the first pass often sees only a few
+    // rows. Pruning the absent ones rewrote the saved order without them, so
+    // when the rest mounted they looked brand new and were inserted at their
+    // host positions — a custom order did not survive a reload, while tucked
+    // rows did (their ids were already kept below). Genuinely removed rows
+    // just linger harmlessly in storage, exactly like absent hidden ids.
     const order = [];
     for (const id of current.order) {
-      if (ids.indexOf(id) !== -1 && order.indexOf(id) === -1) order.push(id);
+      if (order.indexOf(id) === -1) order.push(id);
     }
     // A plugin can add an entry after we persisted a layout. Appending every
     // unseen id pushes that new entry below unrelated rows (the right guide's
@@ -216,8 +224,8 @@ function createRuntime(ctx) {
     // A host may unmount rows without telling us: the conversation tab bar drops
     // every tab past its overflow limit whenever the pane narrows (and remounts
     // them when it widens). Forgetting those ids here made a hidden tab pop back
-    // into the header on widen. Keep hidden ids for absent rows; applyFound's
-    // visible list only contains discovered rows, so index math stays untouched.
+    // into the header on widen. Keep hidden ids for absent rows too; applyFound
+    // skips rows it cannot find, so their saved slots survive until they remount.
     const hidden = [];
     for (const id of current.hidden) {
       if (hidden.indexOf(id) === -1) hidden.push(id);
@@ -396,7 +404,10 @@ function createRuntime(ctx) {
     const row = rowFor(found, id);
     if (!row || row.pinned) return false;
     const visible = visibleIds(scope);
-    return visible.indexOf(id) !== -1 && visible.length > 1;
+    // Only rows the host currently exposes count toward "never hide the last
+    // row": the saved order may still list rows that are temporarily unmounted.
+    const present = visible.filter((key) => rowFor(found, key));
+    return visible.indexOf(id) !== -1 && present.length > 1;
   }
 
   function hide(scope, id) {
@@ -480,6 +491,19 @@ function createRuntime(ctx) {
     notify();
   }
 
+  function exportConfig() {
+    return exportConfigSnapshot();
+  }
+
+  function importConfig(value) {
+    const result = importConfigSnapshot(value);
+    if (!result.ok) return result;
+    for (const scope of SCOPE_KEYS) refreshScope(scope);
+    schedulePass();
+    notify();
+    return result;
+  }
+
   function isCustomized(scope) {
     const scopes = scope ? [scope] : SCOPE_KEYS;
     for (const key of scopes) {
@@ -487,7 +511,10 @@ function createRuntime(ctx) {
       if (layout.hidden.length) return true;
       const found = state.found[key];
       if (!found) continue;
-      const visible = layout.order.filter((id) => layout.hidden.indexOf(id) === -1);
+      // Compare only rows the host currently exposes: remembered ids for
+      // temporarily absent rows are not a customization.
+      const present = new Set(found.rows.map((row) => row.id));
+      const visible = layout.order.filter((id) => present.has(id) && layout.hidden.indexOf(id) === -1);
       const defaultOrder = found.rows.map((row) => row.id);
       if (!isSameOrder(visible, defaultOrder)) return true;
     }
@@ -583,6 +610,21 @@ function createRuntime(ctx) {
     }
   }
 
+  // Rows still registered with the host even when they are not mounted right
+  // now. The conversation header unmounts / folds views past its overflow
+  // limit, but the slot registry keeps them, so a tucked view stays tucked
+  // while the pane is narrow and must still be listed in "已收纳".
+  function registeredFor(scope) {
+    const def = scopeDef(scope);
+    if (!def || !def.slot) return null;
+    const ids = new Set();
+    for (const entry of readEntries(ctx, def.slot)) {
+      const info = describeEntry(entry);
+      if (info.id) ids.add(info.id);
+    }
+    return ids;
+  }
+
   function hiddenForRegion(region) {
     const scopes = REGION_SCOPES[region] || [];
     const out = [];
@@ -590,20 +632,29 @@ function createRuntime(ctx) {
       const found = state.found[scope];
       if (!found) continue;
       const layout = normalizedLayout(scope);
+      const registered = registeredFor(scope);
       const byId = new Map();
       for (const row of found.rows) byId.set(row.id, row);
       for (const id of layout.hidden) {
         const row = byId.get(id);
-        if (!row) continue;
+        if (!row && !(registered && registered.has(id))) continue;
         out.push({
           scope,
           id,
-          label: row.label || labelFor(scope, id),
-          icon: iconFor(scope, id),
+          label: (row && row.label) || labelFor(scope, id),
+          icon: row ? iconFor(scope, id) : null,
         });
       }
     }
     return out;
+  }
+
+  function hiddenIds(scope) {
+    try {
+      return normalizedLayout(scope).hidden.slice();
+    } catch (err) {
+      return [];
+    }
   }
 
   function activate(scope, id) {
@@ -1503,6 +1554,8 @@ function createRuntime(ctx) {
     resetScope,
     resetRegion,
     reset,
+    exportConfig,
+    importConfig,
     canHide,
     isCustomized,
     isCustomizedRegion,
@@ -1510,6 +1563,7 @@ function createRuntime(ctx) {
     setDragEnabled,
     activate,
     hiddenForRegion,
+    hiddenIds,
     labelFor,
     iconFor,
     status,

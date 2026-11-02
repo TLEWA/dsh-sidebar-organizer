@@ -5,6 +5,48 @@ function createSettingsPage() {
   if (!React) return null;
   const h = React.createElement;
 
+  function downloadConfig(runtime) {
+    const text = JSON.stringify(runtime.exportConfig(), null, 2);
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = EXPORT_FILENAME;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function pickConfigFile(runtime, done) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json,.json";
+    // A cancelled picker fires no `change`, so the temporary input would stay
+    // on <body> forever. Remove it on `change` or when the window regains focus.
+    let cleaned = false;
+    function cleanup() {
+      if (cleaned) return;
+      cleaned = true;
+      window.removeEventListener("focus", cleanup);
+      if (input.parentNode) input.parentNode.removeChild(input);
+    }
+    input.addEventListener("change", () => {
+      const file = input.files && input.files[0];
+      cleanup();
+      if (!file) return;
+      const reader = new FileReader();
+      reader.addEventListener("load", () => {
+        done(runtime.importConfig(String(reader.result || "")));
+      });
+      reader.addEventListener("error", () => done({ ok: false, reason: "read" }));
+      reader.readAsText(file);
+    });
+    window.addEventListener("focus", cleanup);
+    document.body.appendChild(input);
+    input.click();
+  }
+
   const ICON_PATHS = {
     up: "M6 14l6-6 6 6",
     down: "M6 10l6 6 6-6",
@@ -226,6 +268,11 @@ function createSettingsPage() {
 
   function SettingsPage() {
     const [, force] = React.useState(0);
+    const [notice, setNotice] = React.useState(null);
+    const noticeTimer = React.useRef(null);
+    React.useEffect(() => () => {
+      if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+    }, []);
     React.useEffect(() => {
       const runtime = runtimeInstance;
       if (!runtime) return undefined;
@@ -239,6 +286,12 @@ function createSettingsPage() {
     const text = strings();
     const scopes = runtime.snapshot();
 
+    function flash(message, tone) {
+      setNotice({ text: message, tone });
+      if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+      noticeTimer.current = window.setTimeout(() => setNotice(null), 3200);
+    }
+
     return h(
       "div",
       { className: "dso-config" },
@@ -246,18 +299,64 @@ function createSettingsPage() {
         "header",
         { className: "dso-config-head" },
         h("h3", { className: "dso-config-title" }, text.settingsTitle),
-        runtime.isCustomized()
-          ? h(
-              "button",
-              {
-                type: "button",
-                className: "dso-config-reset",
-                onClick: () => runtime.reset(),
+        h(
+          "div",
+          { className: "dso-config-actions" },
+          h(
+            "button",
+            {
+              type: "button",
+              className: "dso-config-action",
+              title: text.exportHint,
+              onClick: () => {
+                downloadConfig(runtime);
+                flash(text.exportOk, "ok");
               },
-              text.reset
-            )
-          : null
+            },
+            text.exportConfig
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "dso-config-action",
+              title: text.importHint,
+              onClick: () => {
+                pickConfigFile(runtime, (result) => {
+                  if (result.ok) {
+                    flash(text.importOk, "ok");
+                  } else {
+                    flash(result.reason === "version" ? text.importVersion : text.importInvalid, "error");
+                  }
+                });
+              },
+            },
+            text.importConfig
+          ),
+          runtime.isCustomized()
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  className: "dso-config-reset",
+                  onClick: () => runtime.reset(),
+                },
+                text.reset
+              )
+            : null
+        )
       ),
+      notice
+        ? h(
+            "p",
+            {
+              className: "dso-config-notice",
+              "data-tone": notice.tone,
+              role: "status",
+            },
+            notice.text
+          )
+        : null,
       scopes.map((scope) => h(ScopeCard, { key: scope.scope, scope, text }))
     );
   }

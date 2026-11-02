@@ -1,6 +1,13 @@
 /* Persistent per-scope layout state (v3). */
 
 const STATE_VERSION = 3;
+const EXPORT_FORMAT = "dsh-sidebar-organizer";
+const EXPORT_FILENAME = "dsh-sidebar-organizer.json";
+// 0.4.x shares STORAGE_KEY but only understands the flat sidebar layout: loading
+// that build rewrites the key as {version:2,order,hidden}, dropping every other
+// scope and the tucked rows. Keep a full snapshot beside it so the next 0.5.x
+// load can put the configuration back instead of losing it for good.
+const LAYOUT_BACKUP_KEY = `${STORAGE_KEY}.v3-backup`;
 let layoutCache = null;
 let dragCache = null;
 
@@ -71,8 +78,33 @@ function readState() {
   } catch (err) {
     parsed = null;
   }
-  layoutCache = normalizeLayoutState(parsed);
+  layoutCache = restoreFromBackup(parsed) || normalizeLayoutState(parsed);
   return layoutCache;
+}
+
+// Returns a restored state when the primary key was degraded to the flat
+// sidebar shape by an older build but our own multi-scope snapshot survived.
+function restoreFromBackup(parsed) {
+  if (!parsed || typeof parsed !== "object" || parsed.scopes) return null;
+  if (!Array.isArray(parsed.order) && !Array.isArray(parsed.hidden)) return null;
+  let backup = null;
+  try {
+    const raw = window.localStorage.getItem(LAYOUT_BACKUP_KEY);
+    if (raw) backup = JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+  if (!backup || typeof backup !== "object" || !backup.scopes) return null;
+  const state = normalizeLayoutState(backup);
+  // Only rescuing the sidebar would rewind a deliberate reset made in the older
+  // build; the loss worth undoing is the scopes that build cannot represent.
+  if (!Object.keys(state.scopes).some((scope) => scope !== "sidebar")) return null;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (err) {
+    /* keep the restored copy in memory */
+  }
+  return state;
 }
 
 function cloneState(state) {
@@ -87,8 +119,10 @@ function cloneState(state) {
 
 function writeState(state) {
   layoutCache = cloneState(state);
+  const serialized = JSON.stringify(layoutCache);
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(layoutCache));
+    window.localStorage.setItem(STORAGE_KEY, serialized);
+    window.localStorage.setItem(LAYOUT_BACKUP_KEY, serialized);
   } catch (err) {
     /* storage may be unavailable; keep the in-memory copy */
   }
@@ -183,10 +217,71 @@ function writeDragEnabled(scope, enabled) {
   return true;
 }
 
+// The exported file is a self-contained snapshot of everything the user
+// configured: the six-scope layout plus the per-section drag switches. The
+// repair ledger and the disabled kill switch are local runtime bookkeeping and
+// deliberately stay out of it.
+function exportConfigSnapshot() {
+  const state = cloneState(readState());
+  const dragState = readDragState();
+  const drag = {};
+  for (const scope of SCOPE_KEYS) drag[scope] = dragState[scope] !== false;
+  return {
+    format: EXPORT_FORMAT,
+    version: STATE_VERSION,
+    exportedAt: new Date().toISOString(),
+    scopes: state.scopes,
+    drag,
+  };
+}
+
+// Import replaces the whole configuration at once. A file from another version
+// or with a missing layout block is rejected whole; half-applying a different
+// shape would scatter the user's rows across the page.
+function importConfigSnapshot(value) {
+  let raw = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch (err) {
+      return { ok: false, reason: "json" };
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, reason: "json" };
+  }
+  if (raw.version !== STATE_VERSION) {
+    return { ok: false, reason: "version" };
+  }
+  if (!raw.scopes || typeof raw.scopes !== "object" || Array.isArray(raw.scopes)) {
+    return { ok: false, reason: "shape" };
+  }
+
+  const state = normalizeLayoutState(raw);
+  writeState(state);
+
+  const source = raw.drag && typeof raw.drag === "object" && !Array.isArray(raw.drag) ? raw.drag : {};
+  const drag = {};
+  for (const scope of SCOPE_KEYS) drag[scope] = source[scope] !== false;
+  dragCache = drag;
+  try {
+    window.localStorage.setItem(DRAG_KEY, JSON.stringify(drag));
+  } catch (err) {
+    /* keep the in-memory copy */
+  }
+
+  // An imported order is an explicit snapshot. Mark every scope as repaired so
+  // the one-shot 0.5.4 migration cannot reorder it on the next projection pass.
+  for (const scope of SCOPE_KEYS) markScopeRepaired(scope);
+
+  return { ok: true, scopes: Object.keys(state.scopes).length };
+}
+
 function forgetLayout() {
   layoutCache = null;
   try {
     window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(LAYOUT_BACKUP_KEY);
     // A legacy flat layout would otherwise be migrated straight back in on the
     // next read, making "reset" appear to do nothing.
     window.localStorage.removeItem(LEGACY_STORAGE_KEY);

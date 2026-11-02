@@ -529,6 +529,21 @@
         api.status().scopes.tabs.hidden.indexOf("diff") !== -1,
         JSON.stringify(api.status().scopes.tabs.hidden)
       );
+      // The host stops rendering overflow tabs when the pane narrows, so the
+      // tab is gone from the DOM while still registered. It must keep showing
+      // up under 已收纳 instead of disappearing from the menu (and later
+      // leaking back as a plain host row).
+      const foldedHidden = api.hiddenForRegion("conversation");
+      assert(
+        "folded tucked tab stays listed under 已收纳",
+        foldedHidden.some((row) => row.scope === "tabs" && row.id === "diff"),
+        JSON.stringify(foldedHidden)
+      );
+      assert(
+        "hiddenIds reports folded tucked tab",
+        api.hiddenIds("tabs").indexOf("diff") !== -1,
+        JSON.stringify(api.hiddenIds("tabs"))
+      );
       tabDiff.removeAttribute("style");
       delete tabDiff.dataset.dsoKey;
       delete tabDiff.dataset.dsoScope;
@@ -737,6 +752,90 @@
         guideSpacer > lastRowOrder && guideSpacer > 1000,
         `spacer ${guideSpacer} vs row ${lastRowOrder}`
       );
+
+      // Configuration export/import: the file carries both the layout and the
+      // per-section drag switches. A version mismatch is rejected whole, so a
+      // foreign snapshot cannot half-apply over the current layout.
+      api.reset();
+      api.reorder("footer", "footer-feedback", 0);
+      api.hide("tabs", "diff");
+      api.setDragEnabled("right", false);
+      const exported = api.exportConfig();
+      assert("export carries a format marker", exported.format === "dsh-sidebar-organizer", exported.format);
+      assert("export carries the state version", exported.version === 3, exported.version);
+      assert(
+        "export carries the current layout",
+        exported.scopes.footer.order[0] === "footer-feedback" && exported.scopes.tabs.hidden.indexOf("diff") !== -1,
+        JSON.stringify(exported.scopes)
+      );
+      assert(
+        "export carries every drag switch",
+        exported.drag.right === false && exported.drag.sidebar === true && Object.keys(exported.drag).length === 6,
+        JSON.stringify(exported.drag)
+      );
+
+      api.reset();
+      api.setDragEnabled("right", true);
+      assert("reset clears the layout before import", orderOf("footer")[0] !== "footer-feedback", orderOf("footer").join(","));
+      const imported = api.importConfig(JSON.stringify(exported));
+      assert("import accepts the exported JSON", imported.ok === true, JSON.stringify(imported));
+      assert("import restores visual order", orderOf("footer")[0] === "footer-feedback", orderOf("footer").join(","));
+      assert("import restores tucked rows", document.querySelector('[data-testid="diff"]').dataset.dsoHidden === "1");
+      assert("import restores drag switches", api.isDragEnabled("right") === false, api.isDragEnabled("right"));
+
+      const beforeBadImport = JSON.stringify(api.status());
+      const wrongVersion = api.importConfig(Object.assign({}, exported, { version: 99 }));
+      assert("wrong-version import is rejected", wrongVersion.ok === false && wrongVersion.reason === "version", JSON.stringify(wrongVersion));
+      assert("wrong-version import leaves state untouched", JSON.stringify(api.status()) === beforeBadImport);
+      const malformed = api.importConfig({ version: 3 });
+      assert("malformed import is rejected", malformed.ok === false && malformed.reason === "shape", JSON.stringify(malformed));
+      const badJson = api.importConfig("{not json");
+      assert("invalid JSON is rejected", badJson.ok === false && badJson.reason === "json", JSON.stringify(badJson));
+
+      // Regression: startup discovery is incremental. An early pass used to
+      // prune rows it had not discovered yet from the saved order, so the
+      // remaining rows were written back as a partial order; each row that
+      // mounted later then looked new and was inserted at its host position,
+      // silently discarding the user's custom order after a reload. Remembered
+      // ids must survive a pass that sees only part of the list.
+      api.resetScope("sidebar");
+      api.reorder("sidebar", "plugins", 2);
+      const customSidebar = "schedules,files,plugins,browser,terminal,tasks";
+      assert("sidebar custom order is persisted", orderOf("sidebar").join(",") === customSidebar, orderOf("sidebar").join(","));
+      const sidebarHost = document.getElementById("sidebar");
+      const delayedPlugins = document.querySelector('[data-testid="plugins"]');
+      const delayedFiles = document.querySelector('[data-testid="files"]');
+      const delayedPluginsNext = delayedPlugins.nextSibling;
+      const delayedFilesNext = delayedFiles.nextSibling;
+      delayedPlugins.remove();
+      delayedFiles.remove();
+      api.refresh();
+      const partialStored = JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1")).scopes.sidebar;
+      assert(
+        "an early pass keeps undiscovered rows in the saved order",
+        partialStored.order.join(",") === customSidebar,
+        partialStored.order.join(",")
+      );
+      for (const node of [delayedPlugins, delayedFiles]) {
+        node.removeAttribute("style");
+        delete node.dataset.dsoKey;
+        delete node.dataset.dsoScope;
+        delete node.dataset.dsoHidden;
+      }
+      sidebarHost.insertBefore(delayedPlugins, delayedPluginsNext);
+      sidebarHost.insertBefore(delayedFiles, delayedFilesNext);
+      api.refresh();
+      await wait(80);
+      assert(
+        "custom sidebar order survives a partial discovery pass",
+        orderOf("sidebar").join(",") === customSidebar,
+        orderOf("sidebar").join(",")
+      );
+      api.resetScope("sidebar");
+
+      // Leave drag switches and layout in their default state for dispose.
+      api.setDragEnabled("right", true);
+      api.reset();
 
       api.dispose();
       assert("dispose clears row marks", document.querySelectorAll("[data-dso-key]").length === 0);

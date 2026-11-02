@@ -5,6 +5,18 @@
 
 ## 未发布
 
+- 修复窗口变窄（例如打开右侧栏）后已收纳的对话视图「跑出来」：宿主会根据标签栏
+  宽度把放不下的视图折叠进「更多」菜单，被收纳的视图于是以宿主普通条目的形式出现
+  在「已收纳」上方；同时「已收纳」区又因为对应标签已不在 DOM 中而整块消失，只剩
+  「恢复默认排序」。现在折叠进菜单的已收纳视图仍列在「已收纳」下方，宿主对应的
+  重复条目会被隐藏，点击后照常打开该视图。
+- 修复刷新后侧栏的自定义顺序丢失（同一份配置里的收纳状态却仍然有效）：启动时
+  插件会分多次发现宿主行，第一次只看到部分行时，旧逻辑会把尚未出现的行从保存
+  顺序里剪掉并立即写回；这些行稍后挂载时就成了「新条目」，被按宿主位置插回，
+  自定义顺序因此被冲掉。现在尚未发现的行会和已收纳行一样保留在保存顺序中。
+- 新增配置导入 / 导出：设置页标题栏可把六区域的排序、收纳状态与拖动开关导出为
+  JSON 文件，也能导入同格式文件整体替换当前配置。版本不兼容、缺少布局块或 JSON
+  损坏时整份拒绝，不会只应用一半；导入后的顺序也不会被旧版尾行修复再次改写。
 - 修复拖动对话标签（「对话 / 轨迹」）时页面右侧多出一条滚动条：宿主的标签样式
   给克隆行带上了 `position: relative`，拖影于是落进 body 常规流、把文档撑高。
   现在拖影强制 `position: fixed !important`，不再参与页面布局。
@@ -22,6 +34,25 @@
 
 ### English
 
+- Fix tucked conversation views leaking back into view when the pane gets narrow
+  (for example after opening the right sidebar): the host folds views that no
+  longer fit into the header "More" menu, so a tucked view reappeared there as an
+  ordinary host row above "已收纳", while the tucked block itself disappeared
+  (its tab was no longer in the DOM) and only "Reset layout" remained. Folded
+  tucked views now stay listed under the tucked caption, the duplicate host rows
+  are hidden, and clicking one still opens that view.
+- Fix a custom sidebar order being lost after a reload while the same layout's
+  tucked state survived: at startup the plugin discovers host rows in several
+  passes. On the first pass it saw only some rows and pruned the rest from the
+  saved order, writing that partial order back. The missing rows then mounted,
+  looked brand new, and were inserted at their host positions, wiping out the
+  custom order. Undiscovered rows now stay in the saved order, just like tucked
+  rows.
+- Add configuration import/export: the settings header exports the order, tucked
+  rows, and drag switches of all six sections as a JSON file, and imports the
+  same format as a full replacement. A version mismatch, a missing layout block,
+  or broken JSON is rejected whole instead of half-applied, and the legacy
+  trailing-row repair cannot rewrite the imported order.
 - Fix a stray page scrollbar while dragging the conversation tabs: the host tab
   class sets `position: relative`, so the cloned ghost fell into normal flow at
   the bottom of the page and grew the document. The ghost is now pinned with

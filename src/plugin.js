@@ -134,6 +134,8 @@ function apply(ctx) {
     refresh: () => runtime && runtime.refresh(),
     snapshot: () => (runtime ? runtime.snapshot() : []),
     reset: () => runtime && runtime.reset(),
+    exportConfig: () => (runtime ? runtime.exportConfig() : null),
+    importConfig: (value) => (runtime ? runtime.importConfig(value) : { ok: false, reason: "inactive" }),
     resetScope: (scope) => runtime && runtime.resetScope(scope),
     resetRegion: (region) => runtime && runtime.resetRegion(region),
     hide: (scope, id) => {
@@ -149,6 +151,7 @@ function apply(ctx) {
     reorder: (scope, id, index) => runtime && runtime.reorder(scope, id, index),
     activate: (scope, id) => runtime && runtime.activate(scope, id),
     hiddenForRegion: (region) => (runtime ? runtime.hiddenForRegion(region) : []),
+    hiddenIds: (scope) => (runtime ? runtime.hiddenIds(scope) : []),
     isCustomized: (scope) => !!(runtime && runtime.isCustomized(scope)),
     isCustomizedRegion: (region) => !!(runtime && runtime.isCustomizedRegion(region)),
     isDragEnabled: (scope) => !!(runtime && runtime.isDragEnabled(scope)),
