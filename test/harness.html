@@ -317,6 +317,10 @@
       const menuRect0 = menuRow.getBoundingClientRect();
       const menuX = menuRect0.left + menuRect0.width / 2;
       const menuY = menuRect0.top + menuRect0.height / 2;
+      // The popup only holds this one row, so there is no other row to anchor
+      // the line against. 0.5.7 fell back to the raw pointer y, which drew a
+      // full-width line straight through "任务". It belongs on the row's edge.
+      const singleY = menuRect0.top + menuRect0.height * 0.78;
       menuRow.dispatchEvent(new PointerEvent("pointerdown", {
         bubbles: true, cancelable: true, button: 0, pointerId: 21,
         clientX: menuX, clientY: menuY,
@@ -330,6 +334,29 @@
         placeholderOpacity
       );
       assert("menu source keeps its layout slot", menuRow.getBoundingClientRect().height > 0);
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 21,
+        clientX: menuX, clientY: singleY,
+      }));
+      const singleIndicator = document.querySelector(".dso-indicator");
+      assert("single tucked row shows its drop line", !!singleIndicator && singleIndicator.dataset.visible === "1");
+      assert(
+        "single tucked row anchors the line above itself",
+        Math.abs(parseFloat(singleIndicator.style.top) - (menuRect0.top - 1)) <= 1,
+        `${singleIndicator.style.top} vs ${menuRect0.top}`
+      );
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 21,
+        clientX: menuX, clientY: singleY,
+      }));
+      await wait(520);
+      assert("in-popup drop keeps the row tucked", !!tasksRow.dataset.dsoHidden);
+      menuRow.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 21,
+        clientX: menuX, clientY: menuY,
+      }));
+      await wait(330);
+      assert("menu row still starts a drag", menuRow.classList.contains("dso-dragging"));
       const browserRect = document.querySelector('[data-testid="browser"]').getBoundingClientRect();
       const dropSideX = browserRect.left + browserRect.width / 2;
       const dropSideY = browserRect.top + browserRect.height / 4;
@@ -456,6 +483,34 @@
         clientX: tabDropX, clientY: tabFromY,
       }));
       await wait(20);
+
+      // The host unmounts every tab past its overflow limit when the pane
+      // narrows, then remounts fresh buttons on widen. A tucked tab must stay
+      // tucked across that gap: 0.5.7 pruned absent ids out of `hidden`, so the
+      // remounted tab came back visible ("宽度缩短再变长后跑出来").
+      api.resetScope("tabs");
+      assert("can tuck a tab before the host narrows", api.hide("tabs", "diff") === true);
+      const diffHost = tabDiff.parentElement;
+      const diffNext = tabDiff.nextSibling;
+      tabDiff.remove();
+      await wait(80);
+      assert(
+        "absent tab stays in hidden state",
+        api.status().scopes.tabs.hidden.indexOf("diff") !== -1,
+        JSON.stringify(api.status().scopes.tabs.hidden)
+      );
+      tabDiff.removeAttribute("style");
+      delete tabDiff.dataset.dsoKey;
+      delete tabDiff.dataset.dsoScope;
+      delete tabDiff.dataset.dsoHidden;
+      diffHost.insertBefore(tabDiff, diffNext);
+      await wait(80);
+      assert(
+        "remounted tab stays tucked away",
+        tabDiff.dataset.dsoHidden === "1" && getComputedStyle(tabDiff).display === "none",
+        `hidden=${tabDiff.dataset.dsoHidden} display=${getComputedStyle(tabDiff).display}`
+      );
+      api.resetScope("tabs");
 
       // Make visual order (feedback, settings, help) differ from DOM order
       // (settings, help, feedback). The next drop must use the visual order;

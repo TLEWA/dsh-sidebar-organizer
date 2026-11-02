@@ -113,7 +113,15 @@ function createRuntime(ctx) {
       if (previous) order.splice(order.indexOf(previous) + 1, 0, id);
       else order.push(id);
     }
-    const hidden = current.hidden.filter((id) => order.indexOf(id) !== -1);
+    // A host may unmount rows without telling us: the conversation tab bar drops
+    // every tab past its overflow limit whenever the pane narrows (and remounts
+    // them when it widens). Forgetting those ids here made a hidden tab pop back
+    // into the header on widen. Keep hidden ids for absent rows; applyFound's
+    // visible list only contains discovered rows, so index math stays untouched.
+    const hidden = [];
+    for (const id of current.hidden) {
+      if (hidden.indexOf(id) === -1) hidden.push(id);
+    }
     return { order, hidden };
   }
 
@@ -746,7 +754,15 @@ function createRuntime(ctx) {
   }
 
   function indexAt(items, x, y, axis, allItems) {
-    if (!items.length) return { index: 0, boundary: axis === "x" ? x : y };
+    if (!items.length) {
+      // Only the dragged row itself is in this list ("已收纳" with a single
+      // entry). Following the pointer drew a full-width line straight through
+      // that row's text, so anchor to the source's own leading edge instead.
+      const all = allItems && allItems.length ? allItems : items;
+      const anchor = all.length ? all[0].rect : null;
+      if (!anchor) return { index: 0, boundary: axis === "x" ? x : y };
+      return { index: 0, boundary: axis === "x" ? anchor.left : anchor.top };
+    }
     const coordinate = axis === "x" ? x : y;
     for (let index = 0; index < items.length; index += 1) {
       const rect = items[index].rect;
