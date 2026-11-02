@@ -29,8 +29,9 @@ composer dock, right sidebar, and settings navigation.
   and it leaves the strip, moving into the "Tucked away" group of that menu.
   The sidebar footer shares the left sidebar's More menu; tabs and the composer
   share the conversation More menu; the right sidebar uses its own "More tools".
-  Settings navigation has no More menu, so its rows can only be tucked/restored
-  from the settings page.
+  Settings navigation can only tuck its first row from the settings page; once a row
+  is tucked, the plugin adds a "More" anchor at the bottom of the navigation that
+  lists tucked entries (click one to open that section) and accepts more drops.
 - **Pull back out of "More"**: open the menu, long-press a tucked item and drag
   it onto the strip. The source row is hidden while dragging, so the floating
   preview never overlaps a duplicate of its own label.
@@ -41,8 +42,8 @@ composer dock, right sidebar, and settings navigation.
   page. Six location cards let you drag rows, move up/down, tuck/restore, and
   reset one section. Each card has its own "Drag" switch: turn it off and that
   section stops responding to long-press drags without changing its layout or
-  tucked rows. The plugin's own settings entry and better-sidebar's settings
-  entry are pinned and cannot be tucked.
+  tucked rows. The plugin's own settings entry can be reordered but not tucked;
+  better-sidebar's settings entry is fully fixed and cannot be moved or tucked.
 - **Region-scoped reset**: "Reset default order" in each More menu resets only
   that region (left sidebar, conversation, or right sidebar) and immediately
   reveals its tucked rows. Resetting never changes the per-section drag
@@ -94,8 +95,8 @@ the page. Since 0.2.0 the mechanism is different:
    entry in `sidebar.panellist`, `sidebar.footer.action`, `conversation.view`,
    `conversation.composer.dock`, or `settings.section`; it only reads
    `entriesOfSlot` for ids and labels. The settings page is the one exception:
-   the plugin registers its own "Layout organizer" section, and that row is
-   pinned so it cannot be tucked.
+   the plugin registers its own "Layout organizer" section, and that row can be
+   reordered but not tucked.
 2. **Order/visibility is written as inline DOM styles.** Each row gets
    `style.order` (works for row and column containers); tucking uses
    `style.display:none` plus `data-dso-hidden`.

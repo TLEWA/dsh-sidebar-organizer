@@ -157,7 +157,7 @@ function createSettingsPage() {
                 "dso-config-row" +
                 (isHidden ? " is-hidden" : "") +
                 (over === row.id ? " is-drop" : ""),
-              draggable: !row.pinned && !isHidden,
+              draggable: !row.fixed && !isHidden,
               onDragStart: (event) => {
                 dragRef.current = row.id;
                 if (event.dataTransfer) {
@@ -184,8 +184,8 @@ function createSettingsPage() {
                 dropOn(row.id);
               },
             },
-            row.pinned
-              ? h("span", { className: "dso-config-grip is-pinned" }, h(Icon, { name: "grip" }))
+            row.fixed
+              ? h("span", { className: "dso-config-grip is-fixed", title: text.pinned }, h(Icon, { name: "grip" }))
               : h("span", { className: "dso-config-grip" }, h(Icon, { name: "grip" })),
             h("span", { className: "dso-config-label", title: row.label }, row.label),
             isHidden
@@ -200,7 +200,7 @@ function createSettingsPage() {
               : h(ActionButton, {
                   icon: "up",
                   title: text.up,
-                  disabled: index <= 0,
+                  disabled: row.fixed || index <= 0,
                   onClick: () => move(row, -1),
                 }),
             isHidden
@@ -208,7 +208,7 @@ function createSettingsPage() {
               : h(ActionButton, {
                   icon: "down",
                   title: text.down,
-                  disabled: index === -1 || index >= visible.length - 1,
+                  disabled: row.fixed || index === -1 || index >= visible.length - 1,
                   onClick: () => move(row, 1),
                 }),
             !isHidden && !row.pinned && visible.length > 1

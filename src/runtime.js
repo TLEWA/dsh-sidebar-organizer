@@ -16,6 +16,8 @@ function createRuntime(ctx) {
     passDeferred: false,
     menuListeners: new Set(),
     dismissMenu: null,
+    settingsMenu: null,
+    settingsMenuAnchor: null,
     found: {},
   };
 
@@ -73,6 +75,104 @@ function createRuntime(ctx) {
     row.target.dataset.dsoKey = row.id;
     if (hidden) row.target.dataset.dsoHidden = "1";
     else delete row.target.dataset.dsoHidden;
+  }
+
+  // The settings nav has no host overflow menu.  The injected anchor is an
+  // ordinary More target for dragging, but it needs its own popup: a small
+  // body-level list of tucked rows, whose items reuse data-dso-more-key so the
+  // existing drag source/reorder logic works unchanged.
+  function settingsHiddenRows() {
+    const found = state.found.settings;
+    if (!found) return [];
+    const layout = normalizedLayout("settings");
+    const out = [];
+    for (const id of layout.hidden) {
+      const row = rowFor(found, id);
+      if (row) out.push({ id, label: row.label || id });
+    }
+    return out;
+  }
+
+  function closeSettingsMoreMenu() {
+    const menu = state.settingsMenu;
+    state.settingsMenu = null;
+    state.settingsMenuAnchor = null;
+    if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
+  }
+
+  function positionSettingsMoreMenu(menu, anchor) {
+    const rect = anchor.getBoundingClientRect();
+    if (rect.bottom < 8 || rect.top > window.innerHeight - 8) {
+      closeSettingsMoreMenu();
+      return;
+    }
+    const width = Math.max(160, Math.round(rect.width));
+    menu.style.width = width + "px";
+    let left = Math.round(rect.left);
+    if (left + width > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - width - 8);
+    }
+    menu.style.left = left + "px";
+    const height = menu.offsetHeight;
+    let top = Math.round(rect.bottom + 6);
+    if (top + height > window.innerHeight - 8) {
+      top = Math.max(8, Math.round(rect.top - height - 6));
+    }
+    menu.style.top = top + "px";
+  }
+
+  function openSettingsMoreMenu(anchor) {
+    const rows = settingsHiddenRows();
+    if (!rows.length) return;
+    closeSettingsMoreMenu();
+    const text = strings();
+    const menu = document.createElement("div");
+    menu.className = "dso-settings-more-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", text.moreMenu);
+    for (const item of rows) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "dso-settings-more-item";
+      button.setAttribute("role", "menuitem");
+      button.setAttribute("data-dso-more-key", "settings:" + item.id);
+      button.textContent = item.label;
+      menu.appendChild(button);
+    }
+    document.body.appendChild(menu);
+    state.settingsMenu = menu;
+    state.settingsMenuAnchor = anchor;
+    positionSettingsMoreMenu(menu, anchor);
+  }
+
+  function toggleSettingsMoreMenu(anchor) {
+    if (state.settingsMenu) {
+      closeSettingsMoreMenu();
+      return;
+    }
+    openSettingsMoreMenu(anchor);
+  }
+
+  function onDocumentClick(event) {
+    const target = event.target;
+    if (!target || target.nodeType !== 1) return;
+    const moreButton = target.closest(".dso-settings-more");
+    if (moreButton) {
+      event.preventDefault();
+      toggleSettingsMoreMenu(moreButton);
+      return;
+    }
+    const item = target.closest(".dso-settings-more-item");
+    if (item) {
+      if (!state.settingsMenu || !state.settingsMenu.contains(item)) return;
+      const parsed = parseMenuRow(item);
+      closeSettingsMoreMenu();
+      if (parsed) activate(parsed.scope, parsed.id);
+      return;
+    }
+    if (state.settingsMenu && !state.settingsMenu.contains(target)) {
+      closeSettingsMoreMenu();
+    }
   }
 
   function normalizedLayout(scope) {
@@ -197,8 +297,12 @@ function createRuntime(ctx) {
       applyDisplay(tails[index], false);
     }
     if (found.more) {
+      // Settings only grows its "More" row while something is tucked: with an
+      // empty shelf the extra control would just be another dead row.
+      const showMore = scope === "settings" ? layout.hidden.length > 0 : true;
       applyOrder(found.more, tailBase + tails.length + 1);
-      applyDisplay(found.more, false);
+      applyDisplay(found.more, !showMore);
+      if (!showMore) closeSettingsMoreMenu();
     }
 
     const nextOrder = visible.concat(layout.hidden);
@@ -238,6 +342,17 @@ function createRuntime(ctx) {
       repairAppendedOrder(found);
       applyFound(found);
       seen += 1;
+    }
+    // The settings modal can unmount while its tucked-row popup is open; the
+    // popup lives on <body>, so nothing else would remove it.
+    if (
+      state.settingsMenu &&
+      (!state.found.settings ||
+        !state.found.settings.container.isConnected ||
+        !state.settingsMenuAnchor ||
+        !state.settingsMenuAnchor.isConnected)
+    ) {
+      closeSettingsMoreMenu();
     }
     if (seen && !state.readyLogged) {
       state.readyLogged = true;
@@ -316,7 +431,9 @@ function createRuntime(ctx) {
   function reorder(scope, id, index) {
     const found = state.found[scope];
     const row = rowFor(found, id);
-    if (!row || row.pinned) return false;
+    // `fixed` rows belong to another plugin and must not move at all; `pinned`
+    // only protects our own row from being tucked away.
+    if (!row || row.fixed) return false;
     const layout = normalizedLayout(scope);
     const visible = layout.order.filter((key) => layout.hidden.indexOf(key) === -1);
     const from = visible.indexOf(id);
@@ -423,6 +540,7 @@ function createRuntime(ctx) {
           label: row.label || id,
           hidden: hiddenSet.has(id),
           pinned: !!row.pinned,
+          fixed: !!row.fixed,
         });
       }
       out.push({
@@ -513,7 +631,7 @@ function createRuntime(ctx) {
       const layout = readScope(def.key);
       scopes[def.key] = {
         found: !!found,
-        rows: found ? found.rows.map((row) => ({ id: row.id, label: row.label, hidden: layout.hidden.indexOf(row.id) !== -1, pinned: !!row.pinned })) : [],
+        rows: found ? found.rows.map((row) => ({ id: row.id, label: row.label, hidden: layout.hidden.indexOf(row.id) !== -1, pinned: !!row.pinned, fixed: !!row.fixed })) : [],
         hidden: layout.hidden.slice(),
         dragEnabled: isDragEnabled(def.key),
       };
@@ -614,7 +732,10 @@ function createRuntime(ctx) {
 
     const container = found.container.getBoundingClientRect();
     const moreTarget = found.moreTarget || found.more;
-    const more = moreTarget ? moreTarget.getBoundingClientRect() : null;
+    const moreRaw = moreTarget ? moreTarget.getBoundingClientRect() : null;
+    // A hidden settings More anchor still has a 0×0 rect; treat it as absent so
+    // (0,0) cannot become a phantom tuck target.
+    const more = moreRaw && (moreRaw.width > 0 || moreRaw.height > 0) ? moreRaw : null;
     return {
       found,
       axis: found.axis,
@@ -929,9 +1050,13 @@ function createRuntime(ctx) {
   function endGesture(guard) {
     const gesture = state.gesture;
     if (!gesture) return;
+    const dragged = gesture.started;
     if (gesture.timer) window.clearTimeout(gesture.timer);
     state.gesture = null;
     removeGhost(gesture);
+    // A finished settings drag invalidates the popup contents; a short click on
+    // a menu item must stay alive until its click event activates the row.
+    if (dragged && gesture.scope === "settings") closeSettingsMoreMenu();
     document.body.classList.remove("dso-dragging");
     if (guard) state.guardUntil = Date.now() + CLICK_GUARD_MS;
     if (state.passDeferred) {
@@ -1084,7 +1209,7 @@ function createRuntime(ctx) {
     if (!isDragEnabled(scope)) return;
     const found = state.found[scope];
     const info = rowFor(found, id);
-    if (info && info.pinned) return;
+    if (info && info.fixed) return;
     startGesture(row, scope, id, "row", event);
   }
 
@@ -1162,10 +1287,17 @@ function createRuntime(ctx) {
   }
 
   function onKeyDown(event) {
-    if (event.key === "Escape" && state.gesture) {
-      event.preventDefault();
-      cancelGesture();
-      return;
+    if (event.key === "Escape") {
+      if (state.gesture) {
+        event.preventDefault();
+        cancelGesture();
+        return;
+      }
+      if (state.settingsMenu) {
+        event.preventDefault();
+        closeSettingsMoreMenu();
+        return;
+      }
     }
     if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown" && event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
       return;
@@ -1190,13 +1322,40 @@ function createRuntime(ctx) {
     if (next && next.focus) next.focus();
   }
 
-  function onScroll() {
+  function onScroll(event) {
+    if (state.settingsMenu && !state.gesture) {
+      const target = event && event.target;
+      const inside =
+        target &&
+        target.nodeType === 1 &&
+        (target === state.settingsMenu || state.settingsMenu.contains(target));
+      if (!inside) {
+        // The host settings dialog can emit scrolls on its own (focus moves,
+        // re-renders). Reposition instead of closing, or the popup would
+        // vanish the instant it opens.
+        if (state.settingsMenuAnchor && state.settingsMenuAnchor.isConnected) {
+          positionSettingsMoreMenu(state.settingsMenu, state.settingsMenuAnchor);
+        } else {
+          closeSettingsMoreMenu();
+        }
+      }
+    }
     const gesture = state.gesture;
     if (!gesture || !gesture.started) return;
     const snapshot = buildSnapshot(gesture);
     if (snapshot) gesture.snapshot = snapshot;
     positionGhost(gesture);
     updateDragTarget(gesture, gesture.x, gesture.y);
+  }
+
+  function onResize() {
+    if (state.settingsMenu && !state.gesture) {
+      if (state.settingsMenuAnchor && state.settingsMenuAnchor.isConnected) {
+        positionSettingsMoreMenu(state.settingsMenu, state.settingsMenuAnchor);
+      } else {
+        closeSettingsMoreMenu();
+      }
+    }
   }
 
   function relevantMutation(mutation) {
@@ -1243,8 +1402,10 @@ function createRuntime(ctx) {
     addListener(document, "pointerup", onPointerUp, true);
     addListener(document, "pointercancel", onPointerUp, true);
     addListener(document, "click", onClickCapture, true);
+    addListener(document, "click", onDocumentClick);
     addListener(document, "keydown", onKeyDown, true);
     addListener(window, "scroll", onScroll, true);
+    addListener(window, "resize", onResize);
     addListener(window, "blur", onWindowBlur);
 
     if (typeof MutationObserver !== "undefined") {
@@ -1285,6 +1446,7 @@ function createRuntime(ctx) {
     if (state.pollTimer) window.clearInterval(state.pollTimer);
     if (observer) observer.disconnect();
     observer = null;
+    closeSettingsMoreMenu();
     cancelGesture();
     for (const cleanup of state.listenerCleanup.splice(0)) {
       try {

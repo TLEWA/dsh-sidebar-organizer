@@ -14,6 +14,11 @@
   点击护栏（500ms）原本要等动画结束才生效，而浏览器在 pointerup 当刻就派发了
   click，于是被激活的是刚拖走的那一行。现在 pointerup 里先同步装上护栏再提交
   投放，拖进「更多」只收纳、不激活。
+- 修复设置导航里的「布局整理」入口无法拖动：它原先和 better-sidebar 的设置入口
+  一样被固定。现在本插件自己的入口可以拖动排序，但仍不能收起；better-sidebar 的
+  入口保持完全固定，避免拖走后找不到它自己的恢复入口。
+- 设置导航有收纳项时，导航底部新增「更多」按钮：列出已收纳的设置项，点击直接
+  打开对应设置页；也可以把其他设置行继续拖进去。收纳第一项仍需在配置页操作。
 
 ### English
 
@@ -31,6 +36,14 @@
   click immediately on pointerup, so the row that had just been dragged away
   received it. The guard is now armed synchronously in pointerup before the
   drop commits, so dropping onto "More" only tucks the row.
+- Fix the "Layout organizer" entry in settings navigation being undraggable: it
+  was pinned together with better-sidebar's settings entry. Our own entry can now
+  be reordered, though it still cannot be tucked; better-sidebar's entry stays
+  fully fixed so its own recovery path cannot be dragged away.
+- When settings navigation has tucked rows, a "More" button now appears at the
+  bottom of the list: it lists the tucked settings and opens the matching section
+  on click, and accepts further drops. Tucking the first row still happens from
+  the settings page.
 
 ## 0.5.7-preview.1 — 2026-11-02
 

@@ -157,6 +157,72 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   white-space: nowrap;
 }
 
+/* Settings navigation: the organizer injects a "More" row at the end and a
+   popup that lists tucked settings entries. Geometry mirrors the host nav cells
+   (40px tall, 12px radius) without relying on hashed host class names. */
+.dso-settings-more {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 40px;
+  margin: 0;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.dso-settings-more:hover,
+.dso-settings-more:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--dsw-alias-label-primary, #ebebf5);
+}
+.dso-settings-more:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #4d6bfe));
+}
+.dso-settings-more-menu {
+  position: fixed;
+  z-index: 2147482600;
+  box-sizing: border-box;
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-secondary, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  background: var(--dsw-specific-sidebar-fill, rgba(24, 24, 27, 0.98));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24), 0 2px 8px rgba(0, 0, 0, 0.16);
+}
+.dso-settings-more-item {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  margin: 0;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #ebebf5);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.dso-settings-more-item:hover,
+.dso-settings-more-item:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+}
+.dso-settings-more-item:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #4d6bfe));
+}
+
 /* Settings page / plugin-detail page */
 .dso-config {
   display: flex;
@@ -309,7 +375,8 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   color: var(--dsw-alias-label-tertiary, rgba(235, 235, 245, 0.38));
   cursor: grab;
 }
-.dso-config-grip.is-pinned { cursor: default; opacity: 0.4; }
+.dso-config-grip.is-pinned,
+.dso-config-grip.is-fixed { cursor: default; opacity: 0.4; }
 .dso-config-row:active .dso-config-grip { cursor: grabbing; }
 .dso-config-label {
   flex: 1 1 auto;

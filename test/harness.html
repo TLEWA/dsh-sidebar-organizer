@@ -402,12 +402,35 @@
       assert("resetRegion clears conversation customization", api.isCustomizedRegion("conversation") === false);
       assert("resetRegion leaves other regions alone", orderOf("footer")[0] === "footer-feedback", orderOf("footer").join(","));
 
-      assert("settings own row is pinned", api.hide("settings", "layout-organizer") === false);
-      assert("pinned row cannot be reordered", api.reorder("settings", "layout-organizer", 0) === false);
-      assert("better-sidebar settings row is pinned", api.hide("settings", "better") === false);
+      const settingsMore = document.querySelector("#settings-list > .dso-settings-more");
+      assert("settings nav has a More anchor", !!settingsMore);
+      assert("settings More is hidden while nothing is tucked", settingsMore && getComputedStyle(settingsMore).display === "none", settingsMore && getComputedStyle(settingsMore).display);
+      assert("settings own row cannot be tucked away", api.hide("settings", "layout-organizer") === false);
+      assert("settings own row can be reordered", api.reorder("settings", "layout-organizer", 0) === true);
+      assert("settings own row moves to the top", api.snapshot().find((scope) => scope.scope === "settings").rows[0].id === "layout-organizer", api.snapshot().find((scope) => scope.scope === "settings").rows.map((row) => row.id).join(","));
+      api.resetScope("settings");
+      assert("better-sidebar settings row cannot be hidden", api.hide("settings", "better") === false);
+      assert("better-sidebar settings row stays fixed", api.reorder("settings", "better", 0) === false);
+      let snap = api.snapshot().find((scope) => scope.scope === "settings");
+      assert("snapshot marks fixed settings row", snap.rows.find((row) => row.id === "better").fixed === true);
+      assert("snapshot keeps own row movable", snap.rows.find((row) => row.id === "layout-organizer").fixed === false && snap.rows.find((row) => row.id === "layout-organizer").pinned === true);
       assert("can hide another settings row", api.hide("settings", "account") === true);
-      const snap = api.snapshot().find((scope) => scope.scope === "settings");
+      snap = api.snapshot().find((scope) => scope.scope === "settings");
       assert("snapshot marks hidden settings row", snap.rows.find((row) => row.id === "account").hidden === true);
+      assert("settings More appears once a row is tucked", getComputedStyle(settingsMore).display !== "none", getComputedStyle(settingsMore).display);
+      // The More popup lists tucked rows; picking one activates the real nav row.
+      let accountClicks = 0;
+      document.querySelector('[data-dso-key="account"]').addEventListener("click", () => { accountClicks += 1; });
+      settingsMore.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      const settingsMenu = document.querySelector(".dso-settings-more-menu");
+      assert("settings More opens its popup", !!settingsMenu);
+      const settingsMenuItem = settingsMenu && settingsMenu.querySelector('[data-dso-more-key="settings:account"]');
+      assert("settings popup lists the tucked row", !!settingsMenuItem && settingsMenuItem.textContent === "账户");
+      settingsMenuItem.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      assert("settings popup activates the row", accountClicks === 1);
+      assert("settings popup closes after activation", !document.querySelector(".dso-settings-more-menu"));
+      assert("restore settings row", api.reveal("settings", "account") === true);
+      assert("settings More hides again when the shelf is empty", getComputedStyle(settingsMore).display === "none", getComputedStyle(settingsMore).display);
 
       api.resetScope("footer");
       assert("resetScope restores DOM order", orderOf("footer").join(",") === "footer-settings,footer-help,footer-feedback", orderOf("footer").join(","));

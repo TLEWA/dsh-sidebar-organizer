@@ -400,6 +400,34 @@ function collectRight() {
   };
 }
 
+// The settings nav has no host-provided overflow control: a tucked row would
+// otherwise be unreachable. Inject our own anchor at the end of the list and
+// let the shared More machinery treat it like the host buttons. Reuse the same
+// node on every discovery pass so the drag snapshot stays stable.
+function settingsMoreAnchor(container) {
+  let anchor = null;
+  for (const child of elementChildren(container)) {
+    if (child.classList.contains("dso-settings-more")) {
+      anchor = child;
+      break;
+    }
+  }
+  const label = strings().more;
+  if (anchor) {
+    if (anchor.textContent !== label) anchor.textContent = label;
+    if (anchor.getAttribute("aria-label") !== label) anchor.setAttribute("aria-label", label);
+    return anchor;
+  }
+  anchor = document.createElement("button");
+  anchor.type = "button";
+  anchor.className = "dso-settings-more";
+  anchor.setAttribute("aria-haspopup", "menu");
+  anchor.setAttribute("aria-label", label);
+  anchor.textContent = label;
+  container.appendChild(anchor);
+  return anchor;
+}
+
 function collectSettings() {
   const modal = document.querySelector('[data-shortcut-modal="settings"]');
   if (!modal) return null;
@@ -415,14 +443,17 @@ function collectSettings() {
       container = child;
     }
   }
+  // Create the anchor before collecting: collectUnits then recognizes it as
+  // `more` (aria-haspopup + the 更多 label) instead of treating it as a row.
+  settingsMoreAnchor(container);
   const collected = collectUnits(container, { axis: "y" });
   return {
     scope: "settings",
     axis: "y",
     container,
     rows: collected.rows,
-    more: null,
-    moreTarget: null,
+    more: collected.more,
+    moreTarget: collected.more ? menuTriggerButton(collected.more) : null,
   };
 }
 
@@ -443,11 +474,13 @@ function discoverScope(ctx, scope) {
   }
   for (const row of found.rows) {
     row.synthetic = false;
-    // Our own settings entry must stay reachable.  The same is true for
-    // better-sidebar's section marker: moving/hiding that row breaks the
-    // other plugin's own settings recovery path.
+    // Our own settings entry must stay reachable, and so must better-sidebar's
+    // section marker: hiding either one removes the only way back.  The marker
+    // is additionally fixed in place (it is not ours to move); our own row is
+    // freely draggable so the user can put it anywhere in the list.
     const foreignPinned = scope === "settings" && !!row.target.closest("[data-dsh-better-sidebar-settings-nav]");
     row.pinned = !!(scope === "settings" && (row.id === SETTINGS_ID || foreignPinned));
+    row.fixed = !!(scope === "settings" && foreignPinned);
   }
   return found;
 }
