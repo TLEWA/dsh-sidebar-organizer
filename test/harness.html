@@ -14,7 +14,14 @@
   /* Mirrors the host tab: the bottom padding reserves the active underline. */
   .tabs button { padding: 0 0 9px; }
   .footer, .tabs, .composer, .right, .settings-list { display: flex; gap: 6px; }
-  .right { flex-direction: column; width: 200px; min-height: 420px; justify-content: center; }
+  .right { --harness-entry-radius: 12px; flex-direction: column; width: 640px; min-height: 420px; justify-content: center; align-items: center; }
+  /* Mirrors the shipped guide: 380px cards centered in a much wider, padded
+     flex column. The drop line must follow the cards, not this container. */
+  .right [data-sidebar-right-guide-entry] { width: 380px; max-width: 100%; }
+  .guide-entry {
+    width: 100%; border-radius: var(--harness-entry-radius);
+    border: .5px solid #3a3a3f; background: #26272b; padding: 10px 14px; color: #ddd;
+  }
   /* Mirrors the shipped guide's trailing spacer; it must stay after every row. */
   .right::after { content: ""; flex: 0 10%; }
   .tabs { flex-direction: row; }
@@ -102,12 +109,12 @@
   <div class="fixture">
     <div class="caption">right sidebar guide</div>
     <div data-sidebar-right-guide class="right" id="right">
-      <div data-sidebar-right-guide-entry="files"><button><span class="entryTitle">文件</span><span aria-hidden="true">F</span></button></div>
-      <div data-sidebar-right-guide-entry="browser"><button><span class="entryTitle">浏览器</span><span aria-hidden="true">B</span></button></div>
-      <div data-sidebar-right-guide-entry="new-terminal"><button><span class="entryTitle">New terminal</span><span aria-hidden="true">N</span></button></div>
-      <div data-sidebar-right-guide-entry="terminal"><button><span class="entryTitle">终端</span><span aria-hidden="true">T</span></button></div>
+      <div data-sidebar-right-guide-entry="files"><button class="guide-entry"><span class="entryTitle">文件</span><span aria-hidden="true">F</span></button></div>
+      <div data-sidebar-right-guide-entry="browser"><button class="guide-entry"><span class="entryTitle">浏览器</span><span aria-hidden="true">B</span></button></div>
+      <div data-sidebar-right-guide-entry="new-terminal"><button class="guide-entry"><span class="entryTitle">New terminal</span><span aria-hidden="true">N</span></button></div>
+      <div data-sidebar-right-guide-entry="terminal"><button class="guide-entry"><span class="entryTitle">终端</span><span aria-hidden="true">T</span></button></div>
       <div class="right-chrome" data-testid="right-chrome"><button aria-label="联动">联动</button></div>
-      <button aria-haspopup="menu" aria-label="更多工具"><span class="entryTitle">更多工具</span><span aria-hidden="true">…</span></button>
+      <button class="guide-entry" aria-haspopup="menu" aria-label="更多工具"><span class="entryTitle">更多工具</span><span aria-hidden="true">…</span></button>
     </div>
   </div>
 
@@ -587,13 +594,58 @@
       await wait(80);
       assert("sidebar drop follows visual order", orderOf("sidebar").slice(0, 5).join(",") === "terminal,schedules,files,plugins,browser", orderOf("sidebar").join(","));
 
+      // Regression (0.5.7): the right guide is a full-width, centered flex
+      // column holding 380px cards. Using the container rect for the drop line
+      // stretched it across the entire app; cloning the button to <body> lost
+      // the ancestor's --dsl-guide-entry-radius and made the ghost square.
+      const rightFixture = document.getElementById("right");
+      const rightFiles = rightFixture.querySelector('[data-sidebar-right-guide-entry="files"] button');
+      const rightTerminal = rightFixture.querySelector('[data-sidebar-right-guide-entry="terminal"] button');
+      const rightFileRect = rightFiles.getBoundingClientRect();
+      const rightTermRect = rightTerminal.getBoundingClientRect();
+      assert("right guide is wider than its cards", rightFixture.getBoundingClientRect().width > rightFileRect.width + 100);
+      rightTerminal.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 31,
+        clientX: rightTermRect.left + rightTermRect.width / 2,
+        clientY: rightTermRect.top + rightTermRect.height / 2,
+      }));
+      await wait(330);
+      const rightGhost = document.querySelector(".dso-ghost");
+      const rightGhostRadius = rightGhost ? parseFloat(getComputedStyle(rightGhost).borderTopLeftRadius) : NaN;
+      assert("right guide drag creates a ghost", !!rightGhost);
+      assert(
+        "right guide ghost keeps the host corner radius",
+        rightGhostRadius >= 11,
+        `radius ${rightGhostRadius}`
+      );
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 31,
+        clientX: rightFileRect.left + rightFileRect.width / 2,
+        clientY: rightFileRect.top + rightFileRect.height * 0.25,
+      }));
+      const rightIndicator = document.querySelector(".dso-indicator");
+      const rightIndicatorLeft = rightIndicator ? parseFloat(rightIndicator.style.left) : NaN;
+      const rightIndicatorWidth = rightIndicator ? parseFloat(rightIndicator.style.width) : NaN;
+      assert(
+        "right guide drop line spans the cards, not the container",
+        Math.abs(rightIndicatorWidth - (rightFileRect.width - 8)) <= 1 &&
+          Math.abs(rightIndicatorLeft - (rightFileRect.left + 4)) <= 1,
+        `left ${rightIndicatorLeft} width ${rightIndicatorWidth}, card ${rightFileRect.left}/${rightFileRect.width}, container ${rightFixture.getBoundingClientRect().width}`
+      );
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 31,
+        clientX: rightFileRect.left + rightFileRect.width / 2,
+        clientY: rightFileRect.top + rightFileRect.height * 0.25,
+      }));
+      await wait(80);
+
       // A plugin registered after us can add a right-guide entry. It must keep
       // the host's insertion point, not get appended below every old row.
       const rightGuide = document.getElementById("right");
       const terminalCell = rightGuide.querySelector('[data-sidebar-right-guide-entry="terminal"]');
       const addedCell = document.createElement("div");
       addedCell.setAttribute("data-sidebar-right-guide-entry", "dynamic-terminal");
-      addedCell.innerHTML = '<button aria-label="新建终端"><span class="entryTitle">新建终端</span></button>';
+      addedCell.innerHTML = '<button class="guide-entry" aria-label="新建终端"><span class="entryTitle">新建终端</span></button>';
       rightGuide.insertBefore(addedCell, terminalCell);
       api.refresh();
       await wait(30);
@@ -626,5 +678,11 @@
     }
   })();
 </script>
+<style>
+  /* The real host sheet is installed after the plugin's, and resolves the
+     entry radius through an ancestor variable that is absent on <body>. Keep
+     that cascade order here so the ghost-radius regression is reproducible. */
+  .guide-entry { border-radius: var(--harness-entry-radius); }
+</style>
 </body>
 </html>

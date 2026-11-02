@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>dsh-sidebar-organizer standalone harness</title>
+<style>
+  html, body { margin: 0; background: #17171b; color: #ddd; font: 13px/1.5 system-ui, sans-serif; }
+  #stage { padding: 18px; }
+  nav.sidebar { display: flex; flex-direction: column; gap: 4px; width: 180px; }
+  nav.sidebar button { display: flex; align-items: center; gap: 6px; min-height: 30px; }
+  #result { white-space: pre-wrap; padding: 12px 18px; font-family: ui-monospace, monospace; }
+  .ok { color: #6ee7a8; }
+  .bad { color: #ff7b72; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="caption">host with NO better-sidebar markup, slots, or right guide</div>
+  <nav class="sidebar" id="sidebar">
+    <button aria-label="插件" data-testid="plugins"><span data-slot="sidebar.panellist" aria-hidden="true">P</span><span>插件</span></button>
+    <button aria-label="文件" data-testid="files"><span aria-hidden="true">F</span><span>文件</span></button>
+    <button aria-label="浏览器" data-testid="browser"><span aria-hidden="true">B</span><span>浏览器</span></button>
+    <button aria-haspopup="menu" aria-label="更多"><span aria-hidden="true">…</span><span>更多</span></button>
+  </nav>
+</div>
+<div id="result">running…</div>
+
+<script>
+  const log = [];
+  const failures = [];
+  function assert(name, condition, extra) {
+    log.push((condition ? "PASS " : "FAIL ") + name + (condition ? "" : " — " + (extra === undefined ? "" : String(extra))));
+    if (!condition) failures.push(name);
+  }
+  function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+  function orderOf(scope) {
+    return Array.from(document.querySelectorAll('[data-dso-scope="' + scope + '"]'))
+      .filter((node) => !node.dataset.dsoHidden)
+      .sort((a, b) => Number(a.style.order) - Number(b.style.order))
+      .map((node) => node.dataset.dsoKey);
+  }
+
+  const ReactStub = {
+    createElement() { return {}; },
+    useState() { return [0, function () {}]; },
+    useEffect() {},
+    useRef() { return { current: null }; },
+    Fragment: "fragment",
+    Component: class { constructor(props) { this.props = props; this.state = {}; } },
+  };
+  const slots = new Map();
+  function addEntry(slot, options) {
+    if (!slots.has(slot)) slots.set(slot, []);
+    slots.get(slot).push({ options });
+  }
+  addEntry("sidebar.panellist", { id: "plugins", label: "插件" });
+  addEntry("sidebar.panellist", { id: "files", label: "文件" });
+  addEntry("sidebar.panellist", { id: "browser", label: "浏览器" });
+
+  const ctx = {
+    logger: { debug() {}, info() {}, warn() {} },
+    effect(fn) { this.__cleanup = fn(); return () => this.__cleanup && this.__cleanup(); },
+    slots: {
+      entriesOfSlot(slot) { return (slots.get(slot) || []).slice(); },
+      inject(slot, callback) { callback(); },
+      register() { throw new Error("register used outside inject"); },
+    },
+  };
+  ctx.slots.inject = function (slot, callback) {
+    const previous = ctx.slots.register;
+    ctx.slots.register = function (options) {
+      addEntry(slot, options);
+      return { dispose() {} };
+    };
+    callback();
+    ctx.slots.register = previous;
+  };
+
+  localStorage.clear();
+  window.__ModuleLoader__ = {
+    load({ factory }) {
+      window.__plugin = factory(function require(name) {
+        if (name === "react") return ReactStub;
+        if (name === "@deepseek-ai/dsh-client-ui-primitives") return {};
+        return null;
+      });
+    },
+  };
+
+  function finish() {
+    const passed = failures.length === 0;
+    const result = document.getElementById("result");
+    result.innerHTML = log.map((line) =>
+      '<div class="' + (line.startsWith("PASS") ? "ok" : "bad") + '">' + line + "</div>"
+    ).join("");
+    result.insertAdjacentHTML("afterbegin", '<div class="' + (passed ? "ok" : "bad") + '"><b>' + (passed ? "ALL PASS" : failures.length + " FAILURE(S)") + "</b></div>");
+    window.__harnessLog = log;
+    window.__harnessFailures = failures;
+    window.__harnessDone = true;
+  }
+
+  (async function run() {
+    try {
+      await new Promise((resolve) => {
+        const script = document.createElement("script");
+        script.src = "../lib/client.js";
+        script.onload = resolve;
+        script.onerror = () => { assert("load lib/client.js", false); resolve(); };
+        document.head.appendChild(script);
+      });
+      if (!window.__plugin) throw new Error("bundle did not register a module");
+      assert("host has no better-sidebar markup", document.querySelectorAll("[data-dsh-better-sidebar], [class*='better-sidebar'], [data-sidebar-right-guide]").length === 0);
+      window.__plugin.apply(ctx);
+      const api = window.__dshSidebarOrganizer;
+      assert("plugin handle exists", !!api);
+      await wait(250);
+
+      const status = api.status();
+      assert("sidebar scope found without better-sidebar", status.scopes.sidebar.found, JSON.stringify(status.scopes.sidebar));
+      assert("sidebar has 3 rows", status.scopes.sidebar.rows.length === 3, status.scopes.sidebar.rows.length);
+      assert("no right scope is required", status.scopes.right.found === false, JSON.stringify(status.scopes.right));
+      assert("rows are tagged", document.querySelectorAll('#sidebar > [data-dso-key]').length === 3);
+
+      assert("reorder works standalone", api.reorder("sidebar", "browser", 0) === true);
+      await wait(30);
+      assert("reorder changes visual order", orderOf("sidebar")[0] === "browser", orderOf("sidebar").join(","));
+
+      api.dispose();
+      assert("dispose clears row marks", document.querySelectorAll("[data-dso-key]").length === 0);
+    } catch (error) {
+      assert("uncaught: " + (error && error.stack ? error.stack : error), false);
+    } finally {
+      finish();
+    }
+  })();
+</script>
+</body>
+</html>
