@@ -77,6 +77,14 @@ jobs:
           sha256sum ./*.tgz > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Ensure release notes helper
+        run: |
+          if [ ! -f scripts/release-notes.mjs ]; then
+            # Older tags predate the helper; borrow it from the default branch.
+            git fetch origin main
+            git show FETCH_HEAD:scripts/release-notes.mjs > scripts/release-notes.mjs
+          fi
+
       - name: Generate release notes
         env:
           TAG: ${{ steps.meta.outputs.tag }}
