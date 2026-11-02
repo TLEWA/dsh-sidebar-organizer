@@ -129,8 +129,24 @@ function createRuntime(ctx) {
     return { nav, rows, moreHost, moreButton };
   }
 
+  /**
+   * Keys of the rows currently visible in the strip, in the order the user sees
+   * them — i.e. the persisted layout order, NOT the DOM order. The sidebar keeps
+   * rendering rows in registration order and we only move them with CSS
+   * `order`, so a DOM-order list would shift every time a drag committed and
+   * make drops land somewhere other than where the user released the pointer.
+   */
   function visibleKeys(rows) {
-    return rows.filter((row) => !row.hidden).map((row) => row.key);
+    const layout = readLayout();
+    const visible = rows.filter((row) => !row.hidden).map((row) => row.key);
+    const ordered = [];
+    for (const key of layout.order) {
+      if (visible.includes(key) && !ordered.includes(key)) ordered.push(key);
+    }
+    for (const key of visible) {
+      if (!ordered.includes(key)) ordered.push(key);
+    }
+    return ordered;
   }
 
   function applyOrder(nav, rows, moreHost, moreButton) {
@@ -205,11 +221,13 @@ function createRuntime(ctx) {
     }
   }
 
-  function pass() {
+  function pass(force) {
     if (!alive()) return;
     // A pass would fight the drag ghost for layout: rows must not move while a
-    // row is being carried. Re-run once the gesture is over.
-    if (state.gesture) {
+    // row is being carried. Re-run once the gesture is over. `force` is used
+    // right before a drag starts to make sure the DOM already reflects the
+    // persisted order, so frozen rects and the committed order agree.
+    if (state.gesture && !force) {
       state.passDeferred = true;
       return;
     }
@@ -483,6 +501,16 @@ function createRuntime(ctx) {
       clearGesture();
       return;
     }
+    // Flush any pending layout before freezing rects: after a previous drop the
+    // rAF pass may not have run yet, and stale visuals would make the next drop
+    // land somewhere else than where the pointer is.
+    try {
+      pass(true);
+    } catch (error) {
+      /* a failed flush must not block the drag */
+    }
+    if (!element.isConnected) element = locateRowButton(gesture.key) || element;
+    gesture.element = element;
     const rect = element.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) {
       clearGesture();
@@ -660,16 +688,25 @@ function createRuntime(ctx) {
       gesture.target = null;
     }
 
-    // Dropping a sidebar row on the "More" anchor tucks it away.
-    if (gesture.source === "nav" && snapshot.moreRect && insideRect(snapshot.moreRect, x, y, 6)) {
-      if (gesture.moreButton !== snapshot.moreButton) {
-        if (gesture.moreButton) gesture.moreButton.classList.remove("dso-drop-more");
-        gesture.moreButton = snapshot.moreButton;
-        if (gesture.moreButton) gesture.moreButton.classList.add("dso-drop-more");
+    // Dropping a sidebar row on the "More" anchor tucks it away. The anchor is
+    // a small target: require the pointer to be inside its own rectangle
+    // (no padding) and strictly below the last row, otherwise a drop meant for
+    // "end of the strip" would quietly hide the row instead of reordering it.
+    if (gesture.source === "nav" && snapshot.moreRect) {
+      const lastBottom = others.length
+        ? others[others.length - 1].rect.top + others[others.length - 1].rect.height
+        : -Infinity;
+      const overMore = insideRect(snapshot.moreRect, x, y, 0) && y > lastBottom + 1;
+      if (overMore) {
+        if (gesture.moreButton !== snapshot.moreButton) {
+          if (gesture.moreButton) gesture.moreButton.classList.remove("dso-drop-more");
+          gesture.moreButton = snapshot.moreButton;
+          if (gesture.moreButton) gesture.moreButton.classList.add("dso-drop-more");
+        }
+        if (indicator.dataset.visible !== "0") indicator.dataset.visible = "0";
+        gesture.target = { kind: "hide" };
+        return;
       }
-      if (indicator.dataset.visible !== "0") indicator.dataset.visible = "0";
-      gesture.target = { kind: "hide" };
-      return;
     }
     if (gesture.moreButton) {
       gesture.moreButton.classList.remove("dso-drop-more");
@@ -690,7 +727,15 @@ function createRuntime(ctx) {
         break;
       }
     }
-    gesture.target = { kind: "place", index };
+    // Remember which row the drop line sits in front of. Indices are computed
+    // from frozen rects (the visual order at drag start) while commits apply to
+    // the persisted order, so carrying the neighbour key keeps the two aligned
+    // even when another drop has just rewritten the layout.
+    gesture.target = {
+      kind: "place",
+      index,
+      beforeKey: index < others.length ? others[index].key : null,
+    };
 
     if (index === snapshot.lastIndex) {
       if (indicator.dataset.visible !== "1") indicator.dataset.visible = "1";
@@ -723,8 +768,16 @@ function createRuntime(ctx) {
       return;
     }
     if (target.kind === "place") {
+      // Map the drop position onto the persisted order (see visibleKeys): the
+      // anchor row is the key we resolved from the frozen rects.
+      const { rows } = visibleRows();
+      const others = visibleKeys(rows).filter((item) => item !== key);
+      let index = Math.max(0, Math.min(target.index, others.length));
+      if (target.beforeKey && others.includes(target.beforeKey)) {
+        index = others.indexOf(target.beforeKey);
+      }
       if (source === "menu") {
-        revealKey(key, target.index);
+        revealKey(key, index);
         if (state.dismissMenu) {
           try {
             state.dismissMenu();
@@ -733,7 +786,7 @@ function createRuntime(ctx) {
           }
         }
       } else {
-        reorderKey(key, target.index);
+        reorderKey(key, index);
       }
     }
   }

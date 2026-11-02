@@ -3,6 +3,24 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.4.1 — 2026-11-02
+
+- 修复反复拖动时排序“抽搐”：落点改为按当前视觉顺序（`layout.order` +
+  内联 `style.order`）计算，并把目标位置锚定到具体某一行的 key，而不是页面里
+  的 DOM 序号；长按成立时会先强制落一次布局，避免用上一帧的旧几何做判定。
+- 「更多」的投放判定收窄：只有指针真正落在「更多」按钮矩形内、且位于最后一
+  行下方时才收纳，拖到列表末尾不再被误判成收纳。
+
+### English
+
+- Fixed jittery ordering after repeated drags: the drop index is now computed
+  from the visual order (`layout.order` plus inline `style.order`) and anchored
+  to a row key instead of the DOM index, and a layout pass is forced when the
+  long-press succeeds so the frozen geometry is current.
+- Tightened the “More” drop zone: a row is tucked away only when the pointer is
+  inside the anchor's own rectangle and below the last row, so dropping at the
+  end of the list no longer hides it by mistake.
+
 ## 0.4.0 — 2026-11-02
 
 - 源码拆分为 `src/` 下的模块（constants / styles / storage / icons / slot /

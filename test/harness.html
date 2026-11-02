@@ -255,6 +255,41 @@
         window.__dshSidebarOrganizer.reset();
         await wait(200);
 
+        // --- repeated drags: each drop must follow the pointer, not the DOM
+        // order. Dragging the visually first row to the bottom three times in a
+        // row must rotate the strip each time; with a DOM-ordered reorder the
+        // second and third drops land somewhere else ("jitter").
+        for (let round = 0; round < 3; round += 1) {
+          const before = visualOrder();
+          const visibleButtons = panelButtons()
+            .filter((button) => button.style.display !== "none")
+            .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+          const row = visibleButtons[0];
+          const lastRow = visibleButtons[visibleButtons.length - 1];
+          const rowRect = row.getBoundingClientRect();
+          const lastRectNow = lastRow.getBoundingClientRect();
+          const dropX = rowRect.left + 40;
+          const dropY = lastRectNow.bottom - 1;
+          pointer("pointerdown", row, dropX, rowRect.top + rowRect.height / 2);
+          await wait(420);
+          pointer("pointermove", document, dropX, dropY);
+          await wait(80);
+          pointer("pointerup", document, dropX, dropY);
+          await wait(280);
+          const after = visualOrder();
+          const expected = before.slice(1).concat(before[0]);
+          log(
+            "repeat" +
+              round +
+              " match=" +
+              (JSON.stringify(after) === JSON.stringify(expected)) +
+              " after=" +
+              JSON.stringify(after)
+          );
+        }
+        await wait(300);
+        log("repeatFinal=" + JSON.stringify(visualOrder()));
+
 
         const grabRow = panelButtons()[0];
         const churnRow = panelButtons()[3];
