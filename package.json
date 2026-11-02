@@ -1,6 +1,6 @@
 {
   "name": "dsh-sidebar-organizer",
-  "version": "0.5.7-preview.1",
+  "version": "0.6.0",
   "private": false,
   "description": "DSH 六区域布局整理器：左侧边栏/侧栏底部/对话标签/输入框/右侧栏/设置导航长按拖拽排序与收纳，附分区拖动开关的设置页",
   "type": "module",

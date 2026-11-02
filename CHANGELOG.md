@@ -3,7 +3,11 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
-## 未发布
+## 0.6.0 — 2026-11-02
+
+首个正式版：把 0.5.x 预览版验证过的六区域整理、设置页与配置导入/导出收拢为稳定发布，
+并完成下列收尾修复。npm 上的 `latest` 由 0.4.3 直接更新到 0.6.0；0.5.x 预览版此前只在
+GitHub 发布。
 
 - 修复窗口变窄（例如打开右侧栏）后已收纳的对话视图「跑出来」：宿主会根据标签栏
   宽度把放不下的视图折叠进「更多」菜单，被收纳的视图于是以宿主普通条目的形式出现
@@ -33,6 +37,11 @@
   打开对应设置页；也可以把其他设置行继续拖进去。收纳第一项仍需在配置页操作。
 
 ### English
+
+First stable release: promotes the six-scope organizer, settings page, and
+configuration import/export validated in the 0.5.x previews, and includes the
+cleanup fixes below. npm's `latest` tag moves from 0.4.3 straight to 0.6.0; the
+0.5.x previews were published on GitHub only.
 
 - Fix tucked conversation views leaking back into view when the pane gets narrow
   (for example after opening the right sidebar): the host folds views that no
