@@ -6,8 +6,8 @@ Adds **custom ordering** and **tucking away** to the "global panels" strip at th
 top-left of the DSH (DeepSeek Harness) sidebar — the column of icons for plugins,
 marketplace, skills manager, scheduled tasks, and so on.
 
-> Version **0.4.1**: fixes jittery ordering after repeated drags and tightens
-> the “More” drop zone.
+> Version **0.4.2**: adds the tuck-away animation when dragging onto “More”
+> (breathing highlight, ghost flight, receive bounce).
 
 ## What it does
 

@@ -31,10 +31,51 @@ const CSS = `
 button[data-dso-key].dso-dragging { opacity: 0.35; }
 button[data-dso-key].dso-pressing { transform: scale(0.94); transition: transform 120ms ease; }
 button[data-dso-key] { -webkit-user-select: none; user-select: none; }
-button[data-dso-key].dso-drop-more {
+/* The "More" anchor, armed: it breathes a ring and dips its glyph to read as
+   "release here and this row drops into me". */
+button.dso-drop-more {
   outline: 2px dashed var(--dsw-alias-state-business-primary, #4d6bfe);
   outline-offset: -2px;
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+  animation: dso-more-breathe 1100ms ease-in-out infinite;
+}
+button.dso-drop-more span[aria-hidden="true"] {
+  transform: translateY(2px) scale(0.88);
+  transition: transform 160ms ease;
+}
+@keyframes dso-more-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(77, 107, 254, 0.38); }
+  55% { box-shadow: 0 0 0 8px rgba(77, 107, 254, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(77, 107, 254, 0); }
+}
+@keyframes dso-more-receive {
+  0% { transform: scale(1); }
+  35% { transform: scale(0.86); }
+  70% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+button.dso-drop-receive { animation: dso-more-receive 260ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+@keyframes dso-drop-reject {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+button.dso-drop-reject { animation: dso-drop-reject 240ms ease; }
+/* Carrying a row towards the anchor: the ghost dims and shrinks a little, so
+   its eventual absorption does not feel like a jump. */
+.dso-ghost.dso-ghost-armed {
+  opacity: 0.82;
+  transform: scale(0.94);
+  transition: transform 140ms ease, opacity 140ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  button.dso-drop-more,
+  button.dso-drop-receive,
+  button.dso-drop-reject { animation: none !important; }
+  .dso-ghost,
+  .dso-ghost.dso-ghost-armed { transition: none !important; }
 }
 body.dso-dragging,
 body.dso-dragging * { cursor: grabbing !important; }

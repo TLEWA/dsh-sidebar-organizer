@@ -3,6 +3,29 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.4.2 — 2026-11-02
+
+- 拖动到「更多」按钮上时新增收纳动画：按钮呼吸高亮、图标下沉，拖影微微缩小
+  变淡；松手后拖影飞向按钮并缩小消失，随后该行被收纳，按钮播放一次「吞入」
+  回弹。只剩最后一行可见时不再静默失败，改为按钮左右轻抖提示不可收纳。
+- 动画只使用 `transform` / `opacity`（拖影飞入用 WAAPI，其余为 CSS），拖动热路
+  径不新增布局读取；同一时刻只允许一个飞入动画，连续快速收纳不会叠加拖影。
+- 尊重 `prefers-reduced-motion: reduce`：关闭呼吸、回弹与抖动，飞入改为立即
+  收纳。
+
+### English
+
+- Added the tuck-away animation on the “More” anchor: the button breathes, its
+  glyph dips, and the carried ghost shrinks slightly while armed; on release the
+  ghost flies into the anchor and fades, the row is tucked away, and the button
+  plays a short “swallow” bounce. When only one row is visible the anchor shakes
+  instead of silently refusing to hide it.
+- Only `transform` / `opacity` animate (the flight uses WAAPI, the rest is CSS),
+  the drag hot path gains no layout reads, and a single flight runs at a time so
+  rapid drops cannot pile ghosts up.
+- Honors `prefers-reduced-motion: reduce`: no breathing, bounce or shake, and the
+  row is tucked away immediately.
+
 ## 0.4.1 — 2026-11-02
 
 - 修复反复拖动时排序“抽搐”：落点改为按当前视觉顺序（`layout.order` +

@@ -1,6 +1,6 @@
 {
   "name": "dsh-sidebar-organizer",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": false,
   "description": "DSH 侧栏面板整理器：长按拖动排序、拖入/拖出「更多」收纳、键盘排序",
   "type": "module",

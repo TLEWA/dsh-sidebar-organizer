@@ -197,8 +197,26 @@
         log("hide gesture dragging: " + Boolean(window.__dshSidebarOrganizer.status().dragging));
         pointer("pointermove", document, moreRect.left + moreRect.width / 2, moreRect.top + moreRect.height / 2);
         await wait(60);
+        const armedGhost = document.querySelector(".dso-ghost");
+        log("more armed: " + more.classList.contains("dso-drop-more"));
+        log(
+          "ghost armed: " +
+            Boolean(armedGhost && armedGhost.classList.contains("dso-ghost-armed"))
+        );
+        log("more pulse: " + getComputedStyle(more).animationName);
         pointer("pointerup", document, moreRect.left + moreRect.width / 2, moreRect.top + moreRect.height / 2);
-        await wait(220);
+        const flyingGhost = document.querySelector(".dso-ghost");
+        log(
+          "absorb flying: " +
+            Boolean(
+              flyingGhost &&
+                typeof flyingGhost.getAnimations === "function" &&
+                flyingGhost.getAnimations().length > 0
+            )
+        );
+        await wait(260);
+        log("ghost after absorb: " + Boolean(document.querySelector(".dso-ghost")));
+        log("receive class cleared: " + !more.classList.contains("dso-drop-receive"));
         log("hidden=" + JSON.stringify(window.__dshSidebarOrganizer.status().hidden));
         log("hiddenKey=" + hideKey + " display=" + JSON.stringify(hideTarget.style.display));
         log("visualAfterHide=" + JSON.stringify(visualOrder()));

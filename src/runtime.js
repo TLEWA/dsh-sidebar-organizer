@@ -17,6 +17,7 @@ function createRuntime(ctx) {
     passDeferred: false,
     menuListeners: new Set(),
     dismissMenu: null,
+    absorbing: null,
   };
 
   function log(...args) {
@@ -399,9 +400,10 @@ function createRuntime(ctx) {
 
   /* --- drag gesture ------------------------------------------------ */
 
-  function clearGesture() {
+  function clearGesture(options) {
     const gesture = state.gesture;
     if (!gesture) return;
+    const keepGhost = Boolean(options && options.keepGhost);
     state.gesture = null;
     if (gesture.timer) window.clearTimeout(gesture.timer);
     if (gesture.pressTimer) window.clearTimeout(gesture.pressTimer);
@@ -422,7 +424,11 @@ function createRuntime(ctx) {
         /* the element may already be detached */
       }
     }
-    if (gesture.ghost && gesture.ghost.parentNode) gesture.ghost.remove();
+    if (gesture.ghost) {
+      gesture.ghost.classList.remove("dso-ghost-armed");
+      // A drop on the "More" anchor keeps the ghost alive for the absorb flight.
+      if (!keepGhost && gesture.ghost.parentNode) gesture.ghost.remove();
+    }
     if (gesture.indicator && gesture.indicator.parentNode) gesture.indicator.remove();
     if (gesture.element) {
       gesture.element.classList.remove("dso-dragging");
@@ -642,6 +648,96 @@ function createRuntime(ctx) {
     );
   }
 
+  function prefersReducedMotion() {
+    try {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /** Replay a one-shot CSS animation class, even if it is already on. */
+  function pulseClass(element, className, duration) {
+    if (!element) return;
+    element.classList.remove(className);
+    // force a style flush so a repeated pulse restarts instead of being ignored
+    void element.offsetWidth;
+    element.classList.add(className);
+    window.setTimeout(() => element.classList.remove(className), duration);
+  }
+
+  /** The carried row leans towards the anchor: dim and shrink the ghost. */
+  function setGhostArmed(gesture, armed) {
+    const ghost = gesture.ghost;
+    if (!ghost || !ghost.isConnected) return;
+    if (ghost.classList.contains("dso-ghost-armed") === armed) return;
+    ghost.classList.toggle("dso-ghost-armed", armed);
+  }
+
+  /**
+   * Fly the carried ghost into the "More" anchor, then tuck the row away.
+   * Only transform/opacity animate, and only one flight runs at a time; a drop
+   * that arrives mid-flight lands immediately so ghosts can never pile up.
+   */
+  function absorbIntoMore(gesture) {
+    const moreButton =
+      gesture.moreButton && gesture.moreButton.isConnected ? gesture.moreButton : null;
+    const ghost = gesture.ghost;
+    if (!ghost || !ghost.isConnected || !moreButton || prefersReducedMotion() || state.absorbing) {
+      if (moreButton) pulseClass(moreButton, "dso-drop-receive", 260);
+      if (ghost && ghost.parentNode) ghost.remove();
+      if (alive()) hideKey(gesture.key);
+      return;
+    }
+
+    const ghostRect = ghost.getBoundingClientRect();
+    const moreRect = moreButton.getBoundingClientRect();
+    const dx = moreRect.left + moreRect.width / 2 - (ghostRect.left + ghostRect.width / 2);
+    const dy = moreRect.top + moreRect.height / 2 - (ghostRect.top + ghostRect.height / 2);
+
+    let animation = null;
+    try {
+      animation = ghost.animate(
+        [
+          { transform: "translate(0px, 0px) scale(1)", opacity: 0.96, offset: 0 },
+          {
+            transform: `translate(${dx * 0.55}px, ${dy * 0.55}px) scale(0.7)`,
+            opacity: 0.9,
+            offset: 0.55,
+          },
+          {
+            transform: `translate(${dx}px, ${dy}px) scale(0.12)`,
+            opacity: 0,
+            offset: 1,
+          },
+        ],
+        { duration: 180, easing: "cubic-bezier(.2,.7,.3,1)", fill: "forwards" }
+      );
+    } catch (error) {
+      animation = null;
+    }
+
+    pulseClass(moreButton, "dso-drop-receive", 260);
+
+    if (!animation) {
+      if (ghost.parentNode) ghost.remove();
+      if (alive()) hideKey(gesture.key);
+      return;
+    }
+
+    state.absorbing = animation;
+    const finish = () => {
+      if (state.absorbing === animation) state.absorbing = null;
+      if (ghost.parentNode) ghost.remove();
+      if (alive()) hideKey(gesture.key);
+    };
+    if (animation.finished && typeof animation.finished.then === "function") {
+      animation.finished.then(finish, finish);
+    } else {
+      window.setTimeout(finish, 200);
+    }
+  }
+
   function updateTarget(gesture) {
     const indicator = gesture.indicator;
     if (!indicator) return;
@@ -703,6 +799,7 @@ function createRuntime(ctx) {
           gesture.moreButton = snapshot.moreButton;
           if (gesture.moreButton) gesture.moreButton.classList.add("dso-drop-more");
         }
+        setGhostArmed(gesture, true);
         if (indicator.dataset.visible !== "0") indicator.dataset.visible = "0";
         gesture.target = { kind: "hide" };
         return;
@@ -712,6 +809,7 @@ function createRuntime(ctx) {
       gesture.moreButton.classList.remove("dso-drop-more");
       gesture.moreButton = null;
     }
+    setGhostArmed(gesture, false);
 
     if (!insideRect(snapshot.navRect, x, y, 24) || others.length === 0) {
       if (indicator.dataset.visible !== "0") indicator.dataset.visible = "0";
@@ -760,7 +858,15 @@ function createRuntime(ctx) {
     const { key, target, source } = gesture;
     if (!target) return;
     if (target.kind === "hide") {
-      hideKey(key);
+      // Last-visible-row protection lives in hideKey; bounce the anchor instead
+      // of starting an absorb flight that would end in nothing.
+      const { rows } = visibleRows();
+      const visible = visibleKeys(rows);
+      if (!visible.includes(key) || visible.length <= 1) {
+        pulseClass(gesture.moreButton, "dso-drop-reject", 240);
+        return;
+      }
+      absorbIntoMore(gesture);
       return;
     }
     if (target.kind === "place-menu") {
@@ -820,7 +926,10 @@ function createRuntime(ctx) {
     if (!gesture) return;
     if (gesture.phase === "dragging") {
       const pending = gesture;
-      clearGesture();
+      // A drop on the anchor keeps the ghost for the absorb flight; every other
+      // drop tears the drag down first so commits never see stale classes.
+      const absorbing = Boolean(pending.target && pending.target.kind === "hide");
+      clearGesture({ keepGhost: absorbing });
       commitDrag(pending);
       state.guardUntil = Date.now() + CLICK_GUARD_MS;
       return;
@@ -959,6 +1068,21 @@ function createRuntime(ctx) {
   function stop() {
     state.stopped = true;
     clearGesture();
+    if (state.absorbing) {
+      try {
+        state.absorbing.cancel();
+      } catch (error) {
+        /* ignore */
+      }
+      state.absorbing = null;
+    }
+    // the absorb flight may have left a ghost or a one-shot class behind
+    for (const ghost of document.querySelectorAll(".dso-ghost")) ghost.remove();
+    for (const node of document.querySelectorAll(
+      ".dso-drop-more, .dso-drop-receive, .dso-drop-reject"
+    )) {
+      node.classList.remove("dso-drop-more", "dso-drop-receive", "dso-drop-reject");
+    }
     if (state.pollTimer) {
       window.clearInterval(state.pollTimer);
       state.pollTimer = 0;
