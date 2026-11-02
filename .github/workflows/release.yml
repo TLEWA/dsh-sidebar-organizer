@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+  repository_dispatch:
+    types: [release]
   workflow_dispatch:
     inputs:
       tag:
@@ -25,7 +27,7 @@ jobs:
       - name: Checkout tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event_name == 'repository_dispatch' && github.event.client_payload.tag || github.ref }}
           fetch-depth: 0
 
       - name: Set up Node
@@ -36,7 +38,7 @@ jobs:
       - name: Resolve and verify tag
         id: meta
         env:
-          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event_name == 'repository_dispatch' && github.event.client_payload.tag || github.ref_name }}
         run: |
           set -euo pipefail
           tag="$INPUT_TAG"
