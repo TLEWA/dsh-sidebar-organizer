@@ -33,10 +33,21 @@
 
 ## 安装
 
-> 本预览版尚未发布到 npm。请从对应的 GitHub Release 下载 `.tgz` 资产，再用
-> 插件管理器的 `install_bundle` 指向该文件安装；从 npm 安装的是旧版。
+### 从 GitHub Release 安装（推荐）
 
-### 从 npm 安装（推荐）
+打开 [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases/latest)，在最新发布里复制
+`dsh-sidebar-organizer-<版本>.tgz` 的链接，粘贴到 DSH 的「插件」页 →「添加插件」；
+也可以下载后选择本地文件。发布页同时提供 `SHA256SUMS` 便于校验。
+
+每个 `v*` 标签由 GitHub Actions 自动构建并附加到 Release。
+
+也可以直接粘贴 Git 地址（使用仓库里已构建好的 `lib/`，无需在本机构建）：
+
+```
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.6.0
+```
+
+### 从 npm 安装
 
 ```bash
 dsh plugin install dsh-sidebar-organizer

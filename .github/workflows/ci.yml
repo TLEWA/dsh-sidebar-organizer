@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - feature
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build client bundle
+        run: npm run build
+
+      - name: Verify committed bundle
+        run: |
+          if ! git diff --exit-code -- lib/; then
+            echo "::error::lib/ is out of date; run npm run build and commit the result"
+            exit 1
+          fi
+
+      - name: Syntax check
+        run: npm run check
+
+      - name: Check package contents
+        run: npm pack --dry-run

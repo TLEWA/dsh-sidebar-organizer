@@ -60,11 +60,23 @@ composer dock, right sidebar, and settings navigation.
 
 ## Install
 
-> This preview is not published to npm. Download the `.tgz` asset from the
-> matching GitHub Release and point the plugin manager's `install_bundle` at
-> that file; installing from npm gets the older stable version.
+### From a GitHub Release (recommended)
 
-### From npm (recommended)
+Open [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases/latest) and copy
+the `dsh-sidebar-organizer-<version>.tgz` link from the latest release, then paste it
+into DSH's Plugins page → "Add plugin". You can also download the file and pick it
+locally. Each release also ships `SHA256SUMS` for verification.
+
+Every `v*` tag is built and attached to its Release by GitHub Actions.
+
+Alternatively, paste the Git URL (it uses the already-built `lib/` in the repository,
+so no local build is needed):
+
+```
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.6.0
+```
+
+### From npm
 
 ```bash
 dsh plugin install dsh-sidebar-organizer

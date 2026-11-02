@@ -3,6 +3,20 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## Unreleased
+
+- 发布自动化：推送 `v*` 标签后，GitHub Actions 会从该标签构建客户端 bundle、
+  校验提交的 `lib/` 与 `src/` 一致、打出 `.tgz` 并附加到 Release，同时生成
+  `SHA256SUMS` 和包含 DSH 安装指引的发布说明。新增 CI 在 push / PR 时执行同样的
+  构建与一致性校验。
+
+### English
+
+- Release automation: pushing a `v*` tag now makes GitHub Actions build the client
+  bundle, verify that the committed `lib/` matches `src/`, pack the `.tgz`, attach it
+  to the Release, and generate `SHA256SUMS` plus install instructions for DSH. A new
+  CI workflow runs the same build and consistency checks on pushes and pull requests.
+
 ## 0.6.0 — 2026-11-02
 
 首个正式版：把 0.5.x 预览版验证过的六区域整理、设置页与配置导入/导出收拢为稳定发布，
