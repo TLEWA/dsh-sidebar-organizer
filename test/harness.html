@@ -51,6 +51,18 @@
   </div>
 
   <div class="fixture">
+    <div class="caption">sidebar "More" popup</div>
+    <!-- Mirrors the real popup markup: our caption + .dso-menu-item wrappers
+         around the host's MenuItemButton rows. Drag source for a tucked row. -->
+    <div class="more-menu" id="more-menu" role="menu">
+      <div class="dso-menu-caption">已收纳</div>
+      <div class="dso-menu-item" data-dso-more-key="sidebar:tasks">
+        <button type="button" class="dso-menu-row"><span aria-hidden="true">J</span><span>任务</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="fixture">
     <div class="caption">sidebar.footer.action</div>
     <div data-slot="sidebar.footer.action" class="footer" id="footer">
       <button aria-haspopup="menu" aria-label="设置" data-testid="settings-entry"><span aria-hidden="true">G</span><span>设置</span></button>
@@ -291,6 +303,50 @@
         orderOf("right").join(",") === "files,browser,new-terminal,terminal",
         orderOf("right").join(",")
       );
+
+      // Dragging a row out of the shipped "More" popup must keep a dimmed
+      // placeholder at the row's original spot, exactly like a sidebar row.
+      // 0.5.6 and earlier set that source row to opacity 0, so the popup row
+      // vanished and only the ghost was left.
+      const menuRow = document.querySelector('[data-dso-more-key="sidebar:tasks"]');
+      const tasksRow = document.querySelector('[data-testid="tasks"]');
+      assert("More popup fixture is present", !!menuRow && !!tasksRow);
+      assert("tasks starts tucked away", tasksRow.dataset.dsoHidden === "1");
+      const menuRect0 = menuRow.getBoundingClientRect();
+      const menuX = menuRect0.left + menuRect0.width / 2;
+      const menuY = menuRect0.top + menuRect0.height / 2;
+      menuRow.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 21,
+        clientX: menuX, clientY: menuY,
+      }));
+      await wait(330);
+      assert("menu row starts a drag", menuRow.classList.contains("dso-dragging"));
+      const placeholderOpacity = Number(getComputedStyle(menuRow).opacity);
+      assert(
+        "menu source stays as a dimmed placeholder",
+        placeholderOpacity > 0.25 && placeholderOpacity < 0.5,
+        placeholderOpacity
+      );
+      assert("menu source keeps its layout slot", menuRow.getBoundingClientRect().height > 0);
+      const browserRect = document.querySelector('[data-testid="browser"]').getBoundingClientRect();
+      const dropSideX = browserRect.left + browserRect.width / 2;
+      const dropSideY = browserRect.top + browserRect.height / 4;
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 21,
+        clientX: dropSideX, clientY: dropSideY,
+      }));
+      const menuIndicator = document.querySelector(".dso-indicator");
+      assert("menu drag over the sidebar shows the drop line", !!menuIndicator && menuIndicator.dataset.visible === "1");
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 21,
+        clientX: dropSideX, clientY: dropSideY,
+      }));
+      await wait(80);
+      assert("menu drop reveals the tucked row", !tasksRow.dataset.dsoHidden);
+      assert("menu drop clears the placeholder", !menuRow.classList.contains("dso-dragging"));
+      // A drop arms the 500 ms click guard; let it lapse so the later
+      // activate/click assertions below are not swallowed by it.
+      await wait(520);
 
       api.reorder("footer", "footer-feedback", 0);
       assert("footer reorder writes state", orderOf("footer")[0] === "footer-feedback", orderOf("footer").join(","));

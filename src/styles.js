@@ -36,7 +36,11 @@ const CSS = `
   transition: opacity 120ms ease;
 }
 .dso-indicator[data-visible="1"] { opacity: 1; }
-[data-dso-key].dso-dragging { opacity: 0.35; }
+/* The drag source always stays in the layout as a dimmed placeholder: the row
+   in the sidebar and the row inside the "More" popup must both read as "the
+   thing I am moving is still here". */
+[data-dso-key].dso-dragging,
+.dso-menu-item.dso-dragging { opacity: 0.35; }
 [data-dso-key] { -webkit-user-select: none; user-select: none; }
 /* The "More" anchor, armed: it breathes a ring and shrinks as a whole (icon and
    label together) to read as "release here and this row drops into me". */
@@ -101,10 +105,8 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   user-select: none;
 }
 .dso-menu-item { display: block; }
-/* The ghost is a clone positioned under the pointer. Leave the source row in
-   the layout (so the menu does not jump) but make it invisible, otherwise the
-   two labels stack and the preview looks like it is sitting on itself. */
-.dso-menu-item.dso-dragging { opacity: 0; }
+/* Kept in the layout (so the menu does not jump) and dimmed like a sidebar
+   row; the placeholder rule above owns the opacity. */
 /* icon wrapper handed to MenuItemButton: same 16px footprint as the shipped rows */
 .dso-menu-icon {
   display: inline-flex;

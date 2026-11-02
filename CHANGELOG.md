@@ -3,6 +3,19 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.5.7-preview.1 — 2026-11-02
+
+- 修复从「已收纳」区域把条目拖出来的问题：拖拽源行（弹出菜单里的那一行）
+  之前被设成完全透明，原位只剩拖影，看起来像条目凭空消失。现在它与侧栏行
+  一致，保留在原位并淡化到 35%，菜单不会跳动，落点判定不变。
+
+### English
+
+- Fix dragging a tucked item out of the "More" popup: the source row used to be
+  set to `opacity: 0`, so the popup showed no placeholder at the original spot
+  and only the ghost remained. It now stays in place at 35% opacity, matching
+  sidebar rows; the popup keeps its layout and drop targets are unchanged.
+
 ## 0.5.6-preview.1 — 2026-11-02
 
 - 修复安装后右侧栏起始页（「开始」）的入口被整体向下挤压：宿主的
