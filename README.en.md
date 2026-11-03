@@ -6,7 +6,7 @@ Adds **custom ordering** and **tucking away** to six strips of buttons/cards in
 DSH (DeepSeek Harness): the left sidebar, sidebar footer, conversation tabs,
 composer dock, right sidebar, and settings navigation.
 
-> Version **0.6.0** (stable): six-scope ordering, tucking, and configuration
+> Version **0.6.1** (stable): six-scope ordering, tucking, and configuration
 > import/export. There is no right-click menu or accessibility layer yet
 > (planned for 0.7.0).
 
@@ -73,7 +73,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.6.0
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.6.1
 ```
 
 ### From npm
@@ -253,6 +253,7 @@ restoration).
 - [x] 0.5.6 — no blank band between the guide compass and the first card (the host's `::after` spacer was sorted ahead of the ordered rows)
 - [x] 0.5.7 — folded tucked views no longer leak into More, draggable settings entry with a More menu, no phantom click after dropping onto More
 - [x] 0.6.0 — first stable release: six-scope organizer, settings page, config import/export, custom order survives reload
+- [x] 0.6.1 — collected rows keep their rounded drag ghost
 - [ ] 0.7.0 — accessibility (screen-reader announcements for order changes, menu up/down actions)
 
 ## Notices

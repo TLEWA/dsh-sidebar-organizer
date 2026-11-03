@@ -334,6 +334,12 @@
       }));
       await wait(330);
       assert("menu row starts a drag", menuRow.classList.contains("dso-dragging"));
+      // Regression: tucked rows are dragged by their plain `.dso-menu-item`
+      // wrapper, whose own radius is 0 while the rounded surface is the inner
+      // host button. Freezing the wrapper radius made the ghost a square tile.
+      const menuGhost = document.querySelector(".dso-ghost");
+      const menuGhostRadius = menuGhost ? parseFloat(getComputedStyle(menuGhost).borderTopLeftRadius) : NaN;
+      assert("collected row ghost keeps the row corner radius", !!menuGhost && menuGhostRadius >= 5, `radius ${menuGhostRadius}`);
       const placeholderOpacity = Number(getComputedStyle(menuRow).opacity);
       assert(
         "menu source stays as a dimmed placeholder",

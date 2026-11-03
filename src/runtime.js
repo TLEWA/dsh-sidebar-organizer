@@ -837,6 +837,33 @@ function createRuntime(ctx) {
     return width > 0 ? { left, width } : null;
   }
 
+  // A drag source is not always the painted surface. A collected row in the
+  // "More" popup is a plain `div.dso-menu-item` wrapper around the host's
+  // rounded MenuItemButton, so the wrapper's own computed radius is "0px".
+  // Freezing that value pinned `border-radius: 0 !important` onto the ghost and
+  // produced a square tile while dragging tucked rows. Look at the source and
+  // its row-like descendants, and only freeze a radius when one is rounded;
+  // otherwise the stylesheet's ghost radius stays in charge.
+  function roundedRadius(element) {
+    const nodes = [element];
+    try {
+      element.querySelectorAll("button, [role='menuitem'], [role='button'], .dso-menu-row").forEach((node) => nodes.push(node));
+    } catch (error) {
+      /* detached source: the element itself is enough */
+    }
+    for (const node of nodes) {
+      let radius = "";
+      try {
+        radius = getComputedStyle(node).borderRadius || "";
+      } catch (error) {
+        continue;
+      }
+      const parts = radius.trim().split(/\s+/);
+      if (parts.some((part) => parseFloat(part) > 0)) return radius.trim();
+    }
+    return "";
+  }
+
   function createGhost(element, rect) {
     if (!element) return null;
     const clone = element.cloneNode(true);
@@ -859,13 +886,10 @@ function createRuntime(ctx) {
     // (the right guide sets --dsl-guide-entry-radius on `.p2k40q_guide`). The
     // clone lives on <body>, where that property no longer resolves, so the
     // host declaration becomes invalid-at-computed-value-time and collapses to
-    // square corners. Freeze the resolved radius on the clone instead.
-    let radius = "";
-    try {
-      radius = getComputedStyle(element).borderRadius;
-    } catch (err) {
-      radius = "";
-    }
+    // square corners. Freeze the resolved radius on the clone instead. Rows
+    // whose radius lives on an inner button (collected rows) resolve through
+    // roundedRadius().
+    const radius = roundedRadius(element);
     if (radius) clone.style.setProperty("border-radius", radius, "important");
     // The clone inherits the host row's classes, and some host components set
     // `position: relative` on the same selector (the conversation tab bar does:

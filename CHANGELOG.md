@@ -17,6 +17,22 @@
   to the Release, and generate `SHA256SUMS` plus install instructions for DSH. A new
   CI workflow runs the same build and consistency checks on pushes and pull requests.
 
+## 0.6.1 — 2026-11-04
+
+- 修复从「更多」菜单拖动已收纳条目时拖影是直角方块：已收纳行由一层普通的
+  `.dso-menu-item` 容器包住宿主圆角按钮，此前插件只读取容器自身的圆角（0），
+  并把 `border-radius: 0 !important` 冻结到拖影上。现在会继续查找容器内真正
+  带圆角的行按钮，取它的圆角；只有确实没有圆角时才回退到默认值。
+
+### English
+
+- Fix the square drag ghost when dragging a collected row out of the "More" menu:
+  collected rows are a plain `.dso-menu-item` wrapper around the host's rounded
+  menu button. The organizer used to freeze only the wrapper's own radius (0) as
+  `border-radius: 0 !important` on the ghost. It now resolves the radius from the
+  rounded row button inside the wrapper and falls back to the default only when
+  no rounded element exists.
+
 ## 0.6.0 — 2026-11-02
 
 首个正式版：把 0.5.x 预览版验证过的六区域整理、设置页与配置导入/导出收拢为稳定发布，
