@@ -247,6 +247,30 @@ function writeHostActions(map) {
   }
 }
 
+function readHostMenuOrder() {
+  try {
+    const raw = window.localStorage.getItem(HOST_MENU_ORDER_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const out = [];
+    for (const label of parsed) {
+      if (typeof label === "string" && label && out.indexOf(label) === -1) out.push(label);
+    }
+    return out;
+  } catch (err) {
+    return [];
+  }
+}
+
+function writeHostMenuOrder(labels) {
+  try {
+    window.localStorage.setItem(HOST_MENU_ORDER_KEY, JSON.stringify(labels || []));
+  } catch (err) {
+    /* storage may be unavailable */
+  }
+}
+
 function exportConfigSnapshot() {
   const state = cloneState(readState());
   const dragState = readDragState();

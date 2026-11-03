@@ -23,6 +23,13 @@ const CSS = `
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.16);
   transform: scale(1.03);
 }
+/* Glyph-only rows (session-header icons) have no surface to lift: painting the
+   sidebar fill made the 28px drag preview a black rounded tile. Keep the glyph
+   and the drop feedback, drop the fabricated card and its shadow. */
+.dso-ghost.dso-ghost-flat {
+  background: transparent !important;
+  box-shadow: none !important;
+}
 .dso-indicator {
   position: fixed;
   box-sizing: border-box;
