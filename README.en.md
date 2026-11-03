@@ -2,13 +2,13 @@
 
 [简体中文](README.md) · **English**
 
-Adds **custom ordering** and **tucking away** to six strips of buttons/cards in
+Adds **custom ordering** and **tucking away** to seven strips of buttons/cards in
 DSH (DeepSeek Harness): the left sidebar, sidebar footer, conversation tabs,
-composer dock, right sidebar, and settings navigation.
+composer dock, session header, right sidebar, and settings navigation.
 
-> Version **0.6.1** (stable): six-scope ordering, tucking, and configuration
-> import/export. There is no right-click menu or accessibility layer yet
-> (planned for 0.7.0).
+> Version **0.7.0** (stable): adds the session header strip; seven-scope ordering,
+> tucking, and configuration import/export. There is no right-click menu or
+> accessibility layer yet.
 
 ## What it does
 
@@ -18,6 +18,7 @@ composer dock, right sidebar, and settings navigation.
 | Sidebar footer | feedback, settings, … | horizontal |
 | Conversation tabs | chat, trajectory, … | horizontal |
 | Composer dock | stats, context, activity, usage, … | horizontal |
+| Session header | reminder, bottom panel, context diagnostics, find, … | horizontal |
 | Right sidebar "Start" | files, browser, terminal, "More tools" | vertical |
 | Settings navigation | account, general, models, plugins, … | vertical |
 
@@ -29,6 +30,11 @@ composer dock, right sidebar, and settings navigation.
   and it leaves the strip, moving into the "Tucked away" group of that menu.
   The sidebar footer shares the left sidebar's More menu; tabs and the composer
   share the conversation More menu; the right sidebar uses its own "More tools".
+  The session header tucks into the shipped "More actions" menu (the one with
+  "Download session log" and "Feedback"), with tucked icons listed directly
+  above its own items. That "..." button is host chrome: it is neither sortable
+  nor tuckable, and the split control next to it ("file explorer / more ways to
+  open") also stays whole.
   Settings navigation can only tuck its first row from the settings page; once a row
   is tucked, the plugin adds a "More" anchor at the bottom of the navigation that
   lists tucked entries (click one to open that section) and accepts more drops.
@@ -36,16 +42,20 @@ composer dock, right sidebar, and settings navigation.
   it onto the strip. The source row is hidden while dragging, so the floating
   preview never overlaps a duplicate of its own label.
 - **Reorder inside the menu**: long-press drag within the tucked group.
+- **Turn shipped menu items into buttons**: in the session header, drag
+  "Download session log" or "Feedback" out of the "More actions" menu onto the
+  strip to get an icon button that performs the same action as the item. Drop
+  it back on "More actions" to take it away.
 - **Keyboard**: focus a row and press `Alt+↑` / `Alt+↓` (the same order
   movement applies in horizontal scopes).
 - **Settings page**: DSH Settings → "Layout organizer", or this plugin's detail
-  page. Six location cards let you drag rows, move up/down, tuck/restore, and
+  page. Seven location cards let you drag rows, move up/down, tuck/restore, and
   reset one section. Each card has its own "Drag" switch: turn it off and that
   section stops responding to long-press drags without changing its layout or
   tucked rows. The plugin's own settings entry can be reordered but not tucked;
   better-sidebar's settings entry is fully fixed and cannot be moved or tucked.
 - **Import / export configuration**: "Export" in the settings header writes the
-  order, tucked rows, and drag switches of all six sections to a JSON file;
+  order, tucked rows, and drag switches of all seven sections to a JSON file;
   "Import" reads the same format and replaces the whole configuration. A
   version mismatch or a broken file is rejected whole, never half-applied.
 - **Region-scoped reset**: "Reset default order" in each More menu resets only
@@ -73,7 +83,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.6.1
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.0
 ```
 
 ### From npm
@@ -134,13 +144,13 @@ the page. Since 0.2.0 the mechanism is different:
    window.__dshSidebarOrganizer.reveal("footer", "feedback");// restore manually
    window.__dshSidebarOrganizer.setDragEnabled("footer", false); // lock a section
    window.__dshSidebarOrganizer.disable();                  // persist a kill switch and stop
-   window.__dshSidebarOrganizer.status();                   // inspect all six scopes
+   window.__dshSidebarOrganizer.status();                   // inspect all seven scopes
    ```
 
    With a single argument, `hide(id)` / `reveal(id)` keep the old `sidebar`
    semantics. To undo `disable()`, run
    `localStorage.removeItem("dsh.sidebar-organizer.disabled")` and refresh.
-8. If this plugin stops working entirely, all six locations simply keep DSH's
+8. If this plugin stops working entirely, all seven locations simply keep DSH's
    default order.
 
 ## How it works
@@ -181,7 +191,7 @@ the page. Since 0.2.0 the mechanism is different:
   so layout resets do not change them.
 - The exported file is a `{ format, version, exportedAt, scopes, drag }` snapshot.
   Import only accepts `version === 3` with a `scopes` object, normalizes it through
-  the same path as local storage, and marks all six scopes as already repaired so
+  the same path as local storage, and marks all seven scopes as already repaired so
   the legacy trailing-row fix cannot rewrite the imported order.
 - Drag layer: document-capture `pointerdown` → 260 ms long-press timer (cancelled
   by >8 px movement) → ghost clone plus indicator; drop index from row midpoints
@@ -200,7 +210,7 @@ src/                 sources (concatenated in dependency order at build time)
   storage.js         localStorage persistence and v2/v3 migration
   icons.js           SVG serialization and id prefixing
   slot.js            read-only slot projection access
-  scopes.js          six-scope discovery, id mapping, axes
+  scopes.js          seven-scope discovery, id mapping, axes
   runtime.js         DOM runtime: ordering, tucking, gestures, menu data
   menu.js            tucked rows for the three More menus
   settings.js        settings page / plugin-detail body
@@ -209,7 +219,7 @@ scripts/build.mjs    assembles src/ into lib/client.js
 lib/client.js        generated client half (what DSH loads)
 lib/index.js         host half (placeholder)
 cordis.patch.yml     bundle patch applied on install
-test/harness.html    offline harness: fake six-scope DOM + slot projection
+test/harness.html    offline harness: fake seven-scope DOM + slot projection
 ```
 
 DSH loads client plugins as classic scripts via
@@ -224,7 +234,7 @@ npm run check   # syntax check
 ```
 
 Open `test/harness.html` in a browser for the self-checking regression run
-(six-scope discovery, ordering, persistence, v2→v3 migration, `resetScope()`,
+(seven-scope discovery, ordering, persistence, v2→v3 migration, `resetScope()`,
 tuck/restore, per-region menu lists, pinned settings row, in-menu drag, DOM
 churn during drag, config export/import with version rejection, and `dispose()`
 restoration).
@@ -254,7 +264,8 @@ restoration).
 - [x] 0.5.7 — folded tucked views no longer leak into More, draggable settings entry with a More menu, no phantom click after dropping onto More
 - [x] 0.6.0 — first stable release: six-scope organizer, settings page, config import/export, custom order survives reload
 - [x] 0.6.1 — collected rows keep their rounded drag ghost
-- [ ] 0.7.0 — accessibility (screen-reader announcements for order changes, menu up/down actions)
+- [x] 0.7.0 — session header strip: icon ordering, tucking into the shipped "More actions" menu, and dragging back out
+- [ ] 0.8.0 — accessibility (screen-reader announcements for order changes, menu up/down actions)
 
 ## Notices
 

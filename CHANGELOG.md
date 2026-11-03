@@ -3,6 +3,61 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.7.0 — 2026-11-04
+
+- 新增「会话头部工具条」区域：对话页右上角那排图标（提醒、底部面板、上下文诊断、
+  解除卡顿、查找等）现在也支持长按拖动排序、收进「更多操作」与从「更多操作」拖回。
+- 条带里的宿主控件保持原样：「更多操作」按钮本身不参与排序、也不可收纳，始终停在
+  它自己的位置；「用文件资源管理器打开 / 更多打开方式」这类分屏组合控件同样整体
+  保留，不会被拆成可拖动行。
+- 收纳落点就是官方内置的「更多操作」菜单（下载 Session 日志 / 反馈所在的那个）：
+  已收纳条目以菜单行的形式注入原生两项上方，不额外添加标题；菜单打开期间保持同步，
+  点击条目会触发对应组件，拖出即恢复原位。该菜单由官方插件硬编码、不暴露插槽，
+  因此改用 DOM 注入并随菜单开合清理。
+- 官方菜单里的「下载 Session 日志」「反馈」也可以拖到条带上，生成同名图标按钮，
+  点击等同于点击该菜单项；拖回「更多操作」即撤下该按钮。
+- 与其他区域一致的独立拖动开关、按区域恢复、配置导入/导出；存储格式不变，旧的 v3
+  布局会自动补上该区域，无需迁移。0.7.0 起设置里的「布局整理」页面也包含该区域的
+  卡片。
+- 修正：从菜单拖出条目后宿主菜单会停留在屏幕上——关闭动作改走一个不受拖拽后点击
+  守卫影响的通道；同时修正拖动预览与实际落点偶尔不一致的问题（保存顺序里存在宿主
+  当前未渲染的条目时，落点索引会整体偏移，表现为预览线画得出、松手却不动）。
+- 修正拖影白边：会话头部的图标按钮靠外层容器提供「无边框、无内边距、居中」的样式，
+  拖影克隆到 `<body>` 后这层样式失配，浏览器给按钮补上默认的 2px 浅色描边。现在把
+  源行实际生效的边框、内边距、显示方式与对齐一并冻结到拖影上。
+
+### English
+
+- New "session header" scope: the icon strip at the top right of a conversation
+  (reminder, bottom panel, context diagnostics, unstick, find, …) now supports
+  long-press reordering, tucking into "More actions", and dragging back out.
+- Host chrome inside the strip stays untouched: the "More actions" button itself
+  is neither sortable nor tuckable and keeps its own place, and split controls
+  such as "Open in file explorer / More ways to open" stay whole instead of
+  being split into draggable rows.
+- Tucked rows land in the shipped "More actions" menu (the one with "Download
+  session log" and "Feedback"): they are injected as menu rows above the native
+  items without adding a heading, stay in sync while the menu is open, activate
+  the component when clicked, and return to their place when dragged out. That
+  menu is hardcoded by an official plugin and exposes no slot, so the rows are
+  injected as DOM and torn down with the menu.
+- The shipped "Download session log" and "Feedback" items can be dragged onto
+  the strip as icon buttons that perform the same action as the menu item; drop
+  one back on "More actions" to take it away again.
+- The scope has its own drag switch, region reset, and configuration
+  import/export like every other scope; the v3 storage format is unchanged (old
+  layouts simply gain the new scope), and the "Layout organizer" settings page
+  lists it from 0.7.0 on.
+- Fix: dragging a row out of the "More actions" menu left the host menu open;
+  closing it now bypasses the post-drag click guard. Drag preview and drop
+  position no longer disagree either: a saved order can list a row the host does
+  not paint right now, and its slot used to shift every drop index.
+- Fix the ghost's light frame: the session-header icon buttons get "no border,
+  no padding, centered" from a wrapper selector that no longer matches once the
+  clone sits on `<body>`, so the browser supplied its default `2px outset` button
+  border. The clone now freezes the source row's resolved border, padding,
+  display and alignment.
+
 ## Unreleased
 
 - 发布自动化：推送 `v*` 标签后，GitHub Actions 会从该标签构建客户端 bundle、

@@ -221,6 +221,32 @@ function writeDragEnabled(scope, enabled) {
 // configured: the six-scope layout plus the per-section drag switches. The
 // repair ledger and the disabled kill switch are local runtime bookkeeping and
 // deliberately stay out of it.
+function readHostActions() {
+  try {
+    const raw = window.localStorage.getItem(HOST_ACTION_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out = {};
+    for (const key of Object.keys(parsed)) {
+      const info = parsed[key];
+      if (!key || !info || typeof info.label !== "string") continue;
+      out[key] = { label: info.label, icon: typeof info.icon === "string" ? info.icon : "" };
+    }
+    return out;
+  } catch (err) {
+    return {};
+  }
+}
+
+function writeHostActions(map) {
+  try {
+    window.localStorage.setItem(HOST_ACTION_KEY, JSON.stringify(map || {}));
+  } catch (err) {
+    /* storage may be unavailable */
+  }
+}
+
 function exportConfigSnapshot() {
   const state = cloneState(readState());
   const dragState = readDragState();

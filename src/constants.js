@@ -18,17 +18,26 @@ const MORE_SLOTS = {
   conversation: "conversation.session.header.views.actions",
   rightbar: "sidebar.right.tab.guide.actions",
 };
+// The header utilities strip tucks rows into the SHIPPED "More actions" menu
+// (an official plugin's hardcoded Menu, not a slot), so it has a region of its
+// own for `hiddenForRegion` and its own DOM injection in runtime.js. It must
+// not join REGION_SCOPES.conversation: those rows belong to the views menu.
 const REGION_SCOPES = {
   sidebar: ["sidebar", "footer"],
   conversation: ["tabs", "composer"],
   rightbar: ["right"],
+  header: ["header"],
 };
-const SCOPE_KEYS = ["sidebar", "footer", "tabs", "composer", "right", "settings"];
+const SCOPE_KEYS = ["sidebar", "footer", "tabs", "composer", "header", "right", "settings"];
 const STORAGE_KEY = "dsh.sidebar-organizer.layout.v1";
 // One-shot repair ledger: 0.5.4 appended newly discovered rows to the end of
 // the persisted order instead of inserting them at the host position.
 const REPAIR_KEY = "dsh.sidebar-organizer.repair.v1";
 const DRAG_KEY = "dsh.sidebar-organizer.drag.v1";
+// Host menu actions the user pulled out of the "More" popup. The map keeps the
+// label and icon so the strip button can be rebuilt before the popup ever opens.
+const HOST_ACTION_KEY = "dsh.sidebar-organizer.host-actions.v1";
+const HOST_ACTION_PREFIX = "dso-host-";
 const DISABLED_KEY = "dsh.sidebar-organizer.disabled";
 // The plugin was called dsh-modmenu up to 0.3.6; keep reading the old keys so a
 // rename does not drop the user's saved layout.
@@ -78,6 +87,7 @@ const STRINGS = {
       footer: "侧栏底部",
       tabs: "对话标签",
       composer: "输入框工具条",
+      header: "会话头部工具条",
       right: "右侧栏",
       settings: "设置导航",
     },
@@ -111,6 +121,7 @@ const STRINGS = {
       footer: "Sidebar footer",
       tabs: "Conversation tabs",
       composer: "Composer dock",
+      header: "Session header",
       right: "Right sidebar",
       settings: "Settings navigation",
     },

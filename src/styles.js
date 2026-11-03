@@ -106,6 +106,37 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   user-select: none;
 }
 .dso-menu-item { display: block; }
+/* Rows injected into the shipped "More actions" menu of the session header.
+   Kept on the same 32px row metrics as the native items so the menu does not
+   grow a seam; the caption uses the same quiet styling as every other shelf. */
+.dso-header-tucked { display: block; padding: 2px 0 2px; }
+.dso-header-tucked .dso-menu-caption { padding-top: 2px; }
+/* Shortcut buttons for shipped-menu actions pulled onto the header strip. They
+   must look like the host's 28px icon buttons, not like our menu rows. */
+.dso-host-action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.dso-host-action:hover { background: var(--dsw-alias-bg-layer-hover, rgba(255, 255, 255, 0.08)); }
+.dso-host-action svg { width: 16px; height: 16px; }
+.dso-host-action-text {
+  max-width: 56px;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Kept in the layout (so the menu does not jump) and dimmed like a sidebar
    row; the placeholder rule above owns the opacity. */
 /* icon wrapper handed to MenuItemButton: same 16px footprint as the shipped rows */

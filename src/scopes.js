@@ -5,6 +5,11 @@ const SCOPE_DEFS = [
   { key: "footer", axis: "x", more: true, slot: FOOTER_SLOT, selector: '[data-slot="sidebar.footer.action"]' },
   { key: "tabs", axis: "x", more: true, slot: TABS_SLOT, selector: "[data-conversation-tabs]" },
   { key: "composer", axis: "x", more: true, slot: COMPOSER_SLOT, selector: '[data-slot="conversation.composer.dock"]' },
+  // The header strip's slot entries have no stable registration ids to pair
+  // with (only the shipped "more actions" plugin registers one, and it is not
+  // the row's visual position), so `slot: null` keeps assignIds from shifting
+  // that id onto whichever row comes first. Rows get aria-label derived ids.
+  { key: "header", axis: "x", more: true, slot: null, selector: '[data-slot="conversation.session.header.utilities"]' },
   { key: "right", axis: "y", more: true, slot: null, selector: "[data-sidebar-right-guide]" },
   { key: "settings", axis: "y", more: false, slot: SETTINGS_SLOT, selector: '[data-shortcut-modal="settings"]' },
 ];
@@ -288,6 +293,10 @@ function collectOutlet(scope, selector, options) {
     rows: collected.rows,
     tails: tails.filter((child) => child !== more),
     more,
+    // The session header's "More actions" button is host chrome, not an
+    // overflow caret at the end of a strip: it must keep the slot the host
+    // gave it (right after the split control) and never be sorted or tucked.
+    moreIsChrome: !!(options && options.fixedMore && collected.more),
     moreTarget: more ? menuTriggerButton(more) : null,
   };
 }
@@ -302,6 +311,13 @@ function collectUnitsFromUnits(units, options) {
     if (child.closest && child.closest(".dso-config")) continue;
     if (isMoreTrigger(child)) {
       more = child;
+      continue;
+    }
+    // A segmented control — one wrapper holding two or more buttons, such as
+    // the header's "open in explorer / more open methods" split button — is a
+    // single host widget, not a sortable item. Sorting one half away from the
+    // other would tear the control apart, so the whole group stays untouched.
+    if (opts.skipSplitControls && child.querySelectorAll('button, a, [role="tab"], [role="menuitem"]').length > 1) {
       continue;
     }
     const target = clickableIn(child);
@@ -463,6 +479,17 @@ function discoverScope(ctx, scope) {
   else if (scope === "footer") found = collectOutlet("footer", '[data-slot="sidebar.footer.action"]', { axis: "x" });
   else if (scope === "tabs") found = collectTabs();
   else if (scope === "composer") found = collectOutlet("composer", '[data-slot="conversation.composer.dock"]', { axis: "x" });
+  else if (scope === "header")
+    // This strip mixes three kinds of controls the user must not rearrange:
+    // the shipped session-log "More actions" button is host chrome that keeps
+    // the slot the host gave it (`fixedMore`), and segmented controls such as
+    // "open in explorer / more open methods" are single host widgets
+    // (`skipSplitControls`). Only the plain icon buttons become rows.
+    found = collectOutlet("header", '[data-slot="conversation.session.header.utilities"]', {
+      axis: "x",
+      fixedMore: true,
+      skipSplitControls: true,
+    });
   else if (scope === "right") found = collectRight();
   else if (scope === "settings") found = collectSettings();
   if (!found) return null;
@@ -479,7 +506,7 @@ function discoverScope(ctx, scope) {
     // is additionally fixed in place (it is not ours to move); our own row is
     // freely draggable so the user can put it anywhere in the list.
     const foreignPinned = scope === "settings" && !!row.target.closest("[data-dsh-better-sidebar-settings-nav]");
-    row.pinned = !!(scope === "settings" && (row.id === SETTINGS_ID || foreignPinned));
+    row.pinned = !!row.pinned || !!(scope === "settings" && (row.id === SETTINGS_ID || foreignPinned));
     row.fixed = !!(scope === "settings" && foreignPinned);
   }
   return found;

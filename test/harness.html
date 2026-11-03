@@ -27,6 +27,16 @@
   .tabs { flex-direction: row; }
   .composer { align-items: center; }
   [data-slot="conversation.composer.dock"] { display: contents; }
+  /* Mirrors the shipped session header: a flex row whose slot outlet is
+     display:contents, so the sortable order must land on the outlet's children
+     and the tuck target is the shipped "more actions" button inside it. */
+  .header-utilities { display: flex; gap: 6px; align-items: center; }
+  [data-slot="conversation.session.header.utilities"] { display: contents; }
+  .header-utilities button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; }
+  .header-utilities .header-unit { display: inline-flex; gap: 2px; }
+  .header-host-menu { position: fixed; width: 200px; background: #26272b; border: 1px solid #3a3a3f; border-radius: 8px; padding: 4px; }
+  .header-host-menu[hidden] { display: none; }
+  .header-host-menu .host-row { display: block; width: 100%; text-align: left; padding: 6px 8px; }
   [data-slot="sidebar.footer.action"] { display: flex; gap: 6px; }
   .settings nav { display: block; }
   .settings-list { flex-direction: column; width: 200px; }
@@ -107,6 +117,36 @@
   </div>
 
   <div class="fixture">
+    <div class="caption">conversation.session.header.utilities</div>
+    <!-- Mirrors the shipped header: the folder split button, the reminder, the
+         official session-log "more actions" menu, and three plain icons. The
+         menu is host-owned (hard-coded items), so tucked rows must be injected
+         into it rather than registered through a slot. -->
+    <div class="header-utilities" id="header-utilities">
+      <div data-slot="conversation.session.header.utilities" id="header-slot">
+        <span class="header-unit" data-testid="header-workspace">
+          <button aria-label="用 文件资源管理器 打开" data-testid="header-explorer"><span aria-hidden="true">F</span></button>
+          <button aria-haspopup="menu" aria-label="更多打开方式"><span aria-hidden="true">v</span></button>
+        </span>
+        <div class="header-unit"><button aria-label="提醒" data-testid="header-reminder"><span aria-hidden="true">R</span></button></div>
+        <span class="header-unit">
+          <button aria-haspopup="menu" aria-expanded="false" aria-label="更多操作" data-testid="header-more" id="header-more"><span aria-hidden="true">…</span></button>
+        </span>
+        <button aria-label="展开底部面板" data-testid="header-panel"><span aria-hidden="true">B</span></button>
+        <button aria-label="上下文诊断" data-testid="header-context"><span aria-hidden="true">D</span></button>
+        <span class="header-unit"><button aria-label="解除卡顿" data-testid="header-lag"><span aria-hidden="true">S</span></button></span>
+        <button aria-label="查找" data-testid="header-find"><span aria-hidden="true">Q</span></button>
+      </div>
+    </div>
+    <div class="header-host-menu" id="header-host-menu" role="menu" hidden>
+      <div class="_viewport_4ub78_19" id="header-host-viewport">
+        <div role="menuitem"><button type="button" class="host-row">下载 Session 日志</button></div>
+        <div role="menuitem"><button type="button" class="host-row">反馈</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fixture">
     <div class="caption">right sidebar guide</div>
     <div data-sidebar-right-guide class="right" id="right">
       <div data-sidebar-right-guide-entry="files"><button class="guide-entry"><span class="entryTitle">文件</span><span aria-hidden="true">F</span></button></div>
@@ -155,7 +195,25 @@
       .map((node) => node.dataset.dsoKey);
   }
 
-  // Minimal React surface: enough for createMenuEntry/createSettingsPage to
+  // The header strip sorts wrapper units (the shipped slot wraps some buttons
+  // in a span), so read order from the unit, not from the marked target.
+  function unitsOf(scope, container) {
+    const units = [];
+    for (const node of container.querySelectorAll('[data-dso-scope="' + scope + '"]')) {
+      let unit = node;
+      while (unit.parentElement && unit.parentElement !== container) unit = unit.parentElement;
+      if (units.indexOf(unit) === -1) units.push(unit);
+    }
+    return units;
+  }
+  function unitOrderOf(scope, container) {
+    const selector = '[data-dso-scope="' + scope + '"]';
+    return unitsOf(scope, container)
+      .filter((unit) => !unit.querySelector('[data-dso-hidden="1"]') && unit.getAttribute("data-dso-hidden") !== "1")
+      .sort((a, b) => Number(a.style.order) - Number(b.style.order))
+      .map((unit) => (unit.matches(selector) ? unit : unit.querySelector(selector)).dataset.dsoKey);
+  }
+
   // register real components; the runtime tests below never render them.
   const ReactStub = {
     createElement() { return {}; },
@@ -241,8 +299,17 @@
         order: ["files", "browser", "terminal", "new-terminal"],
         hidden: [],
       },
+      // 0.6.x saved the explorer split control as a header row; 0.7.0 skips it
+      // (it belongs to the host). The stale entry has to survive at the front of
+      // the order, exactly like the layout a user upgrading from 0.6.5 carries.
+      header: {
+        order: ["header-explorer"],
+        hidden: [],
+      },
     },
   }));
+
+  window.__harnessCtx = ctx;
 
   window.__ModuleLoader__ = {
     load({ factory }) {
@@ -301,6 +368,26 @@
       assert("composer tail is not a row", !composerTail.hasAttribute("data-dso-key"));
       assert("composer tail is pinned after rows", Number(composerTail.style.order) > 1000, composerTail.style.order);
       assert("settings has 7 rows", status.scopes.settings.rows.length === 7, status.scopes.settings.rows.length);
+      assert("header scope found", status.scopes.header.found, JSON.stringify(status.scopes.header));
+      assert("header has 5 rows", status.scopes.header.rows.length === 5, status.scopes.header.rows.map((row) => row.id).join(","));
+      // The shipped "more actions" button is the tuck target, never a row: it
+      // keeps the slot the host mounted it in and cannot be sorted or tucked.
+      const headerMoreRow = status.scopes.header.rows.find((row) => row.id === "more");
+      assert("header treats the shipped 更多操作 as chrome", !headerMoreRow, status.scopes.header.rows.map((row) => row.id).join(","));
+      assert(
+        "header More button is not tagged as a row",
+        !document.querySelector('[data-testid="header-more"]').closest("[data-dso-key]"),
+        document.querySelector('[data-testid="header-more"]').outerHTML
+      );
+      assert("header More button is not tuckable", api.hide("header", "more") === false);
+      assert(
+        "header split control stays out of the sortable rows",
+        !status.scopes.header.rows.some((row) => row.label === "用 文件资源管理器 打开") &&
+          !status.scopes.header.rows.some((row) => row.label === "更多打开方式") &&
+          !document.querySelector('[data-testid="header-explorer"]').closest("[data-dso-key]") &&
+          !document.querySelector('[data-testid="header-workspace"]').style.order,
+        status.scopes.header.rows.map((row) => row.label).join(",")
+      );
 
       const stored = JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1"));
       assert("storage upgraded to v3", stored && stored.version === 3, JSON.stringify(stored));
@@ -427,6 +514,12 @@
       // The More popup lists tucked rows; picking one activates the real nav row.
       let accountClicks = 0;
       document.querySelector('[data-dso-key="account"]').addEventListener("click", () => { accountClicks += 1; });
+      // The harness page is taller than the viewport and the settings fixture
+      // sits far below the fold; the popup is positioned in viewport space and
+      // deliberately refuses an off-screen anchor, so bring the nav into view
+      // first (the real settings panel is always on screen when clicked).
+      settingsMore.scrollIntoView({ block: "center" });
+      await wait(60);
       settingsMore.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
       const settingsMenu = document.querySelector(".dso-settings-more-menu");
       assert("settings More opens its popup", !!settingsMenu);
@@ -759,6 +852,305 @@
         `spacer ${guideSpacer} vs row ${lastRowOrder}`
       );
 
+      // ---- session header strip: reorder, tuck into the shipped menu, drag out
+      // The shipped session-log button owns its menu (hard-coded items, no
+      // slot), so model it here: aria-expanded is the only "is it open" signal,
+      // and the portal mounts beside the anchor.
+      const headerMore = document.getElementById("header-more");
+      const headerHostMenu = document.getElementById("header-host-menu");
+      const headerViewport = document.getElementById("header-host-viewport");
+      const headerStrip = document.getElementById("header-utilities");
+      // The slot renders with display:contents, so every wrapper's parent is the
+      // slot element itself: that is the container the order is applied in.
+      const headerOrderOf = () => unitOrderOf("header", document.getElementById("header-slot"));
+      headerMore.addEventListener("click", () => {
+        const open = headerMore.getAttribute("aria-expanded") === "true";
+        headerMore.setAttribute("aria-expanded", open ? "false" : "true");
+        headerHostMenu.hidden = open;
+        if (!open) {
+          const rect = headerMore.getBoundingClientRect();
+          headerHostMenu.style.left = Math.round(rect.left - 160) + "px";
+          headerHostMenu.style.top = Math.round(rect.bottom + 4) + "px";
+        }
+      });
+      // The settings fixture test scrolled this long page; the strip lives at
+      // the top, so bring it back into view before measuring drop targets.
+      window.scrollTo(0, 0);
+      await wait(60);
+      // Regression: a saved order can still name a row the host no longer
+      // paints (0.6.x stored the explorer split control; 0.7.0 leaves it to the
+      // host). Drop indexes are counted over painted rows, so the stale entry
+      // must not shift them: one slot to the right used to splice the row back
+      // into its own saved slot, drawing the line and then changing nothing.
+      const staleStored = JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1")).scopes.header;
+      assert("a stale header id keeps its saved slot", staleStored.order[0] === "header-explorer", JSON.stringify(staleStored));
+      assert(
+        "a stale saved id does not reorder the painted rows",
+        headerOrderOf().join(",") === "header-reminder,header-panel,header-context,header-lag,header-find",
+        headerOrderOf().join(",")
+      );
+      const stalePanel = document.querySelector('[data-testid="header-panel"]');
+      const staleRect = stalePanel.getBoundingClientRect();
+      stalePanel.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 63,
+        clientX: staleRect.left + staleRect.width / 2, clientY: staleRect.top + staleRect.height / 2,
+      }));
+      await wait(330);
+      const staleX = (
+        document.querySelector('[data-testid="header-context"]').getBoundingClientRect().right +
+        document.querySelector('[data-testid="header-lag"]').getBoundingClientRect().left
+      ) / 2;
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 63, clientX: staleX, clientY: staleRect.top + staleRect.height / 2,
+      }));
+      assert(
+        "a stale saved id still previews the drop line",
+        document.querySelector(".dso-indicator")?.dataset.visible === "1",
+        document.querySelector(".dso-indicator")?.dataset.visible
+      );
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 63, clientX: staleX, clientY: staleRect.top + staleRect.height / 2,
+      }));
+      await wait(140);
+      assert(
+        "a drop one slot right moves the row even with an absent saved id",
+        headerOrderOf().join(",") === "header-reminder,header-context,header-panel,header-lag,header-find",
+        headerOrderOf().join(",")
+      );
+      const staleAfter = JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1")).scopes.header;
+      assert(
+        "the absent id keeps its saved slot while the row moves",
+        staleAfter.order[0] === "header-explorer" &&
+          staleAfter.order.indexOf("header-panel") > staleAfter.order.indexOf("header-context"),
+        JSON.stringify(staleAfter)
+      );
+      // The post-drag click guard would swallow the next host click.
+      await wait(400);
+
+      api.resetScope("header");
+      await wait(40);
+      assert(
+        "header keeps the shipped DOM order by default",
+        headerOrderOf().join(",") === "header-reminder,header-panel,header-context,header-lag,header-find",
+        headerOrderOf().join(",")
+      );
+      assert(
+        "header More button stays at the left edge of the sortable rows",
+        headerMore.getBoundingClientRect().left <
+          document.querySelector('[data-testid="header-reminder"]').getBoundingClientRect().left,
+        String(headerMore.getBoundingClientRect().left)
+      );
+      assert("header rows can be reordered", api.reorder("header", "header-find", 0) === true);
+      assert("header reorder is applied", headerOrderOf()[0] === "header-find", headerOrderOf().join(","));
+      const headerStored = JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1")).scopes.header;
+      assert("header layout is persisted", headerStored.order[0] === "header-find", JSON.stringify(headerStored));
+
+      assert("header row can be tucked", api.hide("header", "header-reminder") === true);
+      assert(
+        "tucked header row is hidden in place",
+        getComputedStyle(document.querySelector('[data-testid="header-reminder"]')).display === "none"
+      );
+      headerMore.click();
+      await wait(60);
+      assert("shipped header menu opens", headerMore.getAttribute("aria-expanded") === "true" && headerHostMenu.hidden === false);
+      const tuckedBlock = headerViewport.querySelector(".dso-header-tucked");
+      assert("tucked rows are injected into the shipped menu", !!tuckedBlock, headerViewport.innerHTML);
+      assert("tucked block is inserted above the host's own items", !!tuckedBlock && headerViewport.firstElementChild === tuckedBlock);
+      assert("tucked block has no shelf caption", !!tuckedBlock && !tuckedBlock.querySelector(".dso-menu-caption"));
+      assert(
+        "tucked header row is listed",
+        !!tuckedBlock && !!tuckedBlock.querySelector('[data-dso-more-key="header:header-reminder"]'),
+        tuckedBlock && tuckedBlock.innerHTML
+      );
+      assert("shipped menu keeps its own items", headerViewport.querySelectorAll(".host-row").length === 2);
+
+      api.hide("header", "header-lag");
+      api.refresh();
+      await wait(40);
+      assert("an open menu picks up another tucked row", !!headerViewport.querySelector('[data-dso-more-key="header:header-lag"]'));
+
+      let lagClicks = 0;
+      const lagButton = document.querySelector('[data-testid="header-lag"]');
+      lagButton.addEventListener("click", () => { lagClicks += 1; });
+      headerViewport.querySelector('[data-dso-more-key="header:header-lag"] button').click();
+      await wait(80);
+      // A menu row is a shortcut to the component, not an un-tuck: the row stays
+      // tucked and dragging it out is what restores it (same as settings).
+      assert("clicking a tucked row activates the component", lagClicks === 1, String(lagClicks));
+      assert("clicking a tucked row keeps it tucked", api.hiddenIds("header").indexOf("header-lag") !== -1, JSON.stringify(api.hiddenIds("header")));
+      assert(
+        "activating from the shipped menu closes it",
+        headerMore.getAttribute("aria-expanded") === "false" && headerHostMenu.hidden === true
+      );
+      assert("injected shelf is removed when the menu closes", !document.querySelector(".dso-header-tucked"));
+
+      // Drag a tucked row out of the shipped menu and back onto the strip.
+      headerMore.click();
+      await wait(60);
+      const tuckedReminder = headerViewport.querySelector('[data-dso-more-key="header:header-reminder"] button');
+      const tuckedRect = tuckedReminder.getBoundingClientRect();
+      const stripRect = headerStrip.getBoundingClientRect();
+      tuckedReminder.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 61,
+        clientX: tuckedRect.left + 20, clientY: tuckedRect.top + tuckedRect.height / 2,
+      }));
+      await wait(330);
+      assert("dragging a menu row creates a ghost", !!document.querySelector(".dso-ghost"));
+      assert("dragging a menu row marks the body", document.body.classList.contains("dso-dragging"));
+      const outX = stripRect.left + 12;
+      const outY = stripRect.top + stripRect.height / 2;
+      document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 61, clientX: outX, clientY: outY }));
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 61, clientX: outX, clientY: outY }));
+      await wait(150);
+      assert("dragging a tucked header row out reveals it", api.hiddenIds("header").indexOf("header-reminder") === -1, JSON.stringify(api.hiddenIds("header")));
+      assert(
+        "dragging out of the shipped menu closes it",
+        headerMore.getAttribute("aria-expanded") === "false" && headerHostMenu.hidden === true
+      );
+      await wait(520);
+
+      // Drop a visible row onto the shipped More button: it must tuck, and the
+      // click the browser synthesizes after a drag must not open the menu.
+      const panelButton = document.querySelector('[data-testid="header-panel"]');
+      const panelRect = panelButton.getBoundingClientRect();
+      const moreRect = headerMore.getBoundingClientRect();
+      panelButton.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 62,
+        clientX: panelRect.left + panelRect.width / 2, clientY: panelRect.top + panelRect.height / 2,
+      }));
+      await wait(330);
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 62,
+        clientX: moreRect.left + moreRect.width / 2, clientY: moreRect.top + moreRect.height / 2,
+      }));
+      assert("dropping a header row on More arms the anchor", headerMore.classList.contains("dso-drop-more"), headerMore.className);
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 62,
+        clientX: moreRect.left + moreRect.width / 2, clientY: moreRect.top + moreRect.height / 2,
+      }));
+      panelButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      assert("dropping on More does not open the shipped menu", headerHostMenu.hidden === true);
+      await wait(320);
+      assert("dropping a header row on More tucks it", panelButton.dataset.dsoHidden === "1", panelButton.dataset.dsoHidden);
+      await wait(520);
+      headerMore.click();
+      await wait(60);
+      assert("dropped row shows up in the shipped menu", !!headerViewport.querySelector('[data-dso-more-key="header:header-panel"]'));
+      headerMore.click();
+      await wait(60);
+      // Shipped-menu actions can be pulled onto the strip: the host row stays in
+      // the menu, the strip gets a shortcut button that proxies the same action.
+      const hostClicks = { download: 0, feedback: 0 };
+      const hostRows = headerViewport.querySelectorAll('[role="menuitem"]');
+      hostRows[0].addEventListener("click", () => { hostClicks.download += 1; });
+      hostRows[1].addEventListener("click", () => { hostClicks.feedback += 1; });
+      headerMore.click();
+      await wait(60);
+      const downloadRow = headerViewport.querySelector('[data-dso-more-key="header:dso-host-0"]');
+      assert("shipped menu rows are tagged as pull-out sources", !!downloadRow, headerViewport.innerHTML);
+      const downloadRect = downloadRow.getBoundingClientRect();
+      downloadRow.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 71,
+        clientX: downloadRect.left + 20, clientY: downloadRect.top + downloadRect.height / 2,
+      }));
+      await wait(330);
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 71, clientX: stripRect.left + 12, clientY: stripRect.top + stripRect.height / 2,
+      }));
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 71, clientX: stripRect.left + 12, clientY: stripRect.top + stripRect.height / 2,
+      }));
+      await wait(150);
+      const downloadShortcut = document.getElementById("dso-host-0");
+      assert("pulling a shipped action out creates a strip button", !!downloadShortcut, document.getElementById("header-slot").innerHTML);
+      assert(
+        "the shortcut carries the shipped label",
+        !!downloadShortcut && downloadShortcut.getAttribute("aria-label") === "下载 Session 日志",
+        downloadShortcut && downloadShortcut.getAttribute("aria-label")
+      );
+      assert(
+        "the shipped row stays in the menu",
+        headerViewport.querySelectorAll(".host-row").length === 2 && !!headerViewport.querySelector('[data-dso-more-key="header:dso-host-0"]')
+      );
+      await wait(520);
+      downloadShortcut.click();
+      await wait(80);
+      assert("clicking the shortcut runs the shipped action", hostClicks.download === 1, String(hostClicks.download));
+      assert("the proxy closes the shipped menu", headerHostMenu.hidden === true && headerMore.getAttribute("aria-expanded") === "false");
+      // Dragging the shortcut back into More removes it again.
+      const shortcutRect = downloadShortcut.getBoundingClientRect();
+      downloadShortcut.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 72,
+        clientX: shortcutRect.left + shortcutRect.width / 2, clientY: shortcutRect.top + shortcutRect.height / 2,
+      }));
+      await wait(330);
+      assert("dragging the shortcut creates a ghost", !!document.querySelector(".dso-ghost"), document.body.className);
+      const moreRect2 = headerMore.getBoundingClientRect();
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 72, clientX: moreRect2.left + moreRect2.width / 2, clientY: moreRect2.top + moreRect2.height / 2,
+      }));
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 72, clientX: moreRect2.left + moreRect2.width / 2, clientY: moreRect2.top + moreRect2.height / 2,
+      }));
+      await wait(150);
+      assert("dropping a shortcut on More removes it", !document.getElementById("dso-host-0"));
+      assert(
+        "the removed shortcut leaves the saved order",
+        JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1")).scopes.header.order.indexOf("dso-host-0") === -1
+      );
+      await wait(520);
+
+      api.resetScope("header");
+      await wait(60);
+      assert(
+        "header reset restores the host order",
+        headerOrderOf().join(",") === "header-reminder,header-panel,header-context,header-lag,header-find",
+        headerOrderOf().join(",")
+      );
+
+      // Preview/commit agreement: for every from→target pair the row must land
+      // exactly where the drop line was drawn. A mismatch here is what users
+      // report as "the preview was right but the order did not change".
+      const matrixRows = ["header-reminder", "header-panel", "header-context", "header-lag", "header-find"];
+      const matrixProblems = [];
+      for (let from = 0; from < matrixRows.length; from += 1) {
+        for (let to = 0; to < matrixRows.length; to += 1) {
+          if (from === to) continue;
+          api.resetScope("header");
+          await wait(30);
+          const order = headerOrderOf();
+          if (order.length !== matrixRows.length) { matrixProblems.push(`setup:${order.join(",")}`); continue; }
+          const sourceElement = document.querySelector(`[data-dso-key="${order[from]}"]`);
+          const targetElement = document.querySelector(`[data-dso-key="${order[to]}"]`);
+          const sourceRect = sourceElement.getBoundingClientRect();
+          const targetRect = targetElement.getBoundingClientRect();
+          sourceElement.dispatchEvent(new PointerEvent("pointerdown", {
+            bubbles: true, cancelable: true, button: 0, pointerId: 90 + from * 5 + to,
+            clientX: sourceRect.left + sourceRect.width / 2, clientY: sourceRect.top + sourceRect.height / 2,
+          }));
+          await wait(320);
+          const dropX = targetRect.left + 2;
+          const dropY = targetRect.top + targetRect.height / 2;
+          document.dispatchEvent(new PointerEvent("pointermove", {
+            bubbles: true, cancelable: true, pointerId: 90 + from * 5 + to, clientX: dropX, clientY: dropY,
+          }));
+          const indicator = document.querySelector(".dso-indicator");
+          if (!indicator || indicator.dataset.visible !== "1") matrixProblems.push(`preview:${from}->${to}`);
+          document.dispatchEvent(new PointerEvent("pointerup", {
+            bubbles: true, cancelable: true, pointerId: 90 + from * 5 + to, clientX: dropX, clientY: dropY,
+          }));
+          await wait(120);
+          const expected = order.slice();
+          const moved = expected.splice(from, 1)[0];
+          expected.splice(to < from ? to : to - 1, 0, moved);
+          const actual = headerOrderOf();
+          if (actual.join(",") !== expected.join(",")) matrixProblems.push(`${from}->${to}: ${actual.join(",")} != ${expected.join(",")}`);
+        }
+      }
+      assert("header drag lands where the drop line was drawn", matrixProblems.length === 0, matrixProblems.join(" | "));
+      api.resetScope("header");
+      await wait(60);
+
       // Configuration export/import: the file carries both the layout and the
       // per-section drag switches. A version mismatch is rejected whole, so a
       // foreign snapshot cannot half-apply over the current layout.
@@ -776,7 +1168,7 @@
       );
       assert(
         "export carries every drag switch",
-        exported.drag.right === false && exported.drag.sidebar === true && Object.keys(exported.drag).length === 6,
+        exported.drag.right === false && exported.drag.sidebar === true && exported.drag.header === true && Object.keys(exported.drag).length === 7,
         JSON.stringify(exported.drag)
       );
 

@@ -18,6 +18,10 @@ function createRuntime(ctx) {
     dismissMenu: null,
     settingsMenu: null,
     settingsMenuAnchor: null,
+    headerMenu: null,
+    headerMenuBlock: null,
+    headerMenuSignature: "",
+    clickBypass: null,
     found: {},
   };
 
@@ -153,6 +157,333 @@ function createRuntime(ctx) {
     openSettingsMoreMenu(anchor);
   }
 
+  // The session header's "More actions" menu belongs to the shipped
+  // session-log-export plugin: its items are hardcoded, it exposes no slot, and
+  // it cannot be extended from React.  So the tucked rows of our header scope
+  // are injected into that open menu as plain DOM, above the native rows, and
+  // are torn down when the host closes it.  Everything else (drag out, reorder,
+  // hide) reuses the ordinary menu-row source via data-dso-more-key.
+  function headerAnchor() {
+    const found = state.found.header;
+    if (!found) return null;
+    return found.moreTarget || found.more || null;
+  }
+
+  function headerHiddenRows() {
+    const found = state.found.header;
+    if (!found) return [];
+    const layout = normalizedLayout("header");
+    const out = [];
+    for (const id of layout.hidden) {
+      const row = rowFor(found, id);
+      if (row) out.push({ id, label: row.label || id });
+    }
+    return out;
+  }
+
+  function menuDistance(anchorRect, rect) {
+    const dx = Math.max(0, anchorRect.left - rect.right, rect.left - anchorRect.right);
+    const dy = Math.max(0, anchorRect.top - rect.bottom, rect.top - anchorRect.bottom);
+    return dx * dx + dy * dy;
+  }
+
+  // Every visible popup that could be the host's "More actions" menu. Menus
+  // without rows (anchors' empty shells, our own settings popup) are not
+  // candidates: the shipped menu always has at least one menuitem.
+  function headerMenus() {
+    const out = [];
+    for (const menu of document.querySelectorAll('[role="menu"]')) {
+      if (menu.classList.contains("dso-settings-more-menu")) continue;
+      if (menu.closest(".dso-settings-more-menu")) continue;
+      if (!menu.querySelector('[role="menuitem"]')) continue;
+      const rect = menu.getBoundingClientRect();
+      if (!rect.width && !rect.height) continue;
+      out.push({ menu, rect });
+    }
+    return out;
+  }
+
+  function hostHeaderMenu() {
+    const anchor = headerAnchor();
+    if (!anchor || !anchor.isConnected) return null;
+    if (anchor.getAttribute("aria-expanded") !== "true") return null;
+    const candidates = headerMenus();
+    if (!candidates.length) return null;
+    // Several popovers can be open (e.g. the split control's "open with"
+    // menu); the one we already tagged is definitely the host's menu.
+    for (const entry of candidates) {
+      if (entry.menu.querySelector("[data-dso-host-id]")) return entry.menu;
+    }
+    const anchorRect = anchor.getBoundingClientRect();
+    let best = null;
+    let bestDistance = Infinity;
+    for (const entry of candidates) {
+      const distance = menuDistance(anchorRect, entry.rect);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = entry.menu;
+      }
+    }
+    return best;
+  }
+
+  function headerMenuViewport(menu) {
+    // The shipped menu wraps its rows in a scroll viewport; insert above the
+    // native items so "download / feedback" keep their familiar place.
+    return menu.querySelector('[class*="_viewport_"]') || menu;
+  }
+
+  function headerTuckedBlock(rows) {
+    // No "已收纳" caption here (unlike our own menus): this popup belongs to the
+    // host and already groups download/feedback; an extra heading inside it read
+    // as chrome the host never asked for. The tucked rows simply sit on top.
+    const block = document.createElement("div");
+    block.className = "dso-header-tucked";
+    for (const item of rows) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "dso-menu-item dso-header-tucked-item";
+      wrapper.setAttribute("data-dso-more-key", "header:" + item.id);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "dso-menu-row";
+      button.setAttribute("role", "menuitem");
+      const markup = iconFor("header", item.id);
+      if (markup) {
+        const icon = document.createElement("span");
+        icon.className = "dso-menu-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.innerHTML = markup;
+        button.appendChild(icon);
+      }
+      const label = document.createElement("span");
+      label.className = "dso-menu-label";
+      label.textContent = item.label;
+      button.appendChild(label);
+      wrapper.appendChild(button);
+      block.appendChild(wrapper);
+    }
+    return block;
+  }
+
+  function removeHeaderMenuBlock() {
+    const block = state.headerMenuBlock;
+    state.headerMenuBlock = null;
+    state.headerMenuSignature = "";
+    if (block && block.parentNode) block.parentNode.removeChild(block);
+  }
+
+  function syncHeaderMenu() {
+    const menu = hostHeaderMenu();
+    if (!menu) {
+      state.headerMenu = null;
+      removeHeaderMenuBlock();
+      return;
+    }
+    // The shipped menu's own rows ("download session log", "feedback") are not
+    // slot items, so they can never be rows of our scope. Tagging them here is
+    // what lets the generic menu-row drag treat them as pull-out sources.
+    tagHostMenuItems(menu);
+    const rows = headerHiddenRows();
+    if (!rows.length) {
+      state.headerMenu = menu;
+      removeHeaderMenuBlock();
+      return;
+    }
+    const signature = rows.map((row) => row.id + ":" + row.label).join("|");
+    if (state.headerMenu === menu && state.headerMenuBlock && state.headerMenuBlock.isConnected) {
+      if (state.headerMenuSignature === signature) return;
+      const fresh = headerTuckedBlock(rows);
+      state.headerMenuBlock.parentNode.replaceChild(fresh, state.headerMenuBlock);
+      state.headerMenuBlock = fresh;
+      state.headerMenuSignature = signature;
+      return;
+    }
+    state.headerMenu = menu;
+    state.headerMenuSignature = signature;
+    const block = headerTuckedBlock(rows);
+    const host = headerMenuViewport(menu);
+    host.insertBefore(block, host.firstChild);
+    state.headerMenuBlock = block;
+  }
+
+  // ---- shipped-menu actions pulled onto the strip -----------------------
+  // "Download session log" and "Feedback" are hardcoded rows of the host menu.
+  // Pulling one out does not move the host row; it creates a strip button that
+  // proxies the same action (open the host menu, click the matching row). The
+  // menu keeps owning the behaviour, we only own the shortcut.
+  function hostActionSlot() {
+    return document.querySelector('[data-slot="conversation.session.header.utilities"]');
+  }
+
+  function tagHostMenuItems(menu) {
+    if (!menu || !menu.isConnected) return;
+    const store = readHostActions();
+    let changed = false;
+    let index = 0;
+    for (const node of menu.querySelectorAll('[role="menuitem"]')) {
+      if (node.closest(".dso-header-tucked") || node.closest(".dso-settings-more-menu")) continue;
+      const label = (node.textContent || "").trim();
+      if (!label) continue;
+      const id = HOST_ACTION_PREFIX + index;
+      index += 1;
+      node.dataset.dsoHostId = id;
+      if (node.dataset.dsoMoreKey !== "header:" + id) node.dataset.dsoMoreKey = "header:" + id;
+      const svg = node.querySelector("svg");
+      const icon = svg ? svg.outerHTML : "";
+      const prev = store[id];
+      if (!prev || prev.label !== label || prev.icon !== icon) {
+        store[id] = { label, icon };
+        changed = true;
+      }
+    }
+    if (changed) writeHostActions(store);
+  }
+
+  function createHostActionButton(slot, id, meta) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.id = id;
+    button.className = "dso-host-action";
+    button.setAttribute("aria-label", meta.label);
+    button.title = meta.label;
+    if (meta.icon) {
+      button.innerHTML = meta.icon;
+    } else {
+      const label = document.createElement("span");
+      label.className = "dso-host-action-text";
+      label.textContent = meta.label;
+      button.appendChild(label);
+    }
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openHostAction(id);
+    });
+    slot.appendChild(button);
+    return button;
+  }
+
+  // Rebuild the buttons the user already adopted, before this session's menu
+  // has ever been opened (the metadata lives in localStorage).
+  function ensureHostActionMirrors() {
+    const layout = readScope("header");
+    if (!layout || !layout.order || !layout.order.length) return;
+    const store = readHostActions();
+    for (const id of layout.order) {
+      if (id.indexOf(HOST_ACTION_PREFIX) !== 0) continue;
+      if (document.getElementById(id)) continue;
+      const slot = hostActionSlot();
+      if (!slot) continue;
+      const meta = store[id] || { label: id.slice(HOST_ACTION_PREFIX.length), icon: "" };
+      createHostActionButton(slot, id, meta);
+    }
+  }
+
+  function adoptHostAction(id, index) {
+    const store = readHostActions();
+    const meta = store[id];
+    const slot = hostActionSlot();
+    if (!meta || !slot) return false;
+    if (!document.getElementById(id)) createHostActionButton(slot, id, meta);
+    pass(true);
+    reorder("header", id, typeof index === "number" ? index : undefined);
+    return true;
+  }
+
+  function unadoptHostAction(id) {
+    const button = document.getElementById(id);
+    if (button && button.parentNode) button.parentNode.removeChild(button);
+    // Drop the row from the current discovery snapshot as well: normalizedLayout
+    // re-inserts "rows the host exposes but the saved order forgot", so a stale
+    // row would put the id straight back and the shortcut would reappear on the
+    // next pass.
+    const found = state.found.header;
+    if (found) found.rows = found.rows.filter((row) => row.id !== id);
+    const layout = normalizedLayout("header");
+    writeScope("header", {
+      order: layout.order.filter((key) => key !== id),
+      hidden: layout.hidden.filter((key) => key !== id),
+    });
+    refreshScope("header");
+    notify();
+    return true;
+  }
+
+  function clickHostMenuItem(label) {
+    // Search every open host popup, not just the nearest one: the anchor can
+    // share the screen with other menus of the strip's split controls.
+    for (const entry of headerMenus()) {
+      for (const node of entry.menu.querySelectorAll('[role="menuitem"]')) {
+        if (node.closest(".dso-header-tucked")) continue;
+        if ((node.textContent || "").trim() !== label) continue;
+        node.click();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function openHostAction(id) {
+    const store = readHostActions();
+    const meta = store[id];
+    const anchor = headerAnchor();
+    if (!meta || !anchor || !anchor.isConnected) return false;
+    if (anchor.getAttribute("aria-expanded") === "true") return clickHostMenuItem(meta.label);
+    state.clickBypass = anchor;
+    try {
+      anchor.click();
+    } finally {
+      state.clickBypass = null;
+    }
+    // React renders the popup after the toggle; resolve it on the next task.
+    window.setTimeout(() => {
+      if (!clickHostMenuItem(meta.label)) return;
+      const current = headerAnchor();
+      if (current && current.getAttribute("aria-expanded") === "true") dismissHeaderMenu();
+    }, 0);
+    return true;
+  }
+
+  // Ask the host to close its own menu (our rows are not React children, so the
+  // host does not know a selection happened). Clicking the expanded anchor once
+  // runs its toggle; doing it only while expanded avoids opening the menu.
+  function dismissHeaderMenu() {
+    const anchor = headerAnchor();
+    state.headerMenu = null;
+    removeHeaderMenuBlock();
+    if (anchor && anchor.isConnected && anchor.getAttribute("aria-expanded") === "true") {
+      // The post-drag click guard is already armed here, so the anchor's own
+      // click must bypass it: the guard only exists to swallow the click the
+      // browser synthesizes from the drop itself.
+      state.clickBypass = anchor;
+      try {
+        anchor.click();
+      } catch (err) {
+        /* ignore */
+      } finally {
+        state.clickBypass = null;
+      }
+    }
+  }
+
+  // Clicking an injected row must be handled in the capture phase: the shipped
+  // menu is a portal whose own click handler stops propagation before the event
+  // ever bubbles to document, so a document-level bubble listener never sees it.
+  function onHeaderMenuClick(event) {
+    const target = event.target;
+    if (!target || target.nodeType !== 1) return;
+    const item = target.closest(".dso-header-tucked-item");
+    if (!item) return;
+    event.preventDefault();
+    event.stopPropagation();
+    // A click synthesized by the browser right after a drag belongs to the
+    // drop, not to the row (the anchor has the same rule).
+    if (Date.now() < state.guardUntil) return;
+    const parsed = parseMenuRow(item);
+    dismissHeaderMenu();
+    if (parsed) activate(parsed.scope, parsed.id);
+  }
+
   function onDocumentClick(event) {
     const target = event.target;
     if (!target || target.nodeType !== 1) return;
@@ -172,6 +503,14 @@ function createRuntime(ctx) {
     }
     if (state.settingsMenu && !state.settingsMenu.contains(target)) {
       closeSettingsMoreMenu();
+    }
+    const anchor = headerAnchor();
+    if (anchor && (target === anchor || anchor.contains(target))) {
+      // The host commits its React state (and mounts the menu) during this very
+      // click; one macrotask later the portal is in the DOM.
+      window.setTimeout(() => {
+        if (!state.stopped) syncHeaderMenu();
+      }, 0);
     }
   }
 
@@ -272,6 +611,18 @@ function createRuntime(ctx) {
   function applyFound(found) {
     if (!found || !found.rows.length) return;
     const scope = found.scope;
+    // 0.7.0-pre persisted the shipped "More actions" button as a row; now that
+    // it is host chrome again, a stale "more" entry in the saved order would
+    // shift every drop index by one. Drop it before anything reads the layout.
+    if (found.moreIsChrome) {
+      const stale = readScope(scope);
+      if (stale.order.indexOf("more") !== -1 || stale.hidden.indexOf("more") !== -1) {
+        writeScope(scope, {
+          order: stale.order.filter((id) => id !== "more"),
+          hidden: stale.hidden.filter((id) => id !== "more"),
+        });
+      }
+    }
     const layout = normalizedLayout(scope);
     const byId = new Map();
     for (const row of found.rows) byId.set(row.id, row);
@@ -304,7 +655,14 @@ function createRuntime(ctx) {
       applyOrder(tails[index], tailBase + index);
       applyDisplay(tails[index], false);
     }
-    if (found.more) {
+    if (found.more && found.moreIsChrome) {
+      // Host chrome (the header's shipped "More actions" button) keeps the slot
+      // the host gave it. The split control before it also resolves to order 0,
+      // and equal orders fall back to DOM order, so the button stays where the
+      // host mounted it instead of jumping to the far right.
+      applyOrder(found.more, 0);
+      applyDisplay(found.more, false);
+    } else if (found.more) {
       // Settings only grows its "More" row while something is tucked: with an
       // empty shelf the extra control would just be another dead row.
       const showMore = scope === "settings" ? layout.hidden.length > 0 : true;
@@ -335,6 +693,9 @@ function createRuntime(ctx) {
     state.passTimes.push(now);
 
     let seen = 0;
+    // Buttons for adopted host-menu actions are ours, not the host's; rebuild
+    // them before discovery so they take part in the same pass.
+    ensureHostActionMirrors();
     for (const def of SCOPE_DEFS) {
       let found = null;
       try {
@@ -362,6 +723,9 @@ function createRuntime(ctx) {
     ) {
       closeSettingsMoreMenu();
     }
+    // The header strip's tuck target is the shipped session-log menu; keep our
+    // injected block in sync with whether it is open and what is tucked away.
+    syncHeaderMenu();
     if (seen && !state.readyLogged) {
       state.readyLogged = true;
       try {
@@ -423,6 +787,32 @@ function createRuntime(ctx) {
     return true;
   }
 
+  // Drop indexes are counted over the rows the user can actually see: the drag
+  // snapshot skips tucked rows and rows the host does not paint. The saved
+  // order, however, keeps entries for rows that are not mounted right now (a
+  // plugin registers late, or an older version stored a row that is now host
+  // chrome). Splicing the visible index straight into that order lands the row
+  // one slot early for every absent entry before it - and when that slot is the
+  // row's own position, the drop looks accepted (the line was drawn there) but
+  // nothing moves. Resolve the index against the rows that are really here and
+  // insert next to that neighbour instead.
+  function presentIds(scope, list) {
+    const found = state.found[scope];
+    if (!found) return [];
+    const here = new Set(found.rows.map((row) => row.id));
+    return list.filter((key) => here.has(key));
+  }
+
+  function placeIndex(scope, list, id, index) {
+    const others = list.filter((key) => key !== id);
+    const here = presentIds(scope, others);
+    const at = Math.max(0, Math.min(here.length, typeof index === "number" ? index : here.length));
+    if (at < here.length) return others.indexOf(here[at]);
+    if (!here.length) return others.length;
+    // Last visible slot: stay in front of any absent entries tailing the order.
+    return others.indexOf(here[here.length - 1]) + 1;
+  }
+
   function reveal(scope, id, index) {
     const found = state.found[scope];
     const row = rowFor(found, id);
@@ -431,8 +821,7 @@ function createRuntime(ctx) {
     if (layout.hidden.indexOf(id) === -1) return false;
     const hidden = layout.hidden.filter((key) => key !== id);
     const visible = layout.order.filter((key) => hidden.indexOf(key) === -1);
-    const at = typeof index === "number" ? Math.max(0, Math.min(visible.length, index)) : visible.length;
-    visible.splice(at, 0, id);
+    visible.splice(placeIndex(scope, visible, id, index), 0, id);
     writeScope(scope, { order: visible.concat(hidden), hidden });
     refreshScope(scope);
     notify();
@@ -450,8 +839,7 @@ function createRuntime(ctx) {
     const from = visible.indexOf(id);
     if (from === -1) return false;
     const others = visible.filter((key) => key !== id);
-    const at = Math.max(0, Math.min(others.length, typeof index === "number" ? index : others.length));
-    others.splice(at, 0, id);
+    others.splice(placeIndex(scope, visible, id, index), 0, id);
     writeScope(scope, { order: others.concat(layout.hidden), hidden: layout.hidden });
     refreshScope(scope);
     notify();
@@ -463,8 +851,7 @@ function createRuntime(ctx) {
     const from = layout.hidden.indexOf(id);
     if (from === -1) return false;
     const others = layout.hidden.filter((key) => key !== id);
-    const at = Math.max(0, Math.min(others.length, typeof index === "number" ? index : others.length));
-    others.splice(at, 0, id);
+    others.splice(placeIndex(scope, layout.hidden, id, index), 0, id);
     writeScope(scope, { order: layout.order, hidden: others });
     notify();
     return true;
@@ -891,6 +1278,28 @@ function createRuntime(ctx) {
     // roundedRadius().
     const radius = roundedRadius(element);
     if (radius) clone.style.setProperty("border-radius", radius, "important");
+    // The clone is reparented to <body>, so any look that the row inherits from
+    // an ancestor is lost. The session header's icon buttons only carry
+    // `aria-label`; their wrapper supplies `border: 0`, `padding: 0` and the
+    // centering flex box. On <body> the clone fell back to the UA button frame
+    // (`2px outset`, a light ring around a row that has none) and to the UA
+    // `1px 6px` padding, which nudged the glyph. Freeze the resolved box metrics
+    // instead of chasing host selectors.
+    try {
+      const sourceStyle = getComputedStyle(element);
+      for (const prop of ["display", "align-items", "justify-content", "gap", "padding"]) {
+        clone.style.setProperty(prop, sourceStyle[prop], "important");
+      }
+      for (const side of ["Top", "Right", "Bottom", "Left"]) {
+        clone.style.setProperty(
+          `border-${side.toLowerCase()}`,
+          `${sourceStyle[`border${side}Width`]} ${sourceStyle[`border${side}Style`]} ${sourceStyle[`border${side}Color`]}`,
+          "important"
+        );
+      }
+    } catch (error) {
+      /* detached source: keep the stylesheet default */
+    }
     // The clone inherits the host row's classes, and some host components set
     // `position: relative` on the same selector (the conversation tab bar does:
     // `.an3WzG_tab { position: relative }`). The host sheet is installed after
@@ -1132,6 +1541,10 @@ function createRuntime(ctx) {
     // A finished settings drag invalidates the popup contents; a short click on
     // a menu item must stay alive until its click event activates the row.
     if (dragged && gesture.scope === "settings") closeSettingsMoreMenu();
+    // The header menu is host-owned; a drag out of it must not leave it open.
+    // Do this before arming the click guard, because the close is a synthetic
+    // click on the anchor and the guard would otherwise swallow it.
+    if (dragged && gesture.scope === "header" && gesture.source === "menu") dismissHeaderMenu();
     document.body.classList.remove("dso-dragging");
     if (guard) state.guardUntil = Date.now() + CLICK_GUARD_MS;
     if (state.passDeferred) {
@@ -1238,7 +1651,15 @@ function createRuntime(ctx) {
       return;
     }
     const target = gesture.target;
+    const hostAction = gesture.scope === "header" && gesture.id.indexOf(HOST_ACTION_PREFIX) === 0;
     if (target.kind === "hide") {
+      // Pulling a mirrored host action back into the menu removes the shortcut;
+      // it never becomes a tucked row, because the host row never left the menu.
+      if (hostAction) {
+        unadoptHostAction(gesture.id);
+        endGesture(true);
+        return;
+      }
       if (!canHide(gesture.scope, gesture.id)) {
         shakeGhost(gesture);
         return;
@@ -1254,6 +1675,11 @@ function createRuntime(ctx) {
       return;
     }
     if (target.kind === "place") {
+      if (gesture.source === "menu" && hostAction) {
+        adoptHostAction(gesture.id, target.index);
+        endGesture(true);
+        return;
+      }
       if (gesture.source === "menu") reveal(gesture.scope, gesture.id, target.index);
       else reorder(gesture.scope, gesture.id, target.index);
       endGesture(true);
@@ -1356,6 +1782,8 @@ function createRuntime(ctx) {
 
   function onClickCapture(event) {
     if (Date.now() < state.guardUntil) {
+      const bypass = state.clickBypass;
+      if (bypass && (event.target === bypass || bypass.contains(event.target))) return;
       event.preventDefault();
       event.stopPropagation();
     }
@@ -1389,7 +1817,9 @@ function createRuntime(ctx) {
     if (def && def.axis === "x" && (event.key === "ArrowUp" || event.key === "ArrowDown")) return;
     if (def && def.axis === "y" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) return;
     event.preventDefault();
-    const visible = visibleIds(scope);
+    // Step over the rows that are actually on screen, so an order entry for a
+    // row the host has not mounted cannot swallow a keypress.
+    const visible = presentIds(scope, visibleIds(scope));
     const index = visible.indexOf(id);
     if (index === -1) return;
     reorder(scope, id, index + delta);
@@ -1441,7 +1871,7 @@ function createRuntime(ctx) {
         const found = state.found[def.key];
         if (found && found.container && found.container.contains(target)) return true;
       }
-      if (target.closest && target.closest('[data-slot], [data-shortcut-modal], [data-conversation-tabs], [data-sidebar-right-guide]')) return true;
+      if (target.closest && target.closest('[data-slot], [data-shortcut-modal], [data-conversation-tabs], [data-sidebar-right-guide], [role="menu"]')) return true;
     }
     for (const def of SCOPE_DEFS) {
       const found = state.found[def.key];
@@ -1450,8 +1880,8 @@ function createRuntime(ctx) {
     const nodes = Array.from(mutation.addedNodes).concat(Array.from(mutation.removedNodes));
     for (const node of nodes) {
       if (!node || node.nodeType !== 1) continue;
-      if (node.matches && node.matches('[data-slot], [data-shortcut-modal], [data-conversation-tabs], [data-sidebar-right-guide], [data-dso-key]')) return true;
-      if (node.querySelector && node.querySelector('[data-slot], [data-shortcut-modal], [data-conversation-tabs], [data-sidebar-right-guide], [data-dso-key]')) return true;
+      if (node.matches && node.matches('[data-slot], [data-shortcut-modal], [data-conversation-tabs], [data-sidebar-right-guide], [data-dso-key], [role="menu"]')) return true;
+      if (node.querySelector && node.querySelector('[data-slot], [data-shortcut-modal], [data-conversation-tabs], [data-sidebar-right-guide], [data-dso-key], [role="menu"]')) return true;
     }
     return false;
   }
@@ -1477,6 +1907,7 @@ function createRuntime(ctx) {
     addListener(document, "pointerup", onPointerUp, true);
     addListener(document, "pointercancel", onPointerUp, true);
     addListener(document, "click", onClickCapture, true);
+    addListener(document, "click", onHeaderMenuClick, true);
     addListener(document, "click", onDocumentClick);
     addListener(document, "keydown", onKeyDown, true);
     addListener(window, "scroll", onScroll, true);
@@ -1522,6 +1953,8 @@ function createRuntime(ctx) {
     if (observer) observer.disconnect();
     observer = null;
     closeSettingsMoreMenu();
+    state.headerMenu = null;
+    removeHeaderMenuBlock();
     cancelGesture();
     for (const cleanup of state.listenerCleanup.splice(0)) {
       try {
