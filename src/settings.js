@@ -101,6 +101,7 @@ function createSettingsPage() {
 
   function DragSwitch(props) {
     const text = props.text;
+    const label = props.label === undefined ? text.drag : props.label;
     return h(
       "button",
       {
@@ -108,7 +109,9 @@ function createSettingsPage() {
         role: "switch",
         "aria-checked": props.enabled ? "true" : "false",
         className: "dso-config-switch" + (props.enabled ? " is-on" : ""),
-        title: props.enabled ? text.dragOn : text.dragOff,
+        title: props.enabled
+          ? props.titleOn || text.dragOn
+          : props.titleOff || text.dragOff,
         onClick: props.onToggle,
       },
       h(
@@ -116,7 +119,31 @@ function createSettingsPage() {
         { className: "dso-config-switch-track", "aria-hidden": "true" },
         h("span", { className: "dso-config-switch-thumb" })
       ),
-      h("span", { className: "dso-config-switch-label" }, text.drag)
+      label ? h("span", { className: "dso-config-switch-label" }, label) : null
+    );
+  }
+
+  // The escape hatch for the cross-window copy: off means every window keeps
+  // the layout it has locally and nothing is uploaded (pre-0.7.2 behaviour).
+  function SyncCard(props) {
+    const text = props.text;
+    const [enabled, setEnabled] = React.useState(isCrossWindowEnabled());
+    return h(
+      "section",
+      { className: "dso-config-card dso-config-card-sync" },
+      h(
+        "header",
+        { className: "dso-config-card-head" },
+        h("h4", { className: "dso-config-card-title" }, text.crossWindow),
+        h(DragSwitch, {
+          text,
+          label: "",
+          enabled,
+          titleOn: text.crossWindowOn,
+          titleOff: text.crossWindowOff,
+          onToggle: () => setEnabled(setCrossWindowEnabled(!enabled)),
+        })
+      )
     );
   }
 
@@ -357,6 +384,7 @@ function createSettingsPage() {
             notice.text
           )
         : null,
+      h(SyncCard, { text }),
       scopes.map((scope) => h(ScopeCard, { key: scope.scope, scope, text }))
     );
   }

@@ -58,6 +58,10 @@ composer dock, session header, right sidebar, and settings navigation.
   order, tucked rows, and drag switches of all seven sections to a JSON file;
   "Import" reads the same format and replaces the whole configuration. A
   version mismatch or a broken file is rejected whole, never half-applied.
+- **One layout across windows**: the desktop window and the Web UI opened in a
+  browser (`http://127.0.0.1:<port>`) share the same order across restarts and
+  port changes. The "Shared layout" switch at the top of the settings page turns
+  it off, after which every window keeps only its own local layout.
 - **Region-scoped reset**: "Reset default order" in each More menu resets only
   that region (left sidebar, conversation, or right sidebar) and immediately
   reveals its tucked rows. Resetting never changes the per-section drag

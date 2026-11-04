@@ -36,6 +36,10 @@ const SYNC_PULL_RETRY_LIMIT = 5;
 let syncClientId = "";
 let syncStarted = false;
 let syncClaiming = false;
+// Set while the settings switch turns sharing back on: the host copy wins even
+// though edits made while sharing was off are newer locally, otherwise flipping
+// the switch would immediately publish those private edits over the other window.
+let syncForceAdopt = false;
 let syncPushTimer = 0;
 let syncPushRunning = false;
 let syncPushQueued = false;
@@ -99,7 +103,7 @@ function noteLocalChange(options) {
   syncDiag.state = syncDiag.state === "idle" ? "pending" : syncDiag.state;
   writeSyncMeta(syncMeta({ updatedAt: Date.now() }));
   if (options && options.reset === true) syncResetQueued = true;
-  if (user || syncResetQueued) scheduleHostPush(SYNC_PUSH_DELAY_MS);
+  if ((user || syncResetQueued) && isCrossWindowEnabled()) scheduleHostPush(SYNC_PUSH_DELAY_MS);
 }
 
 function scheduleHostPush(delay, force) {
@@ -111,6 +115,11 @@ function scheduleHostPush(delay, force) {
 }
 
 async function pushHostLayout(force) {
+  if (!isCrossWindowEnabled()) {
+    syncResetQueued = false;
+    syncDiag.state = "disabled";
+    return;
+  }
   if (syncPushRunning) {
     syncPushQueued = true;
     return;
@@ -157,6 +166,10 @@ async function pushHostLayout(force) {
 }
 
 async function pullHostLayout() {
+  if (!isCrossWindowEnabled()) {
+    syncDiag.state = "disabled";
+    return false;
+  }
   const meta = readSyncMeta();
   try {
     const response = await fetch(SYNC_ROUTE, {
@@ -185,7 +198,7 @@ async function pullHostLayout() {
       syncDiag.state = "local-newer";
       return false;
     }
-    if (customized && remoteAt <= localAt) {
+    if (customized && remoteAt <= localAt && !syncForceAdopt) {
       syncDiag.state = "local-newer";
       return false;
     }
@@ -256,11 +269,41 @@ function onSyncWake() {
   pullHostLayout();
 }
 
+// Settings-page switch. Turning sharing off leaves the local layout untouched
+// and simply stops talking to the host (the pre-0.7.2 behaviour); turning it
+// back on adopts the host copy, or publishes this window's layout when the host
+// has nothing yet.
+function setCrossWindowEnabled(enabled) {
+  const next = enabled !== false;
+  writeCrossWindowEnabled(next);
+  if (next) {
+    syncDiag.state = "idle";
+    syncForceAdopt = true;
+    pullHostLayout().then((adopted) => {
+      syncForceAdopt = false;
+      if (!adopted && isLayoutCustomized()) scheduleHostPush(SYNC_PUSH_DELAY_MS);
+    });
+  } else {
+    if (syncPushTimer) {
+      window.clearTimeout(syncPushTimer);
+      syncPushTimer = 0;
+    }
+    syncPushQueued = false;
+    syncResetQueued = false;
+    syncDiag.state = "disabled";
+  }
+  return next;
+}
+
 function startHostSync() {
   if (syncStarted) return;
   syncStarted = true;
   document.addEventListener("visibilitychange", onSyncWake);
   window.addEventListener("focus", onSyncWake);
+  if (!isCrossWindowEnabled()) {
+    syncDiag.state = "disabled";
+    return;
+  }
   // The first projection pass is queued on a frame; wait for it so the row
   // order the host registered is known before deciding whether this window
   // holds a hand-made layout (see layoutArrangedByUser).
@@ -298,6 +341,7 @@ function syncStatus() {
   return {
     state: syncDiag.state,
     route: SYNC_ROUTE,
+    enabled: isCrossWindowEnabled(),
     customized: isLayoutCustomized(),
     updatedAt: Number(meta.updatedAt) || 0,
     syncedAt: Number(meta.syncedAt) || 0,

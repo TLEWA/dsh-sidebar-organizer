@@ -45,6 +45,11 @@ const DISABLED_KEY = "dsh.sidebar-organizer.disabled";
 // registered the default order", and it would happily publish a default layout
 // over the one the desktop window is showing.
 const CUSTOMIZED_KEY = "dsh.sidebar-organizer.customized.v1";
+// One layout for every window by default: the desktop window and a browser tab
+// on another port read the host copy so a drag in one shows up in the other.
+// Turning the setting off keeps each origin on its own local copy and stops all
+// uploads, i.e. the pre-0.7.2 behaviour.
+const CROSS_WINDOW_KEY = "dsh.sidebar-organizer.cross-window.v1";
 // The plugin was called dsh-modmenu up to 0.3.6; keep reading the old keys so a
 // rename does not drop the user's saved layout.
 const LEGACY_STORAGE_KEY = "dsh.modmenu.layout.v1";
@@ -88,6 +93,9 @@ const STRINGS = {
     drag: "拖动",
     dragOn: "此区域可拖动",
     dragOff: "此区域拖动已关闭",
+    crossWindow: "跨窗口共用布局",
+    crossWindowOn: "桌面端与网页端共用同一份布局",
+    crossWindowOff: "各窗口只使用自己的本地布局",
     scopeNames: {
       sidebar: "左侧边栏",
       footer: "侧栏底部",
@@ -122,6 +130,9 @@ const STRINGS = {
     drag: "Drag",
     dragOn: "Dragging enabled in this section",
     dragOff: "Dragging disabled in this section",
+    crossWindow: "Shared layout",
+    crossWindowOn: "Desktop and web windows share one layout",
+    crossWindowOff: "Each window keeps its own local layout",
     scopeNames: {
       sidebar: "Sidebar",
       footer: "Sidebar footer",

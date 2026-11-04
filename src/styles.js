@@ -316,6 +316,8 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   background: var(--dsw-alias-bg-tertiary, rgba(255, 255, 255, 0.035));
   border-bottom: 1px solid var(--dsw-alias-border-secondary, rgba(255, 255, 255, 0.08));
 }
+/* The shared-layout switch is a single row, so it needs no divider. */
+.dso-config-card-sync .dso-config-card-head { border-bottom: none; }
 .dso-config-card-heading {
   display: flex;
   align-items: center;

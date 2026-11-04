@@ -184,6 +184,23 @@ function markLayoutCustomized() {
   }
 }
 
+// Cross-window sharing is on unless the user turned it off in the settings page.
+function isCrossWindowEnabled() {
+  try {
+    return window.localStorage.getItem(CROSS_WINDOW_KEY) !== "0";
+  } catch (err) {
+    return true;
+  }
+}
+
+function writeCrossWindowEnabled(enabled) {
+  try {
+    window.localStorage.setItem(CROSS_WINDOW_KEY, enabled ? "1" : "0");
+  } catch (err) {
+    /* storage may be unavailable */
+  }
+}
+
 function resetScopeState(scope) {
   const state = cloneState(readState());
   delete state.scopes[scope];

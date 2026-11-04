@@ -181,6 +181,8 @@ function apply(ctx) {
     },
     syncStatus: () => syncStatus(),
     syncNow: () => pullHostLayout(),
+    isCrossWindow: () => isCrossWindowEnabled(),
+    setCrossWindow: (enabled) => setCrossWindowEnabled(enabled),
   };
   // backward-compatible handle for consoles/docs written before the rename
   window.__dshModmenu = window.__dshSidebarOrganizer;

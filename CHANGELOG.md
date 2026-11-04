@@ -19,6 +19,9 @@
 - 只有真正动过顺序的窗口才会成为发布源：启动时的默认登记、投影 pass 写回的布局都只留在
   本地，不会把默认顺序上传后盖掉另一个窗口里拖好的配置；升级前就存在本地、且与宿主注册
   顺序不同的布局会被认作旧版手工配置，首次启动时接管宿主存档。
+- 新增：设置页「布局整理」顶部有「跨窗口共用布局」开关。关掉后每个窗口只用自己的本地
+  布局，不再上传或拉取宿主存档（即 0.7.1 的行为），桌面端与 Web 界面各排各的；重新打开
+  会立即拉取宿主那份并继续共用。
 
 ### English
 
@@ -39,6 +42,10 @@
   projection pass writeback stay local, so a default order can never overwrite an arranged
   one in another window; a pre-upgrade local layout that differs from the host registration
   order is treated as hand-made and takes over the host copy on first boot.
+- New: a "Shared layout" switch at the top of the settings page. Turned off, every window
+  keeps only its own local layout and stops reading or writing the host copy (the 0.7.1
+  behaviour), so the desktop window and the Web UI can be arranged independently; turning
+  it back on pulls the host copy immediately.
 
 ## 0.7.0 — 2026-11-04
 
