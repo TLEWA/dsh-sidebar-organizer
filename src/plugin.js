@@ -27,6 +27,44 @@ function pluginNameOf(props) {
   return null;
 }
 
+/** The host version the boot payload advertises, or "" when unavailable. */
+function hostReleaseVersion() {
+  try {
+    const boot = window.__DSH_BOOT__;
+    const release = boot && boot.release;
+    return release && typeof release.version === "string" ? release.version : "";
+  } catch (error) {
+    return "";
+  }
+}
+
+/**
+ * Compare a host version against major.minor.patch. Prerelease suffixes are
+ * ignored on purpose: 0.2.2-rc.1 already ships the settings icon slot, so it
+ * must pass a `>= 0.2.2` gate. Returns null when the string is unparseable.
+ */
+function versionAtLeast(value, major, minor, patch) {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(String(value || ""));
+  if (!match) return null;
+  const have = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const want = [major, minor, patch];
+  for (let i = 0; i < 3; i += 1) {
+    if (have[i] > want[i]) return true;
+    if (have[i] < want[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * `settings.section.icon` exists from 0.2.2 on. When the version cannot be
+ * read (older boot payloads, tests) try anyway: an unknown slot throws inside
+ * the try/catch around inject, which is the same path 0.2.1 takes.
+ */
+function supportsSettingsIcons() {
+  const supported = versionAtLeast(hostReleaseVersion(), 0, 2, 2);
+  return supported === null ? true : supported;
+}
+
 function apply(ctx) {
   // eslint-disable-next-line no-console
   console.info("[dsh-sidebar-organizer] client loaded v" + VERSION);
@@ -103,6 +141,29 @@ function apply(ctx) {
       console.warn("[dsh-sidebar-organizer] cannot add the settings section", error);
     }
 
+    // 0.2.2 looks the icon up by section id. Registering against an older host
+    // throws for the undeclared slot, so the version gate skips it there and
+    // try/catch still guards the "version unknown" attempt.
+    const SettingsNavIcon = createSettingsNavIcon(SETTINGS_NAV_ICON);
+    if (SettingsNavIcon && supportsSettingsIcons()) {
+      try {
+        ctx.slots.inject(SETTINGS_ICON_SLOT, () =>
+          ctx.slots.register(
+            {
+              name: SETTINGS_ICON_SLOT,
+              id: SETTINGS_ID,
+              order: 35,
+              registrant: REGISTRANT,
+            },
+            SettingsNavIcon
+          )
+        );
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("[dsh-sidebar-organizer] cannot add the settings nav icon", error);
+      }
+    }
+
     try {
       ctx.slots.inject("plugins.detail.section", () =>
         ctx.slots.register(
@@ -134,6 +195,7 @@ function apply(ctx) {
 
   window.__dshSidebarOrganizer = {
     version: VERSION,
+    settingsNavIcon: SETTINGS_NAV_ICON,
     pass: () => runtime && runtime.pass(),
     refresh: () => runtime && runtime.refresh(),
     snapshot: () => (runtime ? runtime.snapshot() : []),

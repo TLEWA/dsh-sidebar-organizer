@@ -10,7 +10,12 @@ const FOOTER_SLOT = "sidebar.footer.action";
 const TABS_SLOT = "conversation.view";
 const COMPOSER_SLOT = "conversation.composer.dock";
 const SETTINGS_SLOT = "settings.section";
+// DSH 0.2.2 renders one icon per settings section through this slot, keyed by
+// the section id, so the id above has to match the registration below.
+const SETTINGS_ICON_SLOT = "settings.section.icon";
 const SETTINGS_ID = "layout-organizer";
+// Which of the candidate glyphs in settings.js the nav row shows.
+const SETTINGS_NAV_ICON = "drag";
 // The three host "More" menus this plugin can add rows to. Each one owns a
 // region: sidebar, conversation header, right sidebar.
 const MORE_SLOTS = {

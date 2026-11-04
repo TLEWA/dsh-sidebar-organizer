@@ -88,7 +88,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.4
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.5
 ```
 
 ### From npm
@@ -281,6 +281,7 @@ restoration).
 - [x] 0.7.2 — layout stored host-side: the desktop window and the Web UI on any port share one order; the settings page can turn the sharing off
 - [x] 0.7.3 — docs only: install example and roadmap refresh
 - [x] 0.7.4 — DSH 0.2.2-rc.1 support: content-stable ids for shipped header actions with automatic migration; settings drag axis follows a horizontal nav
+- [x] 0.7.5 — custom drag-panel icon for the settings nav (DSH 0.2.2+, falls back to the host default on older releases)
 
 ## Notices
 

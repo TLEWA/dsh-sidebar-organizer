@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置页导航图标候选 — dsh-sidebar-organizer</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #151517;
+    --panel: #1c1c1f;
+    --panel-2: #202024;
+    --text: #f9fafb;
+    --muted: #9b9ba4;
+    --hover: #242429;
+    --active: #2b2b33;
+    --line: #2e2e34;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    padding: 28px 32px 36px;
+  }
+  h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: .2px; }
+  .sub { margin: 6px 0 24px; color: var(--muted); font-size: 12.5px; }
+  .sub code { color: #c9c9d2; font-family: ui-monospace, Consolas, monospace; }
+  .cols { display: flex; gap: 40px; align-items: flex-start; }
+
+  /* true-size replica of the 0.2.2 settings nav column */
+  .navPanel {
+    width: 188px;
+    flex: none;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px 12px;
+  }
+  .navPanel .cap {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: .3px;
+    padding: 2px 4px 8px;
+  }
+  .navRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 9px 16px 9px 12px;
+    border-radius: 8px;
+    color: var(--text);
+  }
+  .navRow:hover { background: var(--hover); }
+  .navRow.active { background: var(--active); }
+  .navRow .glyph { flex: none; display: flex; }
+  .navRow .label {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 14px;
+    line-height: 22px;
+  }
+
+  .cardGrid { display: grid; grid-template-columns: repeat(3, 210px); gap: 18px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+  }
+  .card .art {
+    height: 132px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px) 0 0 / 8px 8px,
+      linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px) 0 0 / 8px 8px,
+      var(--panel-2);
+    border-radius: 8px;
+    color: var(--text);
+  }
+  .card .name { margin-top: 10px; font-size: 13px; font-weight: 600; }
+  .card .name b { color: #8ea0ff; font-weight: 700; margin-right: 6px; }
+  .card .note { margin-top: 3px; color: var(--muted); font-size: 11.5px; line-height: 1.45; min-height: 32px; }
+
+  .hint { margin-top: 22px; color: var(--muted); font-size: 12px; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+  <h1>设置页导航图标候选</h1>
+  <p class="sub">DSH 0.2.2 <code>settings.section.icon</code> · 16px 网格 · 1.5 描边 · 圆头 · 颜色继承行文字</p>
+
+  <div class="cols">
+    <div class="navPanel" id="navPanel">
+      <div class="cap">实际尺寸 · 188px 导航列</div>
+    </div>
+    <div class="cardGrid" id="cardGrid"></div>
+  </div>
+  <p class="hint">放大区为 64px 渲染，叠加 8px 网格便于检查对齐；实际使用只看左侧 16px。</p>
+
+<script>
+  const GLYPHS = {
+    split: {
+      name: "分栏布局",
+      note: "整块布局被拆成左窄栏与右上下区，最直白地表达「整理布局」。",
+      nodes: [
+        ["rect", { x: 2.5, y: 2.5, width: 11, height: 11, rx: 2 }],
+        ["path", { d: "M6.5 2.5V13.5" }],
+        ["path", { d: "M6.5 8H13.5" }],
+      ],
+    },
+    grid: {
+      name: "拖拽宫格",
+      note: "四宫格里右下角用虚线表示空位，暗示「拖动面板换位置」。",
+      nodes: [
+        ["rect", { x: 2.5, y: 2.5, width: 4.6, height: 4.6, rx: 1.2 }],
+        ["rect", { x: 8.9, y: 2.5, width: 4.6, height: 4.6, rx: 1.2 }],
+        ["rect", { x: 2.5, y: 8.9, width: 4.6, height: 4.6, rx: 1.2 }],
+        ["rect", { x: 8.9, y: 8.9, width: 4.6, height: 4.6, rx: 1.2, "stroke-dasharray": "1.5 1.5" }],
+      ],
+    },
+    drag: {
+      name: "拖拽面板",
+      note: "一块面板 + 左侧三点抓手，直接对应「拖面板排序」这个动作。",
+      nodes: [
+        ["rect", { x: 4.5, y: 2.5, width: 9, height: 11, rx: 1.6 }],
+        ["circle", { cx: 2.6, cy: 5, r: 0.82, fill: "currentColor", stroke: "none" }],
+        ["circle", { cx: 2.6, cy: 8, r: 0.82, fill: "currentColor", stroke: "none" }],
+        ["circle", { cx: 2.6, cy: 11, r: 0.82, fill: "currentColor", stroke: "none" }],
+      ],
+    },
+    swap: {
+      name: "双栏换位",
+      note: "两块面板中间一个双向箭头，最直接地表示「把区域换到另一侧」。",
+      nodes: [
+        ["rect", { x: 2.5, y: 2.5, width: 3.6, height: 11, rx: 1.3 }],
+        ["rect", { x: 9.9, y: 2.5, width: 3.6, height: 11, rx: 1.3 }],
+        ["path", { d: "M8 4.8V11.2" }],
+        ["path", { d: "M6.7 6.1 8 4.8l1.3 1.3" }],
+        ["path", { d: "M6.7 9.9 8 11.2l1.3-1.3" }],
+      ],
+    },
+    rows: {
+      name: "排序行",
+      note: "三条导航行 + 左侧抓手点，对「设置导航本身也能排序」最贴切。",
+      nodes: [
+        ["circle", { cx: 3.1, cy: 4, r: 0.72, fill: "currentColor", stroke: "none" }],
+        ["circle", { cx: 4.9, cy: 4, r: 0.72, fill: "currentColor", stroke: "none" }],
+        ["path", { d: "M7 4h6.5" }],
+        ["circle", { cx: 3.1, cy: 8, r: 0.72, fill: "currentColor", stroke: "none" }],
+        ["circle", { cx: 4.9, cy: 8, r: 0.72, fill: "currentColor", stroke: "none" }],
+        ["path", { d: "M7 8h6.5" }],
+        ["circle", { cx: 3.1, cy: 12, r: 0.72, fill: "currentColor", stroke: "none" }],
+        ["circle", { cx: 4.9, cy: 12, r: 0.72, fill: "currentColor", stroke: "none" }],
+        ["path", { d: "M7 12h6.5" }],
+      ],
+    },
+  };
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  function makeIcon(key, size) {
+    const glyph = GLYPHS[key];
+    const svg = document.createElementNS(SVG_NS, "svg");
+    const attrs = {
+      width: size,
+      height: size,
+      viewBox: "0 0 16 16",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "1.5",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+      focusable: "false",
+    };
+    for (const [name, value] of Object.entries(attrs)) svg.setAttribute(name, value);
+    for (const [tag, nodeAttrs] of glyph.nodes) {
+      const el = document.createElementNS(SVG_NS, tag);
+      for (const [name, value] of Object.entries(nodeAttrs)) el.setAttribute(name, value);
+      svg.appendChild(el);
+    }
+    return svg;
+  }
+
+  // 1. real-size nav replica: every candidate gets a row, first one active
+  const navPanel = document.getElementById("navPanel");
+  Object.keys(GLYPHS).forEach((key, index) => {
+    const row = document.createElement("div");
+    row.className = "navRow" + (index === 0 ? " active" : "");
+    // add a few host-like rows around, so weight can be judged in context
+    const glyph = document.createElement("span");
+    glyph.className = "glyph";
+    glyph.appendChild(makeIcon(key, 16));
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = "布局整理";
+    row.append(glyph, label);
+    navPanel.appendChild(row);
+  });
+
+  // 2. enlarged glyphs
+  const grid = document.getElementById("cardGrid");
+  const letters = ["A", "B", "C", "D", "E", "F"];
+  Object.keys(GLYPHS).forEach((key, index) => {
+    const glyph = GLYPHS[key];
+    const card = document.createElement("div");
+    card.className = "card";
+    const art = document.createElement("div");
+    art.className = "art";
+    art.appendChild(makeIcon(key, 64));
+    const name = document.createElement("div");
+    name.className = "name";
+    name.innerHTML = "<b>" + letters[index] + "</b>";
+    name.appendChild(document.createTextNode(glyph.name));
+    const note = document.createElement("div");
+    note.className = "note";
+    note.textContent = glyph.note;
+    card.append(art, name, note);
+    grid.appendChild(card);
+  });
+</script>
+</body>
+</html>

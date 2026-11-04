@@ -1,5 +1,94 @@
 /* Settings page and plugin-detail page body. */
 
+/*
+ * Navigation glyphs. DSH 0.2.2's `settings.section.icon` slot hands the
+ * component { size, active } and colours it with the nav row's currentColor,
+ * so the shape only needs to own the 16px grid: 1.5 stroke, round caps, same
+ * weight as the host's own outline icons. `active` is intentionally ignored —
+ * the host's shipped icons do not swap to a filled variant either.
+ *
+ * One variant is active (SETTINGS_NAV_ICON in constants.js); the rest stay here
+ * as documented alternatives for the next redesign.
+ */
+const SETTINGS_NAV_GLYPHS = {
+  // A narrow left rail plus a split main area.
+  split: [
+    ["rect", { x: 2.5, y: 2.5, width: 11, height: 11, rx: 2 }],
+    ["path", { d: "M6.5 2.5V13.5" }],
+    ["path", { d: "M6.5 8H13.5" }],
+  ],
+  // Four slots, the last one dashed: a panel waiting to be dropped somewhere.
+  grid: [
+    ["rect", { x: 2.5, y: 2.5, width: 4.6, height: 4.6, rx: 1.2 }],
+    ["rect", { x: 8.9, y: 2.5, width: 4.6, height: 4.6, rx: 1.2 }],
+    ["rect", { x: 2.5, y: 8.9, width: 4.6, height: 4.6, rx: 1.2 }],
+    [
+      "rect",
+      {
+        x: 8.9,
+        y: 8.9,
+        width: 4.6,
+        height: 4.6,
+        rx: 1.2,
+        strokeDasharray: "1.5 1.5",
+      },
+    ],
+  ],
+  // A panel with its drag handle on the left.
+  drag: [
+    ["rect", { x: 4.5, y: 2.5, width: 9, height: 11, rx: 1.6 }],
+    ["circle", { cx: 2.6, cy: 5, r: 0.82, fill: "currentColor", stroke: "none" }],
+    ["circle", { cx: 2.6, cy: 8, r: 0.82, fill: "currentColor", stroke: "none" }],
+    ["circle", { cx: 2.6, cy: 11, r: 0.82, fill: "currentColor", stroke: "none" }],
+  ],
+  // Two panels with a vertical double arrow: swap this side for that one.
+  swap: [
+    ["rect", { x: 2.5, y: 2.5, width: 3.6, height: 11, rx: 1.3 }],
+    ["rect", { x: 9.9, y: 2.5, width: 3.6, height: 11, rx: 1.3 }],
+    ["path", { d: "M8 4.8V11.2" }],
+    ["path", { d: "M6.7 6.1 8 4.8l1.3 1.3" }],
+    ["path", { d: "M6.7 9.9 8 11.2l1.3-1.3" }],
+  ],
+  // Three rows with drag dots: the nav list itself, in order.
+  rows: [
+    ["circle", { cx: 3.1, cy: 4, r: 0.72, fill: "currentColor", stroke: "none" }],
+    ["circle", { cx: 4.9, cy: 4, r: 0.72, fill: "currentColor", stroke: "none" }],
+    ["path", { d: "M7 4h6.5" }],
+    ["circle", { cx: 3.1, cy: 8, r: 0.72, fill: "currentColor", stroke: "none" }],
+    ["circle", { cx: 4.9, cy: 8, r: 0.72, fill: "currentColor", stroke: "none" }],
+    ["path", { d: "M7 8h6.5" }],
+    ["circle", { cx: 3.1, cy: 12, r: 0.72, fill: "currentColor", stroke: "none" }],
+    ["circle", { cx: 4.9, cy: 12, r: 0.72, fill: "currentColor", stroke: "none" }],
+    ["path", { d: "M7 12h6.5" }],
+  ],
+};
+
+function createSettingsNavIcon(variant) {
+  const React = sharedReact;
+  if (!React) return null;
+  const h = React.createElement;
+  const glyph = SETTINGS_NAV_GLYPHS[variant] || SETTINGS_NAV_GLYPHS.split;
+  return function SettingsNavIcon(props) {
+    const size = (props && props.size) || 16;
+    return h(
+      "svg",
+      {
+        width: size,
+        height: size,
+        viewBox: "0 0 16 16",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 1.5,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        "aria-hidden": "true",
+        focusable: "false",
+      },
+      glyph.map((node, index) => h(node[0], { key: index, ...node[1] }))
+    );
+  };
+}
+
 function createSettingsPage() {
   const React = sharedReact;
   if (!React) return null;

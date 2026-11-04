@@ -3,6 +3,23 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.7.5 — 2026-11-05
+
+- 设置页导航新增自定义图标：DSH 0.2.2+ 通过 `settings.section.icon` 槽位为「布局整理」
+  注册拖拽面板图标（面板 + 左侧三点抓手，随文字颜色与主题切换）；0.2.1 上自动跳过，
+  继续使用宿主默认图标。
+- 版本判断忽略预发布后缀（`0.2.2-rc.1` 视为 0.2.2）；图标槽位注册失败只告警，不影响
+  设置页本身。
+
+### English
+
+- Custom settings nav icon: on DSH 0.2.2+ the "布局整理" section registers a
+  drag-panel glyph through the `settings.section.icon` slot (panel plus a
+  three-dot handle, inheriting the text color in both themes). DSH 0.2.1 skips
+  the registration and keeps the host's default icon.
+- The version gate ignores prerelease tags (`0.2.2-rc.1` counts as 0.2.2); a
+  failed slot registration only warns and leaves the settings page intact.
+
 ## 0.7.4 — 2026-11-05
 
 - 适配 DSH 0.2.2-rc.1：会话头部「更多操作」新增首项「复制会话为 Markdown」后，旧版按
