@@ -271,7 +271,6 @@ restoration).
 - [x] 0.7.0 — session header strip: icon ordering, tucking into the shipped "More actions" menu, and dragging back out
 - [x] 0.7.1 — fix in-menu reordering inside "More actions", keep the menu open after a reorder, and drop the black tile behind glyph-only ghosts
 - [x] 0.7.2 — layout stored host-side: the desktop window and the Web UI on any port share one order; the settings page can turn the sharing off
-- [ ] 0.8.0 — accessibility (screen-reader announcements for order changes, menu up/down actions)
 
 ## Notices
 
