@@ -6,9 +6,10 @@ Adds **custom ordering** and **tucking away** to seven strips of buttons/cards i
 DSH (DeepSeek Harness): the left sidebar, sidebar footer, conversation tabs,
 composer dock, session header, right sidebar, and settings navigation.
 
-> Version **0.7.2**: the desktop window and the Web UI share one layout (the
-> settings page can opt out). Seven-scope ordering, tucking, and configuration
-> import/export are all in. There is no right-click menu or accessibility layer yet.
+> Latest: the desktop window and the Web UI share one layout (the settings page can
+> opt out); seven-scope ordering, tucking, and configuration import/export are all in.
+> For the full version history and downloads see
+> [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
 
 ## What it does
 
@@ -87,7 +88,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.2
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.3
 ```
 
 ### From npm

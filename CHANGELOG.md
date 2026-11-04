@@ -3,6 +3,17 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.7.3 — 2026-11-04
+
+- 仅文档：README 的版本说明改为不随版本漂移的写法，安装示例指向 `v0.7.3`，中英文路线图补齐
+  0.7.2 一行并删去无障碍目标。无代码变更。
+
+### English
+
+- Docs only: the README version blurb no longer hard-codes a version, the install
+  example points at `v0.7.3`, and both roadmaps gain the 0.7.2 row while dropping the
+  accessibility goal. No code changes.
+
 ## 0.7.2 — 2026-11-04
 
 - 修正：桌面端窗口里拖好的顺序，在浏览器打开的 Web 界面（`http://127.0.0.1:<端口>`）里
