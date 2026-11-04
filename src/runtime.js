@@ -608,6 +608,29 @@ function createRuntime(ctx) {
     markScopeRepaired(scope);
   }
 
+  // The projection pass persists a layout on every boot, so a stored order on
+  // its own proves nothing. An order that differs from the order the host
+  // registered its rows in does prove a human moved something; the same goes
+  // for a row the human sent to the "more" menu.
+  function layoutArrangedByUser() {
+    for (const scope of SCOPE_KEYS) {
+      const found = state.found[scope];
+      if (!found || !found.rows.length) continue;
+      const layout = readScope(scope);
+      if (!layout.order.length && !layout.hidden.length) continue;
+      const hostIds = found.rows.map((row) => row.id);
+      const hiddenSet = new Set(layout.hidden);
+      const visible = layout.order.filter((id) => !hiddenSet.has(id) && hostIds.indexOf(id) !== -1);
+      const hostVisible = hostIds.filter((id) => visible.indexOf(id) !== -1);
+      if (visible.length !== hostVisible.length) continue;
+      for (let index = 0; index < visible.length; index += 1) {
+        if (visible[index] !== hostVisible[index]) return true;
+      }
+      if (layout.hidden.some((id) => hostIds.indexOf(id) !== -1)) return true;
+    }
+    return false;
+  }
+
   function applyFound(found) {
     if (!found || !found.rows.length) return;
     const scope = found.scope;
@@ -781,7 +804,7 @@ function createRuntime(ctx) {
     const hidden = order.filter((key) => layout.hidden.indexOf(key) !== -1);
     if (hidden.indexOf(id) === -1) hidden.push(id);
     const nextOrder = order.filter((key) => hidden.indexOf(key) === -1).concat(hidden);
-    writeScope(scope, { order: nextOrder, hidden });
+    writeScope(scope, { order: nextOrder, hidden }, { user: true });
     refreshScope(scope);
     notify();
     return true;
@@ -822,7 +845,7 @@ function createRuntime(ctx) {
     const hidden = layout.hidden.filter((key) => key !== id);
     const visible = layout.order.filter((key) => hidden.indexOf(key) === -1);
     visible.splice(placeIndex(scope, visible, id, index), 0, id);
-    writeScope(scope, { order: visible.concat(hidden), hidden });
+    writeScope(scope, { order: visible.concat(hidden), hidden }, { user: true });
     refreshScope(scope);
     notify();
     return true;
@@ -840,7 +863,7 @@ function createRuntime(ctx) {
     if (from === -1) return false;
     const others = visible.filter((key) => key !== id);
     others.splice(placeIndex(scope, visible, id, index), 0, id);
-    writeScope(scope, { order: others.concat(layout.hidden), hidden: layout.hidden });
+    writeScope(scope, { order: others.concat(layout.hidden), hidden: layout.hidden }, { user: true });
     refreshScope(scope);
     notify();
     return true;
@@ -852,7 +875,7 @@ function createRuntime(ctx) {
     if (from === -1) return false;
     const others = layout.hidden.filter((key) => key !== id);
     others.splice(placeIndex(scope, layout.hidden, id, index), 0, id);
-    writeScope(scope, { order: layout.order, hidden: others });
+    writeScope(scope, { order: layout.order, hidden: others }, { user: true });
     notify();
     return true;
   }

@@ -39,6 +39,12 @@ const DRAG_KEY = "dsh.sidebar-organizer.drag.v1";
 const HOST_ACTION_KEY = "dsh.sidebar-organizer.host-actions.v1";
 const HOST_ACTION_PREFIX = "dso-host-";
 const DISABLED_KEY = "dsh.sidebar-organizer.disabled";
+// Set the first time the user actually rearranges something in this origin. The
+// projection pass writes a layout on every boot too; without this flag a freshly
+// opened window could not tell "the user dragged these rows here" from "I just
+// registered the default order", and it would happily publish a default layout
+// over the one the desktop window is showing.
+const CUSTOMIZED_KEY = "dsh.sidebar-organizer.customized.v1";
 // The plugin was called dsh-modmenu up to 0.3.6; keep reading the old keys so a
 // rename does not drop the user's saved layout.
 const LEGACY_STORAGE_KEY = "dsh.modmenu.layout.v1";

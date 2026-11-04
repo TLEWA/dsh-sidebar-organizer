@@ -19,6 +19,7 @@ const MODULES = [
   "constants.js",
   "styles.js",
   "storage.js",
+  "sync.js",
   "icons.js",
   "slot.js",
   "scopes.js",

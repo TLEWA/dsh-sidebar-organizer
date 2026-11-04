@@ -3,6 +3,43 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.7.2 — 2026-11-04
+
+- 修正：桌面端窗口里拖好的顺序，在浏览器打开的 Web 界面（`http://127.0.0.1:<端口>`）里
+  看不到，两个界面各显示各的。原因是布局只写在 `window.localStorage`，而桌面窗口的
+  origin 是 `dsh-app://app`、Web 界面是 `http://127.0.0.1:<端口>`，端口每次重启还会变，
+  浏览器按 origin 隔离，同一台机器上的两份存储本来就互不相通。
+- 现在布局同时存到宿主侧 `$DSH_HOME/storages/dsh-sidebar-organizer/layout.json`：桌面端
+  与任意端口的 Web 界面读写同一份，重启桌面端、换端口都不影响；`localStorage` 保留为
+  本地缓存，宿主不可用时（旧版宿主、静态页、离线）照旧按本地布局工作。
+- 合并规则是「更新时间戳较新者胜」：拖动后 350ms 内上传一次，窗口重新可见或获得焦点时
+  拉取一次；拉到的顺序会立即重排当前页面，不会反过来再上传。
+- 新开窗口且宿主还没有存档时保留本地顺序，不会用一个空布局抹掉桌面里已经拖好的配置；
+  只有「恢复默认」才显式清空宿主存档。
+- 只有真正动过顺序的窗口才会成为发布源：启动时的默认登记、投影 pass 写回的布局都只留在
+  本地，不会把默认顺序上传后盖掉另一个窗口里拖好的配置；升级前就存在本地、且与宿主注册
+  顺序不同的布局会被认作旧版手工配置，首次启动时接管宿主存档。
+
+### English
+
+- Fix: the order dragged in the desktop window was not visible in the Web UI opened in a
+  browser (`http://127.0.0.1:<port>`) — each showed its own layout. The layout lived only
+  in `window.localStorage`, and the desktop window (`dsh-app://app`) and the Web UI are
+  different origins (the port changes on every restart), so the two stores never met.
+- The layout is now also stored host-side at
+  `$DSH_HOME/storages/dsh-sidebar-organizer/layout.json`: the desktop window and a Web UI
+  on any port read and write the same copy; `localStorage` stays as a local cache for
+  older hosts, static pages and offline use.
+- Merging is last-write-wins by timestamp: a change is pushed 350 ms after the last edit and
+  pulled when a window becomes visible or focused; an adopted layout is re-applied locally
+  without echoing back an upload.
+- A fresh window keeps its local order when the host has no copy yet (so an empty layout
+  cannot wipe an existing one); only "reset to default" clears the host copy.
+- Only windows that really rearranged something publish: the boot-time registration and the
+  projection pass writeback stay local, so a default order can never overwrite an arranged
+  one in another window; a pre-upgrade local layout that differs from the host registration
+  order is treated as hand-made and takes over the host copy on first boot.
+
 ## 0.7.0 — 2026-11-04
 
 - 新增「会话头部工具条」区域：对话页右上角那排图标（提醒、底部面板、上下文诊断、

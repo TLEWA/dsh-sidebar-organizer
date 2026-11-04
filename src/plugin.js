@@ -128,6 +128,10 @@ function apply(ctx) {
   // more projection pass so the settings scope sees its own row immediately.
   if (runtime) runtime.pass();
 
+  // One layout, every window: the Host half keeps the copy the desktop window
+  // and a browser tab on another origin (or another port) both read.
+  startHostSync();
+
   window.__dshSidebarOrganizer = {
     version: VERSION,
     pass: () => runtime && runtime.pass(),
@@ -175,6 +179,8 @@ function apply(ctx) {
       status.entries = readPanelEntries(ctx).length;
       return status;
     },
+    syncStatus: () => syncStatus(),
+    syncNow: () => pullHostLayout(),
   };
   // backward-compatible handle for consoles/docs written before the rename
   window.__dshModmenu = window.__dshSidebarOrganizer;

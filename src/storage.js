@@ -128,24 +128,67 @@ function writeState(state) {
   }
 }
 
+// The portable shape shared with the host copy: the six-scope layout plus the
+// per-section drag switches, without the local-only bookkeeping.
+function stateSnapshot() {
+  const state = cloneState(readState());
+  const dragState = readDragState();
+  const drag = {};
+  for (const scope of SCOPE_KEYS) drag[scope] = dragState[scope] !== false;
+  return { version: STATE_VERSION, scopes: state.scopes, drag };
+}
+
+function hasLayoutContent(value) {
+  const scopes = value && typeof value === "object" ? value.scopes : null;
+  if (!scopes || typeof scopes !== "object" || Array.isArray(scopes)) return false;
+  for (const key of Object.keys(scopes)) {
+    const scope = scopes[key];
+    if (scope && Array.isArray(scope.order) && scope.order.length) return true;
+    if (scope && Array.isArray(scope.hidden) && scope.hidden.length) return true;
+  }
+  return false;
+}
+
 function readScope(scope) {
   const state = readState();
   const raw = state.scopes[scope];
   return raw ? { order: raw.order.slice(), hidden: raw.hidden.slice() } : emptyScopeLayout();
 }
 
-function writeScope(scope, layout) {
+function writeScope(scope, layout, options) {
   const state = cloneState(readState());
   const next = normalizeScopeLayout(layout);
   if (next.order.length || next.hidden.length) state.scopes[scope] = next;
   else delete state.scopes[scope];
   writeState(state);
+  noteLocalChange(options);
+}
+
+// True once this origin holds a layout the user arranged on purpose. The
+// projection pass records the host's default order on every boot too; without
+// this flag a freshly opened window cannot tell that from a real drag and would
+// publish its defaults over the layout the other window is showing.
+function isLayoutCustomized() {
+  try {
+    return Number(window.localStorage.getItem(CUSTOMIZED_KEY)) > 0;
+  } catch (err) {
+    return false;
+  }
+}
+
+function markLayoutCustomized() {
+  try {
+    window.localStorage.setItem(CUSTOMIZED_KEY, String(Date.now()));
+  } catch (err) {
+    /* storage may be unavailable */
+  }
 }
 
 function resetScopeState(scope) {
   const state = cloneState(readState());
   delete state.scopes[scope];
   writeState(state);
+  noteLocalChange({ user: true, reset: true });
 }
 
 // A one-time migration ledger, separate from the layout: a scope that was
@@ -214,6 +257,7 @@ function writeDragEnabled(scope, enabled) {
   } catch (err) {
     /* keep the in-memory copy */
   }
+  noteLocalChange({ user: true });
   return true;
 }
 
@@ -300,6 +344,7 @@ function importConfigSnapshot(value) {
   // the one-shot 0.5.4 migration cannot reorder it on the next projection pass.
   for (const scope of SCOPE_KEYS) markScopeRepaired(scope);
 
+  noteLocalChange({ user: true });
   return { ok: true, scopes: Object.keys(state.scopes).length };
 }
 
@@ -314,6 +359,9 @@ function forgetLayout() {
   } catch (err) {
     /* ignore */
   }
+  // Tell the host copy too, otherwise the other window keeps showing the layout
+  // this reset just removed.
+  noteLocalChange({ reset: true, user: true });
 }
 
 function isSameOrder(a, b) {

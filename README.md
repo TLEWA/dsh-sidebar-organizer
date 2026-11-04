@@ -104,7 +104,12 @@ plugin_manager  action: install_bundle  target: <仓库的绝对路径>
    `hide(id)` / `reveal(id)` 只传一个参数时仍按旧版语义作用于 `sidebar`。
    `disable()` 之后要恢复，执行
    `localStorage.removeItem("dsh.sidebar-organizer.disabled")` 再刷新。
-8. 就算本插件完全不工作，七处位置也只是保持 DSH 默认顺序，不会有其他副作用。
+8. **宿主侧同步只走本机**：宿主半用 `connection.fetch.register` 注册一条
+   `GET/POST /api/dsh-sidebar-organizer/layout` 路由，只接受本机 `owner` 身份的请求
+   （webServer 侧按会话 cookie 判定，非 owner 直接 403），不发出任何外部网络请求；
+   数据只写 `$DSH_HOME/storages/dsh-sidebar-organizer/layout.json` 一个文件，写入用
+   临时文件 + `rename` 原子替换，失败时客户端退回本地 `localStorage`。
+9. 就算本插件完全不工作，七处位置也只是保持 DSH 默认顺序，不会有其他副作用。
 
 ## 实现说明
 
@@ -135,6 +140,15 @@ plugin_manager  action: install_bundle  target: <仓库的绝对路径>
 - 导出文件是 `{ format, version, exportedAt, scopes, drag }` 的快照；导入只接受
   `version === 3` 且含 `scopes` 对象的文件，写入前会走与本地存储相同的规范化，
   并为七个区域标记一次性修复已完成，避免旧版尾行修复改写导入的顺序。
+- 跨窗口同步（0.7.2 起）：`src/sync.js` 把布局推给宿主半的路由
+  `POST/GET api/dsh-sidebar-organizer/layout`，宿主存在
+  `$DSH_HOME/storages/dsh-sidebar-organizer/layout.json`。合并按时间戳新者优先：
+  本地写完后 350ms 去抖上传，窗口重新可见 / 获得焦点时拉取；拉取到的布局会立即应用
+  到当前页面并标记各区域已修复，但不会再回传一次。宿主没有存档时，新窗口保留本地
+  顺序，避免空布局覆盖已有配置；`localStorage` 仍是本地缓存与降级路径。
+  上传只由用户操作触发：启动时的默认顺序登记与投影 pass 写回都只留在本地，
+  `dsh.sidebar-organizer.customized.v1` 记录「这个 origin 真正被调整过」；升级前就在
+  本地、且与宿主注册顺序不同的布局会被认作手工配置，首次启动时接管宿主存档。
 - 拖拽层：document 捕获阶段 `pointerdown` → 260ms 长按计时（指针移动超过 8px 取消）→
   激活后克隆行做 ghost、按区域轴向插入落点指示线；落点按其余行的中点判定；拖到本区域
   「更多」按钮矩形内即收纳；松手后 500ms 内吞掉紧随的 click，避免误触打开。
@@ -148,6 +162,7 @@ src/                 源码（模块化，按依赖顺序拼接）
   constants.js       常量、文案、共享句柄
   styles.js          注入的样式表（拖动 + 配置页）
   storage.js         localStorage 布局持久化与 v2/v3 迁移
+  sync.js            宿主侧同步：拉取 / 去抖上传 / 采纳远端布局
   icons.js           图标 SVG 序列化与 id 前缀处理
   slot.js            只读访问插槽投影
   scopes.js          七区域发现、id 映射、轴向
@@ -157,7 +172,7 @@ src/                 源码（模块化，按依赖顺序拼接）
   plugin.js          插件入口 apply()
 scripts/build.mjs    把 src/ 拼成 lib/client.js
 lib/client.js        构建产物（DSH 实际加载的客户端半）
-lib/index.js         宿主半（占位）
+lib/index.js         宿主半（GET/POST 布局路由 + $DSH_HOME/storages 下的 JSON 存档）
 cordis.patch.yml     bundle 补丁（安装时插入 profile）
 test/harness.html    离线夹具：伪造七区域 DOM 与插槽数据，浏览器打开即回归
 ```
@@ -182,6 +197,8 @@ npm run check   # 语法检查
 - 客户端只 `require("react")`；`@deepseek-ai/dsh-client-ui-primitives` 的 `MenuItemButton`
   存在时优先使用，缺失时降级为内置按钮样式。
 - 插槽/属性选择器缺失时对应区域自动降级为空，不影响 DSH 启动。
+- 跨窗口同步需要宿主半能在 `connection.fetch.register` 上注册路由（0.2.1-rc.5 具备）；
+  该服务缺失时客户端只跑本地 `localStorage`，不会报错。
 
 ## 路线图
 
@@ -200,6 +217,7 @@ npm run check   # 语法检查
 - [x] 0.6.0 — 首个正式版：六区域整理、设置页、配置导入/导出、刷新后自定义顺序保持
 - [x] 0.6.1 — 修复已收纳条目的拖影丢失圆角
 - [x] 0.7.0 — 新增会话头部工具条：图标排序、收进官方「更多操作」菜单与拖回；修正陈旧布局条目导致的落点偏移与拖影白边
+- [x] 0.7.2 — 布局改为宿主侧存档：桌面窗口与浏览器 Web 界面（任意端口）共用同一份顺序
 - [ ] 0.8.0 — 无障碍补强（配置页屏幕阅读器朗读顺序变化、菜单内上移/下移按钮）
 
 ## 声明与引用
