@@ -462,10 +462,26 @@ function collectSettings() {
   // Create the anchor before collecting: collectUnits then recognizes it as
   // `more` (aria-haspopup + the 更多 label) instead of treating it as a row.
   settingsMoreAnchor(container);
-  const collected = collectUnits(container, { axis: "y" });
+  // 0.2.2 turns the settings nav into a horizontal scroller on narrow browser
+  // windows, while desktop keeps the vertical list. Read the rendered direction
+  // instead of assuming the host's layout.
+  let axis = "y";
+  try {
+    const style = window.getComputedStyle(container);
+    const flexDirection = String(style.flexDirection || "");
+    const gridFlow = String(style.gridAutoFlow || "");
+    if (String(style.display || "").indexOf("flex") !== -1 && flexDirection.indexOf("row") === 0) {
+      axis = "x";
+    } else if (String(style.display || "").indexOf("grid") !== -1 && gridFlow.indexOf("column") !== -1) {
+      axis = "x";
+    }
+  } catch (err) {
+    /* keep the vertical default when styles are unavailable */
+  }
+  const collected = collectUnits(container, { axis });
   return {
     scope: "settings",
-    axis: "y",
+    axis,
     container,
     rows: collected.rows,
     more: collected.more,

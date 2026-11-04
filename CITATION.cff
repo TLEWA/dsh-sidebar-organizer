@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "dsh-sidebar-organizer: Drag-to-reorder and tuck-away for the DSH sidebar panel strip"
-version: 0.7.1
-date-released: "2026-11-04"
+version: 0.7.4
+date-released: "2026-11-05"
 license: MIT
 type: software
 authors:

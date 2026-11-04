@@ -88,7 +88,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.3
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.4
 ```
 
 ### From npm
@@ -246,7 +246,14 @@ restoration).
 
 ## Compatibility
 
-- DSH `>= 0.2.1-rc.3` (developed against `0.2.1-rc.5`).
+- DSH `>= 0.2.1-rc.3` (developed against `0.2.1-rc.5` and checked against the
+  `0.2.2-rc.1` component sources and a 0.2.2-shaped harness).
+- 0.2.2 inserted "Copy as Markdown" above download in the session header's shipped
+  More menu. Pulled-out download/feedback shortcuts now identify actions by label
+  and icon instead of menu position, so the shortcut follows its action when the
+  host inserts a row and legacy positional ids migrate automatically.
+- 0.2.2 lays the settings nav out horizontally in short browser windows; the
+  drag axis follows the rendered direction.
 - The client only requires `react`; `MenuItemButton` from
   `@deepseek-ai/dsh-client-ui-primitives` is used when present, with a built-in
   fallback otherwise.
@@ -272,6 +279,8 @@ restoration).
 - [x] 0.7.0 — session header strip: icon ordering, tucking into the shipped "More actions" menu, and dragging back out
 - [x] 0.7.1 — fix in-menu reordering inside "More actions", keep the menu open after a reorder, and drop the black tile behind glyph-only ghosts
 - [x] 0.7.2 — layout stored host-side: the desktop window and the Web UI on any port share one order; the settings page can turn the sharing off
+- [x] 0.7.3 — docs only: install example and roadmap refresh
+- [x] 0.7.4 — DSH 0.2.2-rc.1 support: content-stable ids for shipped header actions with automatic migration; settings drag axis follows a horizontal nav
 
 ## Notices
 

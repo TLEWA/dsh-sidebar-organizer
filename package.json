@@ -1,6 +1,6 @@
 {
   "name": "dsh-sidebar-organizer",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "private": false,
   "description": "DSH 七区域布局整理器：左侧边栏/侧栏底部/对话标签/输入框/会话头部/右侧栏/设置导航长按拖拽排序与收纳，附分区拖动开关的设置页",
   "type": "module",
@@ -47,6 +47,9 @@
     "url": "https://github.com/TLEWA/dsh-sidebar-organizer/issues"
   },
   "license": "MIT",
+  "engines": {
+    "dsh": ">=0.2.1-rc.3"
+  },
   "dsh": {
     "engines": {
       "dsh": ">=0.2.1-rc.3"

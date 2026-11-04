@@ -3,6 +3,46 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.7.4 — 2026-11-05
+
+- 适配 DSH 0.2.2-rc.1：会话头部「更多操作」新增首项「复制会话为 Markdown」后，旧版按
+  菜单位置生成的 `dso-host-0` 等 id 会整体平移，已拉出的「下载 Session 日志 / 反馈」快捷
+  按钮可能变成别的动作。现在快捷动作改用按标签内容计算的稳定 id（`dso-host-h<8hex>`）；
+  打开菜单时按「标签 + 图标 → 标签 → 唯一图标」把旧布局里的位置 id 迁移到新 id，未匹配
+  的旧 id 原样保留，不会重定向到另一动作。
+- 0.2.2 在窄浏览器窗口把设置导航改为横排。设置区域不再固定纵轴，而是读取容器实际的
+  `flex`/`grid` 排布方向，拖拽插入线、Alt+方向键与快照轴保持一致。
+- 修复全新会话里头部只剩宿主「更多操作」按钮时，头部区域因没有可排序列而不被记录、
+  菜单项无法拉出的问题；现在空头部也保留「更多操作」锚点。
+- 「恢复默认 / 恢复本区域」现在会移除已拉出的头部快捷按钮并重新发现头部行，避免旧按钮
+  被当成本地行写回布局。
+- `package.json` 增加顶层 `engines.dsh`，让宿主真正执行兼容性门槛（此前只写在 `dsh.engines`
+  下，宿主的检查读不到）。
+- 回归夹具更新为 0.2.2 结构，并新增旧位置 id 迁移、后续插入不重编号、横向设置导航、
+  统一右键菜单不抢占头部菜单的用例；全部断言通过。
+
+### English
+
+- DSH 0.2.2-rc.1 support: its shipped header More menu now starts with "Copy as
+  Markdown", which shifted every positional `dso-host-N` id and could turn an
+  adopted download/feedback shortcut into a different action. Shortcuts now use a
+  content-stable id (`dso-host-h<8hex>`); opening the menu reconciles legacy ids by
+  label + icon, then label, then a unique icon. Unmatched ids are left untouched
+  instead of being redirected.
+- 0.2.2 lays the settings nav out horizontally in short browser windows. The
+  settings scope now reads the rendered `flex`/`grid` direction for its drag axis,
+  so the insertion line, Alt+arrow keys, and snapshots agree.
+- A fresh session whose header exposes only the shipped More button used to lose
+  the header scope entirely (no sortable rows), so its menu items could not be
+  adopted. The empty header now keeps the More anchor.
+- Reset / reset-region now removes adopted header shortcuts and rediscovers the
+  header rows, so stale buttons cannot be written back as local rows.
+- `package.json` gains a top-level `engines.dsh`; the host's compatibility gate did
+  not read the previous nested `dsh.engines.dsh`.
+- The harness fixture models 0.2.2 and adds regressions for legacy id migration,
+  later insertions, horizontal settings nav, and unified context menus; all
+  assertions pass.
+
 ## 0.7.3 — 2026-11-04
 
 - 仅文档：README 的版本说明改为不随版本漂移的写法，安装示例指向 `v0.7.3`，中英文路线图补齐

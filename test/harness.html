@@ -44,8 +44,10 @@
   #header-host-viewport { display: flex; flex-direction: column; }
   [data-slot="sidebar.footer.action"] { display: flex; gap: 6px; }
   .settings nav { display: block; }
-  .settings-list { flex-direction: column; width: 200px; }
-  .settings-list > div { display: block; }
+  .settings-list { display: flex; flex-direction: column; width: 200px; }
+  .settings-list .navCell { width: 100%; border: 0; background: transparent; color: inherit; text-align: left; padding: 4px; }
+  .settings-list .navIcon { display: inline-flex; }
+  .settings-list .navLabel { white-space: nowrap; }
   #result { white-space: pre-wrap; padding: 12px 18px; font-family: ui-monospace, monospace; }
   .ok { color: #6ee7a8; }
   .bad { color: #ff7b72; }
@@ -145,9 +147,15 @@
     </div>
     <div class="header-host-menu" id="header-host-menu" role="menu" hidden>
       <div class="_viewport_4ub78_19" id="header-host-viewport">
-        <div role="menuitem"><button type="button" class="host-row">下载 Session 日志</button></div>
-        <div role="menuitem"><button type="button" class="host-row">反馈</button></div>
+        <div class="itemWrap"><button type="button" role="menuitem" class="host-row">复制会话为 Markdown</button></div>
+        <div class="itemWrap"><button type="button" role="menuitem" class="host-row">下载 Session 日志</button></div>
+        <div class="itemWrap"><button type="button" role="menuitem" class="host-row">反馈</button></div>
       </div>
+    </div>
+    <!-- 0.2.2's unified right-click menu also has role="menu". The runtime must
+         not mistake it for the header's shipped More menu. -->
+    <div data-context-menu role="menu" id="context-menu" hidden style="position:fixed;left:420px;top:420px;background:#26272b;padding:4px;">
+      <div class="itemWrap"><button type="button" role="menuitem" class="host-row">复制</button></div>
     </div>
   </div>
 
@@ -167,14 +175,14 @@
     <div class="caption">settings.section</div>
     <div data-shortcut-modal="settings">
       <nav>
-        <div class="settings-list" id="settings-list">
-          <div><button aria-label="账户"><span aria-hidden="true">A</span><span>账户</span></button></div>
-          <div><button aria-label="通用"><span aria-hidden="true">G</span><span>通用</span></button></div>
-          <div><button aria-label="模型"><span aria-hidden="true">M</span><span>模型</span></button></div>
-          <div><button aria-label="插件"><span aria-hidden="true">P</span><span>插件</span></button></div>
-          <div><button aria-label="布局整理" data-testid="layout-organizer"><span aria-hidden="true">L</span><span>布局整理</span></button></div>
-          <div><button aria-label="Better Sidebar" data-testid="better-settings" data-dsh-better-sidebar-settings-nav><span aria-hidden="true">B</span><span>Better Sidebar</span></button></div>
-          <div><button aria-label="关于"><span aria-hidden="true">I</span><span>关于</span></button></div>
+        <div class="navList settings-list" id="settings-list">
+          <button type="button" class="navCell"><span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor"/></svg></span><span class="navLabel">账户</span></button>
+          <button type="button" class="navCell"><span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" fill="none" stroke="currentColor"/></svg></span><span class="navLabel">通用</span></button>
+          <button type="button" class="navCell"><span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 8h10" stroke="currentColor"/></svg></span><span class="navLabel">模型</span></button>
+          <button type="button" class="navCell"><span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 4h8v8H4z" fill="none" stroke="currentColor"/></svg></span><span class="navLabel">插件</span></button>
+          <button type="button" class="navCell" data-testid="layout-organizer"><span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 5h10M3 11h10" stroke="currentColor"/></svg></span><span class="navLabel">布局整理</span></button>
+          <button type="button" class="navCell" data-testid="better-settings" data-dsh-better-sidebar-settings-nav><span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4" fill="none" stroke="currentColor"/></svg></span><span class="navLabel">Better Sidebar</span></button>
+          <button type="button" class="navCell"><span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 3v10" stroke="currentColor"/></svg></span><span class="navLabel">关于</span></button>
         </div>
       </nav>
     </div>
@@ -273,13 +281,14 @@
         // make the host render our settings row, like the real settings nav
         const list = document.getElementById("settings-list");
         if (list && !document.querySelector('[data-testid="layout-organizer"]')) {
-          const wrapper = document.createElement("div");
           const button = document.createElement("button");
-          button.setAttribute("aria-label", "布局整理");
+          button.type = "button";
+          button.className = "navCell";
           button.dataset.testid = "layout-organizer";
-          button.innerHTML = '<span aria-hidden="true">L</span><span>布局整理</span>';
-          wrapper.appendChild(button);
-          list.appendChild(wrapper);
+          button.innerHTML =
+            '<span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 5h10M3 11h10" stroke="currentColor"/></svg></span>' +
+            '<span class="navLabel">布局整理</span>';
+          list.appendChild(button);
         }
       }
       return { dispose() {} };
@@ -535,6 +544,20 @@
       assert("settings popup closes after activation", !document.querySelector(".dso-settings-more-menu"));
       assert("restore settings row", api.reveal("settings", "account") === true);
       assert("settings More hides again when the shelf is empty", getComputedStyle(settingsMore).display === "none", getComputedStyle(settingsMore).display);
+
+      // 0.2.2 lays the settings nav out horizontally in short browser windows.
+      // The drag axis probes the computed layout, not a fixed "y".
+      const settingsList = document.getElementById("settings-list");
+      settingsList.style.flexDirection = "row";
+      api.refresh();
+      await wait(80);
+      snap = api.snapshot().find((scope) => scope.scope === "settings");
+      assert("horizontal settings nav reports an x axis", snap && snap.axis === "x", snap && snap.axis);
+      settingsList.style.flexDirection = "";
+      api.refresh();
+      await wait(80);
+      snap = api.snapshot().find((scope) => scope.scope === "settings");
+      assert("vertical settings nav returns to the y axis", snap && snap.axis === "y", snap && snap.axis);
 
       api.resetScope("footer");
       assert("resetScope restores DOM order", orderOf("footer").join(",") === "footer-settings,footer-help,footer-feedback", orderOf("footer").join(","));
@@ -967,7 +990,7 @@
         !!tuckedBlock && !!tuckedBlock.querySelector('[data-dso-more-key="header:header-reminder"]'),
         tuckedBlock && tuckedBlock.innerHTML
       );
-      assert("shipped menu keeps its own items", headerViewport.querySelectorAll(".host-row").length === 2);
+      assert("shipped menu keeps its own items", headerViewport.querySelectorAll(".host-row").length === 3);
 
       api.hide("header", "header-lag");
       api.refresh();
@@ -1045,14 +1068,27 @@
       await wait(60);
       // Shipped-menu actions can be pulled onto the strip: the host row stays in
       // the menu, the strip gets a shortcut button that proxies the same action.
-      const hostClicks = { download: 0, feedback: 0 };
-      const hostRows = headerViewport.querySelectorAll('[role="menuitem"]');
-      hostRows[0].addEventListener("click", () => { hostClicks.download += 1; });
-      hostRows[1].addEventListener("click", () => { hostClicks.feedback += 1; });
+      const hostClicks = { copy: 0, download: 0, feedback: 0 };
+      const hostRowByLabel = (label) =>
+        Array.from(headerViewport.querySelectorAll('[role="menuitem"]')).find(
+          (node) => (node.textContent || "").trim() === label
+        );
+      for (const label of ["复制会话为 Markdown", "下载 Session 日志", "反馈"]) {
+        const node = hostRowByLabel(label);
+        if (!node) continue;
+        const key = label.indexOf("复制") === 0 ? "copy" : label.indexOf("下载") === 0 ? "download" : "feedback";
+        node.addEventListener("click", () => { hostClicks[key] += 1; });
+      }
       headerMore.click();
       await wait(60);
-      const downloadRow = headerViewport.querySelector('[data-dso-more-key="header:dso-host-0"]');
-      assert("shipped menu rows are tagged as pull-out sources", !!downloadRow, headerViewport.innerHTML);
+      const downloadRow = hostRowByLabel("下载 Session 日志");
+      const downloadId = downloadRow && downloadRow.dataset.dsoHostId;
+      assert("shipped menu rows are tagged as pull-out sources", !!downloadRow && !!downloadId, headerViewport.innerHTML);
+      assert(
+        "shipped-menu action ids are content-stable",
+        !!downloadId && downloadId.indexOf("dso-host-h") === 0,
+        downloadId
+      );
       const downloadRect = downloadRow.getBoundingClientRect();
       downloadRow.dispatchEvent(new PointerEvent("pointerdown", {
         bubbles: true, cancelable: true, button: 0, pointerId: 71,
@@ -1066,7 +1102,7 @@
         bubbles: true, cancelable: true, pointerId: 71, clientX: stripRect.left + 12, clientY: stripRect.top + stripRect.height / 2,
       }));
       await wait(150);
-      const downloadShortcut = document.getElementById("dso-host-0");
+      const downloadShortcut = document.getElementById(downloadId);
       assert("pulling a shipped action out creates a strip button", !!downloadShortcut, document.getElementById("header-slot").innerHTML);
       assert(
         "the shortcut carries the shipped label",
@@ -1075,12 +1111,13 @@
       );
       assert(
         "the shipped row stays in the menu",
-        headerViewport.querySelectorAll(".host-row").length === 2 && !!headerViewport.querySelector('[data-dso-more-key="header:dso-host-0"]')
+        headerViewport.querySelectorAll(".host-row").length === 3 && !!headerViewport.querySelector('[data-dso-more-key="header:' + downloadId + '"]')
       );
       await wait(520);
       downloadShortcut.click();
       await wait(80);
       assert("clicking the shortcut runs the shipped action", hostClicks.download === 1, String(hostClicks.download));
+      assert("the shortcut does not run the new first row", hostClicks.copy === 0, String(hostClicks.copy));
       assert("the proxy closes the shipped menu", headerHostMenu.hidden === true && headerMore.getAttribute("aria-expanded") === "false");
       // Dragging the shortcut back into More removes it again.
       const shortcutRect = downloadShortcut.getBoundingClientRect();
@@ -1098,14 +1135,75 @@
         bubbles: true, cancelable: true, pointerId: 72, clientX: moreRect2.left + moreRect2.width / 2, clientY: moreRect2.top + moreRect2.height / 2,
       }));
       await wait(150);
-      assert("dropping a shortcut on More removes it", !document.getElementById("dso-host-0"));
+      assert("dropping a shortcut on More removes it", !document.getElementById(downloadId));
       assert(
         "the removed shortcut leaves the saved order",
-        JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1")).scopes.header.order.indexOf("dso-host-0") === -1
+        !JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1")).scopes.header.order.some(
+          (id) => id === downloadId
+        )
       );
       await wait(520);
 
-      // ---- regression: shipped-menu rows reorder ----
+      // ---- regression: legacy positional ids migrate to content-stable ids ----
+      // 0.2.2 inserted "复制会话为 Markdown" before download. A stored shortcut
+      // that still carries dso-host-0 must follow its label, not its old slot.
+      if (headerHostMenu.hidden === false) {
+        headerMore.click();
+        await wait(60);
+      }
+      const legacyId = "dso-host-0";
+      // Seed through importConfig, not localStorage directly: the runtime keeps
+      // an in-memory layout cache and would not see a raw localStorage edit.
+      const headerLayout = api.exportConfig();
+      const headerScope = headerLayout.scopes.header || { order: [], hidden: [] };
+      headerScope.order = [legacyId].concat((headerScope.order || []).filter((id) => id !== legacyId));
+      headerScope.hidden = (headerScope.hidden || []).filter((id) => id !== legacyId);
+      headerLayout.scopes.header = headerScope;
+      localStorage.setItem("dsh.sidebar-organizer.host-actions.v1", JSON.stringify({
+        [legacyId]: { label: "下载 Session 日志", icon: "" },
+      }));
+      const seeded = api.importConfig(headerLayout);
+      assert("legacy layout seed imports", seeded.ok === true, JSON.stringify(seeded));
+      headerMore.click();
+      await wait(120);
+      const migratedRow = hostRowByLabel("下载 Session 日志");
+      const migratedId = migratedRow && migratedRow.dataset.dsoHostId;
+      assert("legacy positional id migrates on menu open", !!migratedId && migratedId !== legacyId && migratedId.indexOf("dso-host-h") === 0, migratedId);
+      const migratedShortcut = migratedId && document.getElementById(migratedId);
+      assert("migrated shortcut keeps its strip button", !!migratedShortcut, document.getElementById("header-slot").innerHTML);
+      assert("legacy shortcut id is gone", !document.getElementById(legacyId));
+      const migratedHeader = JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1")).scopes.header;
+      assert(
+        "migration rewrites the saved header order",
+        migratedHeader.order.indexOf(migratedId) !== -1 && migratedHeader.order.indexOf(legacyId) === -1,
+        migratedHeader.order.join(",")
+      );
+      const downloadsBefore = hostClicks.download;
+      if (migratedShortcut) migratedShortcut.click();
+      await wait(100);
+      assert("migrated shortcut still runs download", hostClicks.download === downloadsBefore + 1, String(hostClicks.download));
+      assert("migrated shortcut never runs copy", hostClicks.copy === 0, String(hostClicks.copy));
+      // A later insertion must not renumber an already adopted action.
+      const extraRow = document.createElement("div");
+      extraRow.className = "itemWrap";
+      extraRow.innerHTML = '<button type="button" role="menuitem" class="host-row">新动作</button>';
+      headerViewport.appendChild(extraRow);
+      api.refresh();
+      await wait(80);
+      const stableRow = hostRowByLabel("下载 Session 日志");
+      assert(
+        "adopted stable ids survive later menu inserts",
+        !!stableRow && stableRow.dataset.dsoHostId === migratedId
+      );
+      headerMore.click();
+      await wait(60);
+      extraRow.remove();
+      if (migratedShortcut) migratedShortcut.remove();
+      api.resetScope("header");
+      localStorage.removeItem("dsh.sidebar-organizer.host-actions.v1");
+      await wait(520);
+
+      // ---- regression: the shipped-menu rows reorder ----
       // Dragging "反馈" above "下载 Session 日志" used to draw the insertion line
       // and then change nothing: commit went through reorderHidden(), which only
       // knows tucked ids, and shipped rows are host DOM.
@@ -1113,8 +1211,8 @@
       headerMore.click();
       await wait(60);
       const hostOrderNodes = () => [
-        headerViewport.querySelector('[data-dso-host-id="dso-host-0"]'),
-        headerViewport.querySelector('[data-dso-host-id="dso-host-1"]'),
+        hostRowByLabel("下载 Session 日志"),
+        hostRowByLabel("反馈"),
       ];
       let hostNodes = hostOrderNodes();
       const rowFeedbackRect = hostNodes[1].getBoundingClientRect();
@@ -1139,7 +1237,7 @@
       await wait(150);
       assert(
         "dragging a shipped-menu row persists the new order",
-        (JSON.parse(localStorage.getItem("dsh.sidebar-organizer.host-menu-order.v1")) || []).join(",") === "反馈,下载 Session 日志",
+        (JSON.parse(localStorage.getItem("dsh.sidebar-organizer.host-menu-order.v1")) || []).join(",") === "复制会话为 Markdown,反馈,下载 Session 日志",
         localStorage.getItem("dsh.sidebar-organizer.host-menu-order.v1")
       );
       assert(
@@ -1157,6 +1255,20 @@
       await wait(60);
       localStorage.removeItem("dsh.sidebar-organizer.host-menu-order.v1");
       for (const node of headerViewport.querySelectorAll("[data-dso-host-id]")) node.style.order = "";
+
+      // ---- regression: 0.2.2's unified right-click menu is not the More menu ----
+      const contextMenu = document.getElementById("context-menu");
+      contextMenu.hidden = false;
+      headerMore.click();
+      await wait(60);
+      assert(
+        "context menus are never mistaken for the header menu",
+        !contextMenu.querySelector("[data-dso-host-id]") && headerHostMenu.hidden === false,
+        contextMenu.innerHTML
+      );
+      headerMore.click();
+      await wait(60);
+      contextMenu.hidden = true;
 
       // ---- regression: the drag ghost of a glyph-only button ----
       // The header icons own no background; the lifted card fill made the 28px
@@ -1238,6 +1350,44 @@
       assert("header drag lands where the drop line was drawn", matrixProblems.length === 0, matrixProblems.join(" | "));
       api.resetScope("header");
       await wait(60);
+
+      // Regression: a fresh 0.2.2 session can expose only the shipped More
+      // button in the header slot. The scope must still be remembered so the
+      // host menu rows can be tagged and pulled out.
+      const headerSlotEl = document.getElementById("header-slot");
+      const savedHeaderNodes = Array.from(headerSlotEl.childNodes);
+      const onlyMore = document.getElementById("header-more").closest(".header-unit");
+      for (const node of savedHeaderNodes) node.remove();
+      headerSlotEl.append(onlyMore);
+      api.resetScope("header");
+      api.refresh();
+      await wait(80);
+      const emptyHeader = api.status().scopes.header;
+      assert(
+        "a header with only the More button still has an anchor",
+        emptyHeader.found === true && emptyHeader.rows.length === 0,
+        JSON.stringify(emptyHeader)
+      );
+      headerMore.click();
+      await wait(80);
+      api.refresh();
+      await wait(80);
+      assert(
+        "host menu rows are tagged even when the header has no movable rows",
+        Array.from(headerViewport.querySelectorAll('[role="menuitem"]')).every(
+          (node) => /^dso-host-/.test(node.dataset.dsoHostId || "")
+        ),
+        headerViewport.innerHTML
+      );
+      headerMore.click();
+      for (const node of savedHeaderNodes) headerSlotEl.append(node);
+      api.refresh();
+      await wait(120);
+      assert(
+        "restored header rows are discovered again",
+        api.status().scopes.header.rows.length > 0,
+        JSON.stringify(api.status().scopes.header)
+      );
 
       // Configuration export/import: the file carries both the layout and the
       // per-section drag switches. A version mismatch is rejected whole, so a
