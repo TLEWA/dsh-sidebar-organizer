@@ -32,11 +32,16 @@
      and the tuck target is the shipped "more actions" button inside it. */
   .header-utilities { display: flex; gap: 6px; align-items: center; }
   [data-slot="conversation.session.header.utilities"] { display: contents; }
-  .header-utilities button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; }
+  /* The shipped strip paints glyph-only buttons with no surface of their own;
+     mirror that or the ghost fill check below tests the fixture, not the row. */
+  .header-utilities button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; background: transparent; color: inherit; }
   .header-utilities .header-unit { display: inline-flex; gap: 2px; }
   .header-host-menu { position: fixed; width: 200px; background: #26272b; border: 1px solid #3a3a3f; border-radius: 8px; padding: 4px; }
   .header-host-menu[hidden] { display: none; }
   .header-host-menu .host-row { display: block; width: 100%; text-align: left; padding: 6px 8px; }
+  /* Mirrors the shipped menu: a flex column viewport, so persisted host-row
+     order is expressed with style.order on each viewport child. */
+  #header-host-viewport { display: flex; flex-direction: column; }
   [data-slot="sidebar.footer.action"] { display: flex; gap: 6px; }
   .settings nav { display: block; }
   .settings-list { flex-direction: column; width: 200px; }
@@ -135,7 +140,7 @@
         <button aria-label="展开底部面板" data-testid="header-panel"><span aria-hidden="true">B</span></button>
         <button aria-label="上下文诊断" data-testid="header-context"><span aria-hidden="true">D</span></button>
         <span class="header-unit"><button aria-label="解除卡顿" data-testid="header-lag"><span aria-hidden="true">S</span></button></span>
-        <button aria-label="查找" data-testid="header-find"><span aria-hidden="true">Q</span></button>
+        <button aria-label="查找" data-testid="header-find"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.4 10.4 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
       </div>
     </div>
     <div class="header-host-menu" id="header-host-menu" role="menu" hidden>
@@ -1098,6 +1103,89 @@
         "the removed shortcut leaves the saved order",
         JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1")).scopes.header.order.indexOf("dso-host-0") === -1
       );
+      await wait(520);
+
+      // ---- regression: shipped-menu rows reorder ----
+      // Dragging "反馈" above "下载 Session 日志" used to draw the insertion line
+      // and then change nothing: commit went through reorderHidden(), which only
+      // knows tucked ids, and shipped rows are host DOM.
+      localStorage.removeItem("dsh.sidebar-organizer.host-menu-order.v1");
+      headerMore.click();
+      await wait(60);
+      const hostOrderNodes = () => [
+        headerViewport.querySelector('[data-dso-host-id="dso-host-0"]'),
+        headerViewport.querySelector('[data-dso-host-id="dso-host-1"]'),
+      ];
+      let hostNodes = hostOrderNodes();
+      const rowFeedbackRect = hostNodes[1].getBoundingClientRect();
+      const rowDownloadRect = hostNodes[0].getBoundingClientRect();
+      hostNodes[1].dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 73,
+        clientX: rowFeedbackRect.left + 20, clientY: rowFeedbackRect.top + rowFeedbackRect.height / 2,
+      }));
+      await wait(330);
+      assert(
+        "a shipped-menu row ghost keeps the card look",
+        !!document.querySelector(".dso-ghost") && !document.querySelector(".dso-ghost").classList.contains("dso-ghost-flat")
+      );
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 73,
+        clientX: rowDownloadRect.left + 20, clientY: rowDownloadRect.top + 3,
+      }));
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 73,
+        clientX: rowDownloadRect.left + 20, clientY: rowDownloadRect.top + 3,
+      }));
+      await wait(150);
+      assert(
+        "dragging a shipped-menu row persists the new order",
+        (JSON.parse(localStorage.getItem("dsh.sidebar-organizer.host-menu-order.v1")) || []).join(",") === "反馈,下载 Session 日志",
+        localStorage.getItem("dsh.sidebar-organizer.host-menu-order.v1")
+      );
+      assert(
+        "reordering inside the menu keeps it open",
+        headerHostMenu.hidden === false && headerMore.getAttribute("aria-expanded") === "true"
+      );
+      hostNodes = hostOrderNodes();
+      assert(
+        "the open menu paints the persisted order",
+        hostNodes[1].getBoundingClientRect().top < hostNodes[0].getBoundingClientRect().top,
+        hostNodes[0].getBoundingClientRect().top + "/" + hostNodes[1].getBoundingClientRect().top
+      );
+      await wait(520);
+      headerMore.click();
+      await wait(60);
+      localStorage.removeItem("dsh.sidebar-organizer.host-menu-order.v1");
+      for (const node of headerViewport.querySelectorAll("[data-dso-host-id]")) node.style.order = "";
+
+      // ---- regression: the drag ghost of a glyph-only button ----
+      // The header icons own no background; the lifted card fill made the 28px
+      // preview a black rounded tile. A hovered host button reports a tinted
+      // background, which must not disqualify the flat ghost.
+      const findButton = document.querySelector('[data-testid="header-find"]');
+      findButton.style.backgroundColor = "rgba(255, 255, 255, 0.12)";
+      const findRect = findButton.getBoundingClientRect();
+      findButton.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 74,
+        clientX: findRect.left + findRect.width / 2, clientY: findRect.top + findRect.height / 2,
+      }));
+      await wait(330);
+      const iconGhost = document.querySelector(".dso-ghost");
+      assert(
+        "a glyph-only row ghost drops the fabricated surface",
+        !!iconGhost && iconGhost.classList.contains("dso-ghost-flat"),
+        iconGhost && iconGhost.className
+      );
+      assert(
+        "the flat ghost paints no background",
+        !!iconGhost && getComputedStyle(iconGhost).backgroundColor === "rgba(0, 0, 0, 0)",
+        iconGhost && getComputedStyle(iconGhost).backgroundColor
+      );
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 74,
+        clientX: findRect.left + findRect.width / 2, clientY: findRect.top + findRect.height / 2,
+      }));
+      findButton.style.backgroundColor = "";
       await wait(520);
 
       api.resetScope("header");

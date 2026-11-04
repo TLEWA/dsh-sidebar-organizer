@@ -6,7 +6,7 @@ Adds **custom ordering** and **tucking away** to seven strips of buttons/cards i
 DSH (DeepSeek Harness): the left sidebar, sidebar footer, conversation tabs,
 composer dock, session header, right sidebar, and settings navigation.
 
-> Version **0.7.0** (stable): adds the session header strip; seven-scope ordering,
+> Version **0.7.1** (bugfix): adds the session header strip; seven-scope ordering,
 > tucking, and configuration import/export. There is no right-click menu or
 > accessibility layer yet.
 
@@ -87,7 +87,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.0
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.1
 ```
 
 ### From npm
@@ -269,6 +269,7 @@ restoration).
 - [x] 0.6.0 — first stable release: six-scope organizer, settings page, config import/export, custom order survives reload
 - [x] 0.6.1 — collected rows keep their rounded drag ghost
 - [x] 0.7.0 — session header strip: icon ordering, tucking into the shipped "More actions" menu, and dragging back out
+- [x] 0.7.1 — fix in-menu reordering inside "More actions", keep the menu open after a reorder, and drop the black tile behind glyph-only ghosts
 - [ ] 0.8.0 — accessibility (screen-reader announcements for order changes, menu up/down actions)
 
 ## Notices

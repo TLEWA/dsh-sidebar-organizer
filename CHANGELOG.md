@@ -47,6 +47,36 @@
   behaviour), so the desktop window and the Web UI can be arranged independently; turning
   it back on pulls the host copy immediately.
 
+## 0.7.1 — 2026-11-04
+
+- 修正：「更多操作」菜单内拖动宿主菜单项（下载 Session 日志 / 反馈）重排后松手不生效。
+  宿主菜单项不属于收纳列表，提交时误走了收纳排序通道，必然失败；现在宿主菜单项有
+  自己的顺序存储（按标签保存，因为宿主每次打开菜单都会重新分配内部 id），菜单关闭
+  重开或刷新页面后顺序保持，且只与同类宿主菜单项互排，不影响已收纳项的顺序。
+- 修正：在「更多操作」菜单内完成重排后菜单会被立即关闭。现在菜单内重排保持展开，
+  只有把行拖出菜单、或拖回「更多操作」执行收纳时菜单才关闭。
+- 修正：纯图标行（会话头部图标等）的拖影带有黑色圆角方块。原判据是「源行背景透明
+  才使用扁平拖影」，但指针悬停在图标上时宿主会给出半透明浅色底，判据失效后又套上
+  了深色卡片底；现在改为按行内有无文字判断，图标行拖影一律透明底、无阴影。
+
+### English
+
+- Fix: reordering the shipped menu items ("Download session log" / "Feedback")
+  inside "More actions" did not stick on release. Those rows are not part of the
+  tucked list, so the commit went through the tucked-order path and always
+  failed; they now have their own label-keyed order (the host reassigns internal
+  ids every time the menu opens), persisted across menu reopen and reload and
+  kept separate from tucked rows.
+- Fix: finishing a reorder inside "More actions" closed the menu immediately.
+  It now stays open for in-menu reordering and only closes when a row is dragged
+  out of the menu or onto "More actions" to be tucked away.
+- Fix: glyph-only rows (session-header icons and the like) dragged with a black
+  rounded tile behind them. The flat ghost was selected only when the source
+  background was fully transparent, but hovering an icon makes the host paint a
+  translucent tint, so the check failed and the dark card surface came back. The
+  decision now keys on whether the row has text, and icon-only rows always get a
+  transparent, shadowless ghost.
+
 ## 0.7.0 — 2026-11-04
 
 - 新增「会话头部工具条」区域：对话页右上角那排图标（提醒、底部面板、上下文诊断、

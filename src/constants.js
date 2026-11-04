@@ -37,6 +37,12 @@ const DRAG_KEY = "dsh.sidebar-organizer.drag.v1";
 // Host menu actions the user pulled out of the "More" popup. The map keeps the
 // label and icon so the strip button can be rebuilt before the popup ever opens.
 const HOST_ACTION_KEY = "dsh.sidebar-organizer.host-actions.v1";
+// The shipped "More actions" menu keeps its own item order on the host side.
+// Dragging one of those rows over another now persists the visual order here
+// (labels, not generated ids: the host assigns ids by DOM position, so a host
+// reorder would silently rebind them). Applied through `style.order` on the
+// menu's flex viewport, never by moving React-owned nodes.
+const HOST_MENU_ORDER_KEY = "dsh.sidebar-organizer.host-menu-order.v1";
 const HOST_ACTION_PREFIX = "dso-host-";
 const DISABLED_KEY = "dsh.sidebar-organizer.disabled";
 // Set the first time the user actually rearranges something in this origin. The

@@ -283,6 +283,10 @@ function createRuntime(ctx) {
     // slot items, so they can never be rows of our scope. Tagging them here is
     // what lets the generic menu-row drag treat them as pull-out sources.
     tagHostMenuItems(menu);
+    // Applied on every open, before the tucked shelf is positioned: a saved
+    // order must survive reloads, and the shelf must keep sorting above the
+    // shipped rows.
+    applyHostMenuOrder(menu);
     const rows = headerHiddenRows();
     if (!rows.length) {
       state.headerMenu = menu;
@@ -337,6 +341,65 @@ function createRuntime(ctx) {
       }
     }
     if (changed) writeHostActions(store);
+  }
+
+  // The shipped menu paints its rows in a flex column. Reordering the rows the
+  // user dragged therefore means writing `style.order` on each row's viewport
+  // child — moving the nodes themselves would fight React and break keyboard
+  // navigation state. Labels are the stable identity: `dso-host-N` is assigned
+  // from the current DOM position on every open.
+  function hostMenuOrderTarget(element, viewport) {
+    let node = element;
+    while (node && node.parentElement && node.parentElement !== viewport) node = node.parentElement;
+    return node && node.parentElement === viewport ? node : null;
+  }
+
+  function applyHostMenuOrder(menu) {
+    if (!menu || !menu.isConnected) return;
+    const saved = readHostMenuOrder();
+    if (!saved.length) return;
+    const viewport = headerMenuViewport(menu);
+    if (!viewport) return;
+    const entries = [];
+    for (const node of menu.querySelectorAll("[data-dso-host-id]")) {
+      const target = hostMenuOrderTarget(node, viewport);
+      if (!target) continue;
+      const label = (node.textContent || "").trim();
+      entries.push({ target, label, at: entries.length });
+    }
+    const rank = (entry) => {
+      const index = saved.indexOf(entry.label);
+      return index === -1 ? saved.length : index;
+    };
+    entries.sort((a, b) => rank(a) - rank(b) || a.at - b.at);
+    entries.forEach((entry, index) => {
+      if (entry.target.style.order !== String(index)) entry.target.style.order = String(index);
+    });
+  }
+
+  function reorderHostMenu(id, beforeId) {
+    const menu = state.headerMenu;
+    if (!menu || !menu.isConnected) return false;
+    const nodes = Array.from(menu.querySelectorAll("[data-dso-host-id]")).sort(
+      (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top
+    );
+    const labels = nodes.map((node) => (node.textContent || "").trim());
+    const source = nodes.find((node) => node.dataset.dsoHostId === id);
+    const sourceLabel = source ? (source.textContent || "").trim() : "";
+    const from = labels.indexOf(sourceLabel);
+    if (!sourceLabel || from === -1) return false;
+    labels.splice(from, 1);
+    let at = labels.length;
+    if (beforeId) {
+      const before = nodes.find((node) => node.dataset.dsoHostId === beforeId);
+      const beforeLabel = before ? (before.textContent || "").trim() : "";
+      const index = beforeLabel ? labels.indexOf(beforeLabel) : -1;
+      if (index !== -1) at = index;
+    }
+    labels.splice(at, 0, sourceLabel);
+    writeHostMenuOrder(labels);
+    applyHostMenuOrder(menu);
+    return true;
   }
 
   function createHostActionButton(slot, id, meta) {
@@ -1176,6 +1239,15 @@ function createRuntime(ctx) {
       }
       menuItems.sort((a, b) => a.rect.top - b.rect.top);
     }
+    // A shipped-menu row only ever reorders against its sibling shipped rows.
+    // The tucked shelf above them is a separate list (its own hidden order), so
+    // mixing both in the drop-index space made a drop between shipped rows land
+    // at the wrong slot — or nowhere at all, because reorderHidden() only knows
+    // tucked ids.
+    const hostSource = gesture.scope === "header" && gesture.id.indexOf(HOST_ACTION_PREFIX) === 0;
+    const menuTargets = hostSource
+      ? menuItems.filter((item) => item.id.indexOf(HOST_ACTION_PREFIX) === 0)
+      : menuItems;
     let menuRect = null;
     if (menuItems.length) {
       let left = Infinity;
@@ -1204,6 +1276,7 @@ function createRuntime(ctx) {
       crossRect: crossRectFor(items, found.axis),
       items,
       menuItems,
+      menuTargets,
       menuRect,
       moreRect: more,
     };
@@ -1310,6 +1383,14 @@ function createRuntime(ctx) {
     // instead of chasing host selectors.
     try {
       const sourceStyle = getComputedStyle(element);
+      // Icon-only controls (the session-header glyph buttons) paint no surface
+      // of their own: the glyph sits directly on the toolbar. The stylesheet's
+      // lifted-card fill therefore turned a 28px icon into a black rounded tile
+      // while dragging. A hovered host button can report a tinted background
+      // (rgba(255, 255, 255, 0.12)), so alpha is not a reliable signal: text is.
+      // Glyph rows never own a card surface; only rows with a label keep it.
+      const hasText = (element.textContent || "").trim().length > 0;
+      if (!hasText) clone.classList.add("dso-ghost-flat");
       for (const prop of ["display", "align-items", "justify-content", "gap", "padding"]) {
         clone.style.setProperty(prop, sourceStyle[prop], "important");
       }
@@ -1476,8 +1557,9 @@ function createRuntime(ctx) {
     markDropMore(gesture, false);
 
     if (gesture.source === "menu" && snapshot.menuRect && pointIn(snapshot.menuRect, x, y)) {
-      const others = snapshot.menuItems.filter((item) => item.id !== gesture.id);
-      const hit = indexAt(others, x, y, "y", snapshot.menuItems);
+      const targets = snapshot.menuTargets || snapshot.menuItems;
+      const others = targets.filter((item) => item.id !== gesture.id);
+      const hit = indexAt(others, x, y, "y", targets);
       gesture.target = { kind: "menu", index: hit.index, beforeId: others[hit.index] ? others[hit.index].id : null };
       showIndicator(gesture, "y", hit.boundary, snapshot.menuRect);
       return;
@@ -1567,7 +1649,7 @@ function createRuntime(ctx) {
     // The header menu is host-owned; a drag out of it must not leave it open.
     // Do this before arming the click guard, because the close is a synthetic
     // click on the anchor and the guard would otherwise swallow it.
-    if (dragged && gesture.scope === "header" && gesture.source === "menu") dismissHeaderMenu();
+    if (dragged && gesture.scope === "header" && gesture.source === "menu" && !gesture.keepMenu) dismissHeaderMenu();
     document.body.classList.remove("dso-dragging");
     if (guard) state.guardUntil = Date.now() + CLICK_GUARD_MS;
     if (state.passDeferred) {
@@ -1693,7 +1775,14 @@ function createRuntime(ctx) {
       return;
     }
     if (target.kind === "menu") {
-      reorderHidden(gesture.scope, gesture.id, target.index);
+      // Shipped-menu rows are host DOM, not entries of our hidden list, so
+      // reorderHidden() silently no-ops on them. Persist their visual order
+      // instead; tucked rows keep using the hidden order.
+      if (hostAction) reorderHostMenu(gesture.id, target.beforeId);
+      else reorderHidden(gesture.scope, gesture.id, target.index);
+      // Reordering inside a popup is not leaving it: keep the menu open so the
+      // user can see the new order and tune it without reopening every time.
+      gesture.keepMenu = true;
       endGesture(true);
       return;
     }
