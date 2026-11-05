@@ -49,6 +49,13 @@ composer dock, session header, right sidebar, and settings navigation.
   it back on "More actions" to take it away.
 - **Keyboard**: focus a row and press `Alt+↑` / `Alt+↓` (the same order
   movement applies in horizontal scopes).
+- **Drag hotkey**: unbound by default. The "Drag hotkey" card records a key
+  combination (Ctrl/Alt/Shift/Win supported), then you can enable Hold, Toggle,
+  or both. Hold allows dragging only while the key is down and aborts an
+  in-flight drag when released; Toggle turns dragging on and off with successive
+  presses. The gate ignores bare keys typed into inputs/textareas, so ordinary
+  typing never arms it; while unbound, or with both modes off, dragging behaves
+  exactly as before.
 - **Settings page**: DSH Settings → "Layout organizer", or this plugin's detail
   page. Seven location cards let you drag rows, move up/down, tuck/restore, and
   reset one section. Each card has its own "Drag" switch: turn it off and that
@@ -70,8 +77,9 @@ composer dock, session header, right sidebar, and settings navigation.
 - The layout survives page reloads and DSH restarts.
 - While dragging, rows under the pointer do not react with `:hover` or tooltips
   (rows get `pointer-events: none`; hit-testing is pure geometry).
-- **No** right-click menu, floating launcher, shortcuts, search, or grouping —
-  those are out of scope for this version.
+- **No** right-click menu, floating launcher, search, or grouping — those are
+  out of scope for this version; the drag hotkey only gates dragging and is not
+  a command shortcut.
 
 ## Install
 
@@ -88,7 +96,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.7.5
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.8.0
 ```
 
 ### From npm
@@ -282,6 +290,7 @@ restoration).
 - [x] 0.7.3 — docs only: install example and roadmap refresh
 - [x] 0.7.4 — DSH 0.2.2-rc.1 support: content-stable ids for shipped header actions with automatic migration; settings drag axis follows a horizontal nav
 - [x] 0.7.5 — custom drag-panel icon for the settings nav (DSH 0.2.2+, falls back to the host default on older releases)
+- [x] 0.8.0 — drag hotkey: unbound by default, with independent Hold and Toggle gates
 
 ## Notices
 

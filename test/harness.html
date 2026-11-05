@@ -577,6 +577,117 @@
       api.setDragEnabled("footer", true);
       assert("drag toggle can be re-enabled", api.isDragEnabled("footer") === true);
 
+      // --- optional hotkey gate ---------------------------------------
+      // Every press below starts from the footer row; helpers keep the
+      // synthetic events small enough to read.
+      const hotRow = document.querySelector('[data-testid="feedback"]');
+      function pressRow(pointerId) {
+        const rect = hotRow.getBoundingClientRect();
+        hotRow.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true, cancelable: true, button: 0, pointerId,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        }));
+      }
+      function releaseRow(pointerId) {
+        document.dispatchEvent(new PointerEvent("pointerup", {
+          bubbles: true, cancelable: true, pointerId,
+          clientX: 0, clientY: 0,
+        }));
+      }
+      function keyEvent(type, target, code, key, opts) {
+        target.dispatchEvent(new KeyboardEvent(type, Object.assign({
+          bubbles: true, cancelable: true, code, key,
+        }, opts || {})));
+      }
+
+      assert("hotkey starts unbound", !api.hotkey().code, JSON.stringify(api.hotkey()));
+      assert("hotkey modes start off", !api.hotkey().hold && !api.hotkey().toggle);
+
+      api.setHotkey({ code: "KeyQ", key: "q", hold: true, toggle: false });
+      assert("hold binding is stored", api.hotkey().code === "KeyQ" && api.hotkey().hold === true);
+
+      pressRow(31);
+      await wait(330);
+      assert("hold mode blocks the drag while the key is up", !document.querySelector(".dso-ghost"));
+      releaseRow(31);
+
+      keyEvent("keydown", document, "KeyQ", "q");
+      pressRow(32);
+      await wait(330);
+      assert("hold mode allows the drag while the key is down", !!document.querySelector(".dso-ghost"));
+      releaseRow(32);
+      await wait(40);
+
+      keyEvent("keyup", document, "KeyQ", "q");
+      pressRow(33);
+      await wait(330);
+      assert("releasing the held key closes the gate again", !document.querySelector(".dso-ghost"));
+      releaseRow(33);
+
+      // Modifier mismatches must not open a binding recorded with them.
+      api.setHotkey({ code: "KeyQ", key: "q", ctrl: true, hold: true, toggle: false });
+      keyEvent("keydown", document, "KeyQ", "q");
+      pressRow(34);
+      await wait(330);
+      assert("a modified binding ignores the bare key", !document.querySelector(".dso-ghost"));
+      releaseRow(34);
+      keyEvent("keyup", document, "KeyQ", "q");
+      keyEvent("keydown", document, "KeyQ", "q", { ctrlKey: true });
+      pressRow(35);
+      await wait(330);
+      assert("a modified binding matches the full chord", !!document.querySelector(".dso-ghost"));
+      releaseRow(35);
+      keyEvent("keyup", document, "KeyQ", "q", { ctrlKey: true });
+      await wait(40);
+
+      api.setHotkey({ code: "KeyW", key: "w", ctrl: false, hold: false, toggle: true });
+      keyEvent("keydown", document, "KeyW", "w");
+      keyEvent("keyup", document, "KeyW", "w");
+      pressRow(36);
+      await wait(330);
+      assert("toggle mode opens the gate on a key press", !!document.querySelector(".dso-ghost"));
+      releaseRow(36);
+      await wait(40);
+
+      keyEvent("keydown", document, "KeyW", "w");
+      keyEvent("keyup", document, "KeyW", "w");
+      pressRow(37);
+      await wait(330);
+      assert("toggle mode closes the gate on the next press", !document.querySelector(".dso-ghost"));
+      releaseRow(37);
+
+      // Typing into a field must never arm the gate (the binding is one key).
+      api.setHotkey({ code: "KeyE", key: "e", hold: false, toggle: true });
+      const hotInput = document.createElement("input");
+      document.body.appendChild(hotInput);
+      hotInput.focus();
+      keyEvent("keydown", hotInput, "KeyE", "e");
+      hotInput.blur();
+      pressRow(38);
+      await wait(330);
+      assert("the hotkey is ignored while typing in a field", !document.querySelector(".dso-ghost"));
+      releaseRow(38);
+      hotInput.remove();
+      keyEvent("keydown", document, "KeyE", "e");
+      pressRow(39);
+      await wait(330);
+      assert("the same key works outside a field", !!document.querySelector(".dso-ghost"));
+      releaseRow(39);
+      keyEvent("keyup", document, "KeyE", "e");
+      await wait(40);
+
+      // Turning the mode off disarms without removing the binding.
+      api.setHotkey({ toggle: false });
+      assert("mode can be switched off independently", api.hotkey().code === "KeyE" && !api.hotkey().toggle);
+      pressRow(40);
+      await wait(330);
+      assert("both modes off restores plain dragging", !!document.querySelector(".dso-ghost"));
+      releaseRow(40);
+
+      api.setHotkey({ code: "", key: "", hold: false, toggle: false });
+      assert("hotkey can be cleared", !api.hotkey().code);
+
       // A plain click must not look like a long-press: the old code added the
       // press-scale class immediately on pointerdown, so every normal click
       // briefly shrank the row.

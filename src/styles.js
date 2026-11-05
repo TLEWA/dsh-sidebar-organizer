@@ -325,6 +325,53 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
 }
 /* The shared-layout switch is a single row, so it needs no divider. */
 .dso-config-card-sync .dso-config-card-head { border-bottom: none; }
+/* The hotkey header holds the bind control; its mode row owns the divider. */
+.dso-config-card-hotkey .dso-config-card-head { border-bottom: none; }
+.dso-config-hotkey-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.dso-config-hotkey {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-secondary, rgba(255, 255, 255, 0.16));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+.dso-config-hotkey:hover,
+.dso-config-hotkey:focus-visible {
+  border-color: var(--dsw-alias-border-primary, rgba(255, 255, 255, 0.3));
+  color: var(--dsw-alias-label-primary, #ebebf5);
+}
+.dso-config-hotkey.is-bound { color: var(--dsw-alias-label-primary, #ebebf5); }
+.dso-config-hotkey.is-recording {
+  border-color: var(--dsw-alias-state-business-primary, #4d6bfe);
+  color: var(--dsw-alias-state-business-primary, #4d6bfe);
+}
+.dso-config-hotkey:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #4d6bfe));
+  outline-offset: 1px;
+}
+.dso-config-hotkey-modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--dsw-alias-border-secondary, rgba(255, 255, 255, 0.08));
+}
+.dso-config-switch.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.dso-config-switch.is-disabled:hover { color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62)); }
 .dso-config-card-heading {
   display: flex;
   align-items: center;

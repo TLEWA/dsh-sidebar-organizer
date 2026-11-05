@@ -197,8 +197,14 @@ function createSettingsPage() {
         type: "button",
         role: "switch",
         "aria-checked": props.enabled ? "true" : "false",
-        className: "dso-config-switch" + (props.enabled ? " is-on" : ""),
-        title: props.enabled
+        className:
+          "dso-config-switch" +
+          (props.enabled ? " is-on" : "") +
+          (props.disabled ? " is-disabled" : ""),
+        disabled: props.disabled,
+        title: props.disabled
+          ? text.hotkeyNeedKey
+          : props.enabled
           ? props.titleOn || text.dragOn
           : props.titleOff || text.dragOff,
         onClick: props.onToggle,
@@ -209,6 +215,133 @@ function createSettingsPage() {
         h("span", { className: "dso-config-switch-thumb" })
       ),
       label ? h("span", { className: "dso-config-switch-label" }, label) : null
+    );
+  }
+
+  // Optional keyboard gate in front of the long-press drag. Unbound means the
+  // old behaviour, so the two mode switches stay disabled until a key exists.
+  function HotkeyCard(props) {
+    const text = props.text;
+    const runtime = runtimeInstance;
+    const config = runtime.hotkey();
+    const [recording, setRecording] = React.useState(false);
+
+    React.useEffect(() => {
+      if (!recording) {
+        runtime.setHotkeyCapture(false);
+        return undefined;
+      }
+      runtime.setHotkeyCapture(true);
+      function onRecord(event) {
+        // Escape belongs to the host here: it closes the settings dialog, which
+        // also ends the recording. Clicking anywhere else cancels as well.
+        if (event.key === "Backspace" || event.key === "Delete") {
+          runtime.setHotkey({ code: "", key: "", ctrl: false, alt: false, shift: false, meta: false });
+          setRecording(false);
+          return;
+        }
+        // Modifier-only presses cannot be a binding: keep listening.
+        if (isHotkeyModifier(event.key)) return;
+        if (!event.code) return;
+        runtime.setHotkey({
+          code: event.code,
+          key: event.key,
+          ctrl: !!event.ctrlKey,
+          alt: !!event.altKey,
+          shift: !!event.shiftKey,
+          meta: !!event.metaKey,
+        });
+        setRecording(false);
+      }
+      runtime.setHotkeyCaptureHandler(onRecord);
+      // Pressing anywhere else means "not this key": stop waiting instead of
+      // swallowing the next keystroke on another page.
+      function onOutside(event) {
+        const target = event.target;
+        if (target && target.nodeType === 1 && target.closest(".dso-config-hotkey")) return;
+        setRecording(false);
+      }
+      window.addEventListener("pointerdown", onOutside, true);
+      return () => {
+        runtime.setHotkeyCaptureHandler(null);
+        window.removeEventListener("pointerdown", onOutside, true);
+        runtime.setHotkeyCapture(false);
+      };
+    }, [recording]);
+
+    const bound = !!config.code;
+
+    return h(
+      "section",
+      { className: "dso-config-card dso-config-card-hotkey" },
+      h(
+        "header",
+        { className: "dso-config-card-head" },
+        h("h4", { className: "dso-config-card-title" }, text.hotkey),
+        h(
+          "div",
+          { className: "dso-config-hotkey-actions" },
+          h(
+            "button",
+            {
+              type: "button",
+              className:
+                "dso-config-hotkey" +
+                (recording ? " is-recording" : "") +
+                (bound ? " is-bound" : ""),
+              title: text.hotkeyBindHint,
+              onClick: () => setRecording((value) => !value),
+            },
+            recording
+              ? text.hotkeyRecording
+              : bound
+              ? hotkeyLabel(config)
+              : text.hotkeyUnbound
+          ),
+          bound && !recording
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  className: "dso-config-reset",
+                  title: text.hotkeyClear,
+                  onClick: () =>
+                    runtime.setHotkey({
+                      code: "",
+                      key: "",
+                      ctrl: false,
+                      alt: false,
+                      shift: false,
+                      meta: false,
+                    }),
+                },
+                text.hotkeyClear
+              )
+            : null
+        )
+      ),
+      h(
+        "div",
+        { className: "dso-config-hotkey-modes" },
+        h(DragSwitch, {
+          text,
+          label: text.hotkeyHold,
+          enabled: !!config.hold,
+          disabled: !bound,
+          titleOn: text.hotkeyHoldOn,
+          titleOff: text.hotkeyHoldOff,
+          onToggle: () => runtime.setHotkey({ hold: !config.hold }),
+        }),
+        h(DragSwitch, {
+          text,
+          label: text.hotkeyToggle,
+          enabled: !!config.toggle,
+          disabled: !bound,
+          titleOn: text.hotkeyToggleOn,
+          titleOff: text.hotkeyToggleOff,
+          onToggle: () => runtime.setHotkey({ toggle: !config.toggle }),
+        })
+      )
     );
   }
 
@@ -474,6 +607,7 @@ function createSettingsPage() {
           )
         : null,
       h(SyncCard, { text }),
+      h(HotkeyCard, { text }),
       scopes.map((scope) => h(ScopeCard, { key: scope.scope, scope, text }))
     );
   }

@@ -22,6 +22,10 @@ function createRuntime(ctx) {
     headerMenuBlock: null,
     headerMenuSignature: "",
     clickBypass: null,
+    hotkeyDown: false,
+    hotkeyToggleOn: false,
+    hotkeyCapturing: false,
+    hotkeyCaptureHandler: null,
     found: {},
   };
 
@@ -1217,6 +1221,90 @@ function createRuntime(ctx) {
     return readDragEnabled(scope);
   }
 
+  function hotkey() {
+    return readHotkey();
+  }
+
+  function setHotkey(patch) {
+    const next = { ...readHotkey(), ...(patch || {}) };
+    // An unbound gate has no modes to remember; a later binding starts a
+    // clean slate instead of resurrecting stale hold/toggle flags.
+    if (!next.code) {
+      next.hold = false;
+      next.toggle = false;
+    }
+    writeHotkey(next);
+    // A changed binding invalidates the held key; a disabled mode must not keep
+    // a toggle it can no longer show or clear.
+    if (state.hotkeyDown && !next.hold) state.hotkeyDown = false;
+    if (!next.toggle) state.hotkeyToggleOn = false;
+    if (!next.code) state.hotkeyDown = false;
+    if (state.gesture && !isHotkeyGateOpen()) cancelGesture();
+    notify();
+    return next;
+  }
+
+  function setHotkeyCapture(active) {
+    state.hotkeyCapturing = !!active;
+    if (active) {
+      state.hotkeyDown = false;
+      state.hotkeyToggleOn = false;
+    } else {
+      state.hotkeyCaptureHandler = null;
+    }
+  }
+
+  // The settings card owns the key that becomes the binding. This listener
+  // sits on the window and is registered at start-up, so it runs before any
+  // host dialog shortcut: Escape may cancel the recording instead of closing
+  // the whole settings dialog.
+  function setHotkeyCaptureHandler(handler) {
+    state.hotkeyCaptureHandler = typeof handler === "function" ? handler : null;
+  }
+
+  function onHotkeyCaptureKey(event) {
+    if (!state.hotkeyCapturing) return;
+    // Escape belongs to the host dialog (it closes it, ending the recording);
+    // swallowing it here would only strand the recorder in a dead dialog.
+    if (event.key === "Escape") return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type !== "keydown") return;
+    const handler = state.hotkeyCaptureHandler;
+    if (handler) handler(event);
+  }
+
+  // Open unless a binding exists and at least one mode is armed. With both
+  // modes on, either one opens it.
+  function isHotkeyGateOpen() {
+    const config = readHotkey();
+    if (!config.code || (!config.hold && !config.toggle)) return true;
+    if (config.hold && state.hotkeyDown) return true;
+    if (config.toggle && state.hotkeyToggleOn) return true;
+    return false;
+  }
+
+  function handleHotkeyDown(event) {
+    const config = readHotkey();
+    if (!config.code || (!config.hold && !config.toggle)) return false;
+    if (event.repeat || !matchesHotkey(event, config)) return false;
+    if (config.hold) state.hotkeyDown = true;
+    if (config.toggle) {
+      state.hotkeyToggleOn = !state.hotkeyToggleOn;
+      notify();
+    }
+    // Toggling the gate shut mid-drag must end that drag immediately.
+    if (state.gesture && !isHotkeyGateOpen()) cancelGesture();
+    return true;
+  }
+
+  function isEditableTarget(target) {
+    if (!target || target.nodeType !== 1) return false;
+    if (target.isContentEditable) return true;
+    const tag = target.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  }
+
   function setDragEnabled(scope, enabled) {
     if (!writeDragEnabled(scope, enabled)) return false;
     if (!enabled && state.gesture && state.gesture.scope === scope) cancelGesture();
@@ -1847,6 +1935,8 @@ function createRuntime(ctx) {
     // A window can lose focus mid-drag (Alt+Tab, devtools, native menu); the
     // pointerup then goes elsewhere and the indicator would stay on screen.
     if (state.gesture) endGesture(false);
+    // The keyup for a held hotkey never arrives once focus moved away.
+    state.hotkeyDown = false;
   }
 
   function endGesture(guard) {
@@ -2017,6 +2107,10 @@ function createRuntime(ctx) {
     const target = event.target;
     if (!target || target.nodeType !== 1) return;
     if (target.closest(".dso-config")) return;
+    // A recording field owns the keyboard; no drag may start from a stray
+    // pointer press elsewhere on the page while it waits for a key.
+    if (state.hotkeyCapturing) return;
+    if (!isHotkeyGateOpen()) return;
 
     const menuRow = target.closest("[data-dso-more-key]");
     if (menuRow) {
@@ -2115,6 +2209,15 @@ function createRuntime(ctx) {
   }
 
   function onKeyDown(event) {
+    // The settings capture field owns every key while it is recording, so a
+    // key meant for the binding cannot also toggle/arm the gate.
+    if (state.hotkeyCapturing) return;
+    const config = readHotkey();
+    // A bare key stays inert inside a text field so typing never arms the
+    // gate; a chord with Ctrl/Alt/Meta is deliberate enough to work anywhere.
+    const chord = !!(config && (config.ctrl || config.alt || config.meta));
+    const hotkeyHandled =
+      (!isEditableTarget(event.target) || chord) && handleHotkeyDown(event);
     if (event.key === "Escape") {
       if (state.gesture) {
         event.preventDefault();
@@ -2130,6 +2233,8 @@ function createRuntime(ctx) {
     if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown" && event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
       return;
     }
+    // Alt+Arrow is also the reorder shortcut; a binding that uses it wins.
+    if (hotkeyHandled) return;
     const target = event.target;
     if (!target || target.nodeType !== 1) return;
     const element = target.closest("[data-dso-key]");
@@ -2152,6 +2257,17 @@ function createRuntime(ctx) {
     reorder(scope, id, index + delta);
     const next = findRowElement(scope, id);
     if (next && next.focus) next.focus();
+  }
+
+  function onKeyUp(event) {
+    if (!state.hotkeyDown) return;
+    const config = readHotkey();
+    // Compare only the main key: modifiers may be released in any order, and a
+    // strict match would leave the gate armed after an Alt-first release.
+    if (config.code && event.code === config.code) state.hotkeyDown = false;
+    // Releasing the held key closes the gate; an in-flight drag (or a pending
+    // long-press timer) must not outlive it.
+    if (state.gesture && !isHotkeyGateOpen()) cancelGesture();
   }
 
   function onScroll(event) {
@@ -2237,6 +2353,9 @@ function createRuntime(ctx) {
     addListener(document, "click", onHeaderMenuClick, true);
     addListener(document, "click", onDocumentClick);
     addListener(document, "keydown", onKeyDown, true);
+    addListener(document, "keyup", onKeyUp, true);
+    addListener(window, "keydown", onHotkeyCaptureKey, true);
+    addListener(window, "keyup", onHotkeyCaptureKey, true);
     addListener(window, "scroll", onScroll, true);
     addListener(window, "resize", onResize);
     addListener(window, "blur", onWindowBlur);
@@ -2345,6 +2464,10 @@ function createRuntime(ctx) {
     isCustomizedRegion,
     isDragEnabled,
     setDragEnabled,
+    hotkey,
+    setHotkey,
+    setHotkeyCapture,
+    setHotkeyCaptureHandler,
     activate,
     hiddenForRegion,
     hiddenIds,

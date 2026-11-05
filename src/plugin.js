@@ -222,6 +222,8 @@ function apply(ctx) {
     isCustomizedRegion: (region) => !!(runtime && runtime.isCustomizedRegion(region)),
     isDragEnabled: (scope) => !!(runtime && runtime.isDragEnabled(scope)),
     setDragEnabled: (scope, enabled) => !!(runtime && runtime.setDragEnabled(scope, enabled)),
+    hotkey: () => (runtime ? runtime.hotkey() : null),
+    setHotkey: (patch) => (runtime ? runtime.setHotkey(patch) : null),
     disable: () => {
       try {
         window.localStorage.setItem(DISABLED_KEY, "1");

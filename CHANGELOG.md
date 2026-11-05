@@ -3,6 +3,35 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.8.0 — 2026-11-06
+
+- 新增「拖动热键」：默认不绑定，绑定时可携带 Ctrl/Alt/Shift/Win 组合。未绑定时长按拖动
+  与旧版完全一致。
+- 两种放行方式可分别或同时开启：「长按」要求按住热键才能开始拖动，松开热键会立即中止
+  进行中的拖动；「开关」按一下热键开启拖动、再按一下关闭。
+- 设置页新增热键卡片（位于「跨窗口共用布局」下方）：点击后按下组合键完成绑定，点击空白
+  处取消，点「清除」回到未绑定；录制期间的按键只用于绑定，不触发宿主快捷键，也不会误起
+  拖动。未绑定热键时两个模式开关置灰。
+- 热键仅在输入框/文本域之外生效（带 Ctrl/Alt/Meta 的组合键例外），避免打字时误触发。
+- 热键与模式保存在本窗口的 `localStorage`，不随「跨窗口共用布局」同步；导出配置暂不包含
+  热键。
+
+### English
+
+- New drag hotkey: unbound by default; bindings may include Ctrl/Alt/Shift/Win. While
+  unbound, long-press dragging behaves exactly as before.
+- Two independent gates: Hold requires the key to be held before a drag can start and
+  aborts an in-flight drag when released; Toggle flips dragging on with one press and
+  off with the next. Both can be enabled at once.
+- The settings page gains a hotkey card below "Shared layout across windows": click,
+  press the combination, click elsewhere to cancel, or Clear to unbind. Keys pressed
+  while recording belong to the binding only — host shortcuts and drags stay inert.
+  Both mode switches are disabled until a key is bound.
+- The gate ignores bare keys typed into inputs/textareas (Ctrl/Alt/Meta chords still
+  work) so ordinary typing cannot arm dragging.
+- The hotkey and its modes live in this window's `localStorage` and are not part of
+  cross-window layout sync or the exported config.
+
 ## 0.7.5 — 2026-11-05
 
 - 设置页导航新增自定义图标：DSH 0.2.2+ 通过 `settings.section.icon` 槽位为「布局整理」

@@ -61,6 +61,27 @@ const CUSTOMIZED_KEY = "dsh.sidebar-organizer.customized.v1";
 // Turning the setting off keeps each origin on its own local copy and stops all
 // uploads, i.e. the pre-0.7.2 behaviour.
 const CROSS_WINDOW_KEY = "dsh.sidebar-organizer.cross-window.v1";
+// Optional keyboard gate for dragging. `code` empty means "not bound" and the
+// gate stays open, i.e. the plain long-press behaviour. `hold` requires the key
+// to be held while the long press starts; `toggle` flips a sticky state on each
+// press. Both may be on at once.
+const HOTKEY_KEY = "dsh.sidebar-organizer.hotkey.v1";
+// Keys that only exist as modifiers cannot be a binding on their own; the
+// capture UI waits for the non-modifier key of the chord.
+const HOTKEY_MODIFIER_KEYS = {
+  Control: true,
+  Shift: true,
+  Alt: true,
+  Meta: true,
+  OS: true,
+  CapsLock: true,
+  AltGraph: true,
+  Fn: true,
+  FnLock: true,
+  NumLock: true,
+  ScrollLock: true,
+  Dead: true,
+};
 // The plugin was called dsh-modmenu up to 0.3.6; keep reading the old keys so a
 // rename does not drop the user's saved layout.
 const LEGACY_STORAGE_KEY = "dsh.modmenu.layout.v1";
@@ -107,6 +128,18 @@ const STRINGS = {
     crossWindow: "跨窗口共用布局",
     crossWindowOn: "桌面端与网页端共用同一份布局",
     crossWindowOff: "各窗口只使用自己的本地布局",
+    hotkey: "拖动热键",
+    hotkeyUnbound: "未绑定",
+    hotkeyRecording: "按下按键…",
+    hotkeyClear: "清除",
+    hotkeyBindHint: "点击后按下要绑定的组合键，点击空白处取消",
+    hotkeyHold: "长按",
+    hotkeyToggle: "开关",
+    hotkeyHoldOn: "只有按住热键时才能拖动",
+    hotkeyHoldOff: "长按模式已关闭",
+    hotkeyToggleOn: "按一下热键开启拖动，再按一下关闭",
+    hotkeyToggleOff: "开关模式已关闭",
+    hotkeyNeedKey: "先绑定一个热键",
     scopeNames: {
       sidebar: "左侧边栏",
       footer: "侧栏底部",
@@ -144,6 +177,18 @@ const STRINGS = {
     crossWindow: "Shared layout",
     crossWindowOn: "Desktop and web windows share one layout",
     crossWindowOff: "Each window keeps its own local layout",
+    hotkey: "Drag hotkey",
+    hotkeyUnbound: "Not bound",
+    hotkeyRecording: "Press keys…",
+    hotkeyClear: "Clear",
+    hotkeyBindHint: "Click, then press the key combination; click elsewhere to cancel",
+    hotkeyHold: "Hold",
+    hotkeyToggle: "Toggle",
+    hotkeyHoldOn: "Dragging only while the hotkey is held",
+    hotkeyHoldOff: "Hold mode is off",
+    hotkeyToggleOn: "Press once to enable dragging, again to disable",
+    hotkeyToggleOff: "Toggle mode is off",
+    hotkeyNeedKey: "Bind a hotkey first",
     scopeNames: {
       sidebar: "Sidebar",
       footer: "Sidebar footer",
@@ -163,4 +208,71 @@ function strings() {
       "en"
   ).toLowerCase();
   return lang.startsWith("zh") ? STRINGS.zh : STRINGS.en;
+}
+
+/* ---- hotkey labels ------------------------------------------------------ */
+
+const HOTKEY_KEY_LABELS = {
+  " ": "Space",
+  ArrowUp: "↑",
+  ArrowDown: "↓",
+  ArrowLeft: "←",
+  ArrowRight: "→",
+  Escape: "Esc",
+  Enter: "Enter",
+  Backspace: "Backspace",
+  Delete: "Delete",
+  Tab: "Tab",
+  PageUp: "PgUp",
+  PageDown: "PgDn",
+  Home: "Home",
+  End: "End",
+  Insert: "Ins",
+  ContextMenu: "Menu",
+};
+
+function isHotkeyModifier(eventKey) {
+  return !!HOTKEY_MODIFIER_KEYS[eventKey];
+}
+
+function hotkeyKeyLabel(config) {
+  const key = String((config && config.key) || "");
+  if (key) {
+    if (HOTKEY_KEY_LABELS[key]) return HOTKEY_KEY_LABELS[key];
+    if (key.length === 1) return key.toUpperCase();
+    return key;
+  }
+  const code = String((config && config.code) || "");
+  if (!code) return "";
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^Numpad/.test(code)) return "Num" + code.slice(6);
+  return code;
+}
+
+// "Ctrl + Alt + Q" — used by the settings card and the button title. Kept out
+// of the hotkey config so the stored shape stays platform-neutral.
+function hotkeyLabel(config) {
+  if (!config || !config.code) return "";
+  const mac = /mac|iphone|ipad/i.test(
+    String((typeof navigator !== "undefined" && navigator.platform) || "")
+  );
+  const parts = [];
+  if (config.ctrl) parts.push(mac ? "⌃" : "Ctrl");
+  if (config.alt) parts.push(mac ? "⌥" : "Alt");
+  if (config.shift) parts.push(mac ? "⇧" : "Shift");
+  if (config.meta) parts.push(mac ? "⌘" : "Win");
+  parts.push(hotkeyKeyLabel(config));
+  return parts.join(" + ");
+}
+
+function matchesHotkey(event, config) {
+  if (!config || !config.code) return false;
+  return (
+    event.code === config.code &&
+    !!event.ctrlKey === !!config.ctrl &&
+    !!event.altKey === !!config.alt &&
+    !!event.shiftKey === !!config.shift &&
+    !!event.metaKey === !!config.meta
+  );
 }

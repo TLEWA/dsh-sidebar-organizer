@@ -10,6 +10,7 @@ const EXPORT_FILENAME = "dsh-sidebar-organizer.json";
 const LAYOUT_BACKUP_KEY = `${STORAGE_KEY}.v3-backup`;
 let layoutCache = null;
 let dragCache = null;
+let hotkeyCache = null;
 
 function emptyScopeLayout() {
   return { order: [], hidden: [] };
@@ -199,6 +200,46 @@ function writeCrossWindowEnabled(enabled) {
   } catch (err) {
     /* storage may be unavailable */
   }
+}
+
+// The drag hotkey is local to this origin: it is a keyboard device preference,
+// not part of the shared layout, so it never travels through the host copy.
+function normalizeHotkey(value) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const code = typeof raw.code === "string" ? raw.code.slice(0, 64) : "";
+  return {
+    code: code,
+    key: typeof raw.key === "string" ? raw.key.slice(0, 24) : "",
+    ctrl: !!raw.ctrl,
+    alt: !!raw.alt,
+    shift: !!raw.shift,
+    meta: !!raw.meta,
+    hold: !!raw.hold,
+    toggle: !!raw.toggle,
+  };
+}
+
+function readHotkey() {
+  if (hotkeyCache) return hotkeyCache;
+  let parsed = null;
+  try {
+    const raw = window.localStorage.getItem(HOTKEY_KEY);
+    if (raw) parsed = JSON.parse(raw);
+  } catch (err) {
+    parsed = null;
+  }
+  hotkeyCache = normalizeHotkey(parsed);
+  return hotkeyCache;
+}
+
+function writeHotkey(value) {
+  hotkeyCache = normalizeHotkey(value);
+  try {
+    window.localStorage.setItem(HOTKEY_KEY, JSON.stringify(hotkeyCache));
+  } catch (err) {
+    /* keep the in-memory copy */
+  }
+  return hotkeyCache;
 }
 
 function resetScopeState(scope) {
