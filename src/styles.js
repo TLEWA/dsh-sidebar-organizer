@@ -537,4 +537,14 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   font-size: 12px;
   line-height: 18px;
 }
+/* Fallback divider for a host menu that ships no separator to clone. The real
+   build copies the host's own separator; this only keeps the feature from
+   silently drawing nothing if a future build renames those classes. */
+.dso-ctx-divider {
+  flex: none;
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
+  pointer-events: none;
+}
 `;

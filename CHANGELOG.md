@@ -3,6 +3,45 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.8.1 — 2026-11-06
+
+- 新增会话栏 / 工作区栏右键菜单的整理能力（仅 DSH 0.2.2 及以上；0.2.1 上自动关闭，
+  设置页也不显示这张卡片）：打开菜单后长按任意条目即可拖动排序，松手菜单保持展开。
+- 菜单打开时右键某个非底部条目，可切换它下方的分隔线（再右键一次取消）；分隔线按位置
+  保存，条目移动时它留在原地，落到菜单最下方会自动删除。右键菜单的右键切换不会关闭菜单，
+  也不会触发条目本身的动作。
+- 设置页新增「右键菜单」卡片（位于「跨窗口共用布局」下方）：一个开关 + 恢复本组。
+  会话与工作区各存一份顺序和分隔线，存 `localStorage` 的
+  `dsh.sidebar-organizer.context-menu.v1`，不随跨窗口布局同步，也不影响七区域布局。
+- 兼容 dsh-session-menu 等第三方菜单项：图标行外层的 `role="separator"` 包装不再被误当成
+  真分隔线；显示为 `display:contents` 的组件贡献行按其真正的 flex 子元素排序。
+- 控制台新增 `window.__dshSidebarOrganizer.contextMenu`
+  （`supported / enabled / setEnabled / reset / read / set`），并补了 22 条离线用例
+  （221 PASS）。
+
+### English
+
+- New: session-row and workspace-row right-click menus can be organized (DSH 0.2.2+
+  only; on 0.2.1 the feature turns itself off and its settings card is hidden).
+  Open the menu and long-press an item to drag it into a new order; the menu stays
+  open after the drop.
+- While the menu is open, right-click a non-bottom item to toggle a divider below
+  it (right-click again to remove). Dividers are stored by position, so they stay
+  put when items move, and one that ends up below the last item is dropped. The
+  right-click that toggles a divider neither closes the menu nor runs the item.
+- The settings page gains a "Context menus" card below "Shared layout across
+  windows": one switch plus a per-group reset. Session and workspace keep separate
+  orders and dividers in `localStorage`
+  (`dsh.sidebar-organizer.context-menu.v1`), outside cross-window layout sync and
+  independent of the seven-scope layout.
+- Works with third-party items such as dsh-session-menu: a wrapper carrying
+  `role="separator"` around an icon row is no longer mistaken for a real divider,
+  and `display:contents` component contributions are ordered through their actual
+  flex child.
+- New console handle `window.__dshSidebarOrganizer.contextMenu`
+  (`supported / enabled / setEnabled / reset / read / set`), plus 22 offline
+  assertions (221 PASS).
+
 ## 0.8.0 — 2026-11-06
 
 - 新增「拖动热键」：默认不绑定，绑定时可携带 Ctrl/Alt/Shift/Win 组合。未绑定时长按拖动

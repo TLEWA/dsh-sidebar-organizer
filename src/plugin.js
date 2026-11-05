@@ -65,6 +65,16 @@ function supportsSettingsIcons() {
   return supported === null ? true : supported;
 }
 
+/**
+ * Right-click menus are the shared contextual Menu surface, added in 0.2.2.
+ * 0.2.1 has no `[data-context-menu]` to manage, so the feature (and its
+ * settings card) switches itself off there instead of half-working.
+ */
+function contextMenusSupported() {
+  const supported = versionAtLeast(hostReleaseVersion(), 0, 2, 2);
+  return supported === null ? true : supported;
+}
+
 function apply(ctx) {
   // eslint-disable-next-line no-console
   console.info("[dsh-sidebar-organizer] client loaded v" + VERSION);
@@ -247,6 +257,26 @@ function apply(ctx) {
     syncNow: () => pullHostLayout(),
     isCrossWindow: () => isCrossWindowEnabled(),
     setCrossWindow: (enabled) => setCrossWindowEnabled(enabled),
+    // 0.2.2 right-click menus (session rows / workspace rows). `supported` is a
+    // plain value so a console can answer "does this host have the feature"
+    // without a runtime.
+    contextMenu: {
+      supported: contextMenusSupported(),
+      enabled: () => contextMenusSupported() && readContextMenuEnabled(),
+      setEnabled: (enabled) => {
+        if (runtime) return runtime.contextMenu.setEnabled(Boolean(enabled));
+        return writeContextMenuEnabled(Boolean(enabled));
+      },
+      reset: () => {
+        if (runtime) runtime.contextMenu.reset();
+        else resetContextMenuLayouts();
+      },
+      read: (kind) => readContextMenuLayout(kind),
+      set: (kind, layout) => {
+        if (runtime) runtime.contextMenu.set(kind, layout);
+        else writeContextMenuLayout(kind, layout);
+      },
+    },
   };
   // backward-compatible handle for consoles/docs written before the rename
   window.__dshModmenu = window.__dshSidebarOrganizer;

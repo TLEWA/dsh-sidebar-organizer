@@ -369,6 +369,52 @@ function createSettingsPage() {
     );
   }
 
+  // Session and workspace right-click menus. The card does not exist at all on
+  // 0.2.1: there is no contextual Menu to manage there, and a switch that does
+  // nothing is worse than no switch.
+  function ContextMenuCard(props) {
+    const runtime = runtimeInstance;
+    const text = props.text;
+    const [enabled, setEnabled] = React.useState(readContextMenuEnabled());
+    if (!contextMenusSupported()) return null;
+    return h(
+      "section",
+      { className: "dso-config-card dso-config-card-context" },
+      h(
+        "header",
+        { className: "dso-config-card-head" },
+        h(
+          "div",
+          { className: "dso-config-card-heading" },
+          h("h4", { className: "dso-config-card-title" }, text.contextMenu),
+          h(DragSwitch, {
+            text,
+            label: "",
+            enabled,
+            titleOn: text.contextMenuOn,
+            titleOff: text.contextMenuOff,
+            onToggle: () => {
+              const next = !enabled;
+              setEnabled(next);
+              if (runtime) runtime.contextMenu.setEnabled(next);
+            },
+          })
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "dso-config-reset",
+            onClick: () => {
+              if (runtime) runtime.contextMenu.reset();
+            },
+          },
+          text.resetScope
+        )
+      )
+    );
+  }
+
   function ScopeCard(props) {
     const runtime = runtimeInstance;
     const text = props.text;
@@ -608,6 +654,7 @@ function createSettingsPage() {
         : null,
       h(SyncCard, { text }),
       h(HotkeyCard, { text }),
+      h(ContextMenuCard, { text }),
       scopes.map((scope) => h(ScopeCard, { key: scope.scope, scope, text }))
     );
   }

@@ -27,6 +27,17 @@ function createRuntime(ctx) {
     hotkeyCapturing: false,
     hotkeyCaptureHandler: null,
     found: {},
+    // 0.2.2 contextual (right-click) menus. The host owns and unmounts these
+    // portals, so everything here is per-open-menu and rebuilt on each sync.
+    contextMenu: null,
+    contextKind: "",
+    contextRows: null,
+    contextStyled: new Map(),
+    contextDividerNodes: [],
+    contextTemplate: null,
+    contextFrame: 0,
+    contextPendingKind: "",
+    contextPendingAt: 0,
   };
 
   let observer = null;
@@ -763,6 +774,545 @@ function createRuntime(ctx) {
         if (!state.stopped) syncHeaderMenu();
       }, 0);
     }
+  }
+
+  // -------------------------------------------------------- context menus --
+  // 0.2.2 renders every right-click menu through one shared Menu inside a
+  // [data-context-menu] portal. Plugins contribute rows via
+  // ctx.contextMenus.register(), but no public API can reorder another plugin's
+  // rows or insert a divider between them, so the open DOM is the only place to
+  // do it. Rows are reordered with `style.order` on their flex item (moving
+  // React-owned nodes would break keyboard navigation), and the dividers are
+  // ours: they are positional (a gap index into the visual list), which is
+  // exactly why they stay put when a row is dragged past them instead of
+  // following it. Everything is repainted on each mutation because React owns
+  // the menu contents and may drop our nodes at any re-render.
+  const CONTEXT_SCOPE = "context";
+  // Fallback classification for the case where the right-click that opened the
+  // menu happened outside our capture (keyboard Shift+F10, a menu re-opened by
+  // the host itself). Labels are the only content two unrelated menus share.
+  const CONTEXT_KIND_HINTS = {
+    session: ["置顶会话", "分叉会话", "复制 Session ID", "Pin session", "Fork session", "Copy session ID"],
+    workspace: ["新会话", "重命名工作区", "显示已归档会话", "删除工作区", "New session", "Delete workspace"],
+  };
+
+  function contextMenuEnabled() {
+    return contextMenusSupported() && readContextMenuEnabled();
+  }
+
+  function contextMenuKindFromRowKey(key) {
+    const value = String(key == null ? "" : key);
+    if (value.indexOf("session:") === 0) return "session";
+    if (value.indexOf("workspace:") === 0) return "workspace";
+    return "";
+  }
+
+  function contextKindFromLabels(labels) {
+    for (const kind of CONTEXT_MENU_KINDS) {
+      const hints = CONTEXT_KIND_HINTS[kind] || [];
+      for (const label of labels) {
+        const text = normalizeHostLabel(label);
+        for (const hint of hints) {
+          if (text === normalizeHostLabel(hint)) return kind;
+        }
+      }
+    }
+    return "";
+  }
+
+  // Only one contextual menu is ever open; pick the last one mounted so a menu
+  // that just replaced another is the one we manage.
+  function liveContextMenu() {
+    let picked = null;
+    for (const menu of document.querySelectorAll("[data-context-menu]")) {
+      if (!menu.isConnected || menu.hidden) continue;
+      if (!menu.querySelector('[role="menuitem"]')) continue;
+      const rect = menu.getBoundingClientRect();
+      if (!rect.width && !rect.height) continue;
+      picked = menu;
+    }
+    return picked;
+  }
+
+  function contextMenuViewport(menu) {
+    return menu.querySelector('[class*="_viewport_"]') || menu.querySelector('[role="presentation"]') || menu;
+  }
+
+  // The scroll viewport is a flex column. The node that actually takes a slot is
+  // the outermost ancestor of the menuitem that is not `display: contents`:
+  // plugin contributions wrap their row in display:contents slots, and setting
+  // `order` on those does nothing. Footer rows and buttons appended straight to
+  // the portal root never reach the viewport and are therefore left alone.
+  function contextFlexItem(menuitem, viewport) {
+    if (!menuitem || !viewport) return null;
+    const chain = [];
+    let node = menuitem;
+    while (node && node !== viewport && chain.length < 12) {
+      chain.push(node);
+      node = node.parentElement;
+    }
+    if (node !== viewport) return null;
+    let item = null;
+    for (const element of chain) {
+      let display = "";
+      try {
+        display = window.getComputedStyle(element).display;
+      } catch (err) {
+        display = "";
+      }
+      if (display !== "contents") item = element;
+    }
+    return item;
+  }
+
+  // The row label is the row's identity (the host assigns no ids). Shortcut
+  // hints live in a sibling <kbd>, so textContent would bake "Ctrl+Alt+G" into
+  // the hash and the same action would get a new id on every shortcut change.
+  function contextRowLabel(menuitem) {
+    const label = menuitem.querySelector('[class*="itemLabel"]');
+    if (label && (label.textContent || "").trim()) return (label.textContent || "").trim();
+    let text = "";
+    for (const child of menuitem.childNodes) {
+      if (child.nodeType === 3) {
+        text += " " + child.nodeValue;
+        continue;
+      }
+      if (child.nodeType !== 1) continue;
+      if (child.tagName === "KBD") continue;
+      if (typeof child.className === "string" && /(key|shortcut)/i.test(child.className)) continue;
+      if (child.querySelector("svg")) continue;
+      text += " " + (child.textContent || "");
+    }
+    text = normalizeHostLabel(text);
+    if (text) return text;
+    return (menuitem.getAttribute("aria-label") || "").trim();
+  }
+
+  // A separator is a bare separator. Some host rows (dsh-session-menu's icon
+  // rows) put role="separator" on the wrapper that also owns their menuitem;
+  // hiding that as a divider would delete the action from the menu, so a node
+  // containing a menuitem is always a row.
+  function isContextSeparator(node) {
+    if (!node || node.nodeType !== 1) return false;
+    if (!node.matches('[role="separator"]')) return false;
+    if (node.querySelector('[role="menuitem"]')) return false;
+    return true;
+  }
+
+  function contextMenuModel(menu) {
+    if (!menu || !menu.isConnected) return null;
+    const viewport = contextMenuViewport(menu);
+    if (!viewport) return null;
+    const seen = new Set();
+    const rows = [];
+    for (const menuitem of viewport.querySelectorAll('[role="menuitem"]')) {
+      const item = contextFlexItem(menuitem, viewport);
+      if (!item || seen.has(item)) continue;
+      seen.add(item);
+      const label = contextRowLabel(menuitem);
+      if (!label) continue;
+      rows.push({ item, menuitem, label, rect: item.getBoundingClientRect() });
+    }
+    if (!rows.length) return null;
+    rows.sort((a, b) => a.rect.top - b.rect.top);
+    const taken = new Set();
+    for (const row of rows) {
+      const base = "ctx-" + hostLabelHash(row.label);
+      let id = base;
+      let suffix = 2;
+      while (taken.has(id)) {
+        id = base + "-" + suffix;
+        suffix += 1;
+      }
+      taken.add(id);
+      row.id = id;
+    }
+    // The host's own separators mark the shipped grouping. They are the initial
+    // divider set, so turning the feature on does not silently regroup a menu
+    // the user never touched.
+    const nativeDividers = [];
+    for (const node of viewport.querySelectorAll('[role="separator"]')) {
+      if (node.hasAttribute("data-dso-ctx-divider")) continue;
+      if (!isContextSeparator(node)) continue;
+      const rect = node.getBoundingClientRect();
+      const middle = rect.top + rect.height / 2;
+      let gap = 0;
+      for (const row of rows) {
+        if (row.rect.top + row.rect.height / 2 < middle) gap += 1;
+      }
+      if (nativeDividers.indexOf(gap) === -1) nativeDividers.push(gap);
+    }
+    const ids = new Map();
+    for (const row of rows) ids.set(row.id, row);
+    return { menu, viewport, rows, ids, nativeDividers };
+  }
+
+  function rememberContextElement(element) {
+    if (!element || state.contextStyled.has(element)) return null;
+    const entry = { order: element.style.order, display: element.style.display };
+    state.contextStyled.set(element, entry);
+    return entry;
+  }
+
+  function removeContextDividers() {
+    for (const node of state.contextDividerNodes) {
+      if (node && node.parentNode) node.parentNode.removeChild(node);
+    }
+    state.contextDividerNodes = [];
+  }
+
+  // The injected divider copies one of the host's own separators, so it inherits
+  // the exact colour and margins of this DSH build. `display: block` inline is
+  // required: the host CSS hides a separator that is first, consecutive with
+  // another separator, or trailing.
+  function contextDividerNode(model) {
+    if (state.contextTemplate) return state.contextTemplate.cloneNode(false);
+    let source = null;
+    for (const node of model.viewport.children) {
+      if (node.matches && node.matches('[role="separator"]')) {
+        source = node;
+        break;
+      }
+    }
+    if (source) {
+      state.contextTemplate = source.cloneNode(false);
+    } else {
+      const fallback = document.createElement("div");
+      fallback.className = "dso-ctx-divider";
+      fallback.setAttribute("role", "separator");
+      state.contextTemplate = fallback;
+    }
+    return state.contextTemplate.cloneNode(false);
+  }
+
+  function renderContextDividers(model, gaps) {
+    const viewport = model.viewport;
+    const nodes = state.contextDividerNodes;
+    while (nodes.length > gaps.length) {
+      const extra = nodes.pop();
+      if (extra && extra.parentNode) extra.parentNode.removeChild(extra);
+    }
+    while (nodes.length < gaps.length) {
+      const node = contextDividerNode(model);
+      node.setAttribute("data-dso-ctx-divider", "1");
+      node.setAttribute("role", "separator");
+      node.setAttribute("aria-hidden", "true");
+      nodes.push(node);
+    }
+    nodes.forEach((node, index) => {
+      const gap = gaps[index];
+      // Row N sits at order 2N, so the gap before it lands at 2N-1.
+      const order = String(gap * 2 - 1);
+      if (node.style.order !== order) node.style.order = order;
+      if (node.style.display !== "block") node.style.display = "block";
+      if (node.dataset.dsoCtxGap !== String(gap)) node.dataset.dsoCtxGap = String(gap);
+      if (node.parentNode !== viewport) viewport.appendChild(node);
+    });
+  }
+
+  // Same merge rule as normalizedLayout(): keep the saved order, insert rows the
+  // saved list has never seen next to their current host neighbours. A new host
+  // action therefore appears where the host put it, not at the end.
+  function mergeContextOrder(saved, rows) {
+    const merged = [];
+    const present = new Set(rows.map((row) => row.id));
+    for (const id of saved || []) {
+      if (!present.has(id) || merged.indexOf(id) !== -1) continue;
+      merged.push(id);
+    }
+    rows.forEach((row, at) => {
+      if (merged.indexOf(row.id) !== -1) return;
+      let position = 0;
+      for (let index = at - 1; index >= 0; index -= 1) {
+        const previous = merged.indexOf(rows[index].id);
+        if (previous !== -1) {
+          position = previous + 1;
+          break;
+        }
+      }
+      merged.splice(position, 0, row.id);
+    });
+    return merged;
+  }
+
+  function applyContextLayout(model, kind, layout) {
+    const customized = Boolean(layout && layout.customized);
+    // Until the user customizes this menu the host layout stays exactly as it
+    // shipped: the host separators keep their own groups and no row is moved.
+    // Rows are still tagged, because that tag is what starts a drag.
+    for (const node of model.viewport.querySelectorAll('[role="separator"]')) {
+      if (!isContextSeparator(node)) continue;
+      if (node.hasAttribute("data-dso-ctx-divider")) continue;
+      const entry = rememberContextElement(node);
+      if (!entry) continue;
+      // Hide the host separators we replace; restore their inline display when
+      // the menu is back to its shipped layout (after a reset).
+      const display = customized ? "none" : entry.display;
+      if (node.style.display !== display) node.style.display = display;
+    }
+    if (!customized) {
+      for (const row of model.rows) {
+        const entry = rememberContextElement(row.item);
+        if (entry && row.item.style.order !== entry.order) row.item.style.order = entry.order;
+        if (row.item.dataset.dsoCtxId !== row.id) row.item.dataset.dsoCtxId = row.id;
+      }
+      removeContextDividers();
+      return model.rows.map((row) => row.id);
+    }
+    const merged = mergeContextOrder(layout.order, model.rows);
+    merged.forEach((id, index) => {
+      const row = model.ids.get(id);
+      if (!row) return;
+      rememberContextElement(row.item);
+      const order = String(index * 2);
+      if (row.item.style.order !== order) row.item.style.order = order;
+      if (row.item.dataset.dsoCtxId !== id) row.item.dataset.dsoCtxId = id;
+    });
+    // A divider below the last row (or past it) has nothing to divide and is
+    // dropped, which is the rule the user asked for; write the pruned list back
+    // so it does not reappear when a row is added later.
+    const gaps = [];
+    for (const gap of layout.dividers || []) {
+      if (gap >= 0 && gap < merged.length && gaps.indexOf(gap) === -1) gaps.push(gap);
+    }
+    if (gaps.length !== (layout.dividers || []).length) {
+      writeContextMenuLayout(kind, { order: merged, dividers: gaps, customized: true });
+    }
+    renderContextDividers(model, gaps);
+    return merged;
+  }
+
+  function clearContextMenu() {
+    removeContextDividers();
+    for (const [element, entry] of state.contextStyled) {
+      try {
+        element.style.order = entry.order;
+        element.style.display = entry.display;
+        delete element.dataset.dsoCtxId;
+      } catch (err) {
+        /* the menu may already be gone */
+      }
+    }
+    state.contextStyled.clear();
+    state.contextTemplate = null;
+    state.contextMenu = null;
+    state.contextKind = "";
+    state.contextRows = null;
+  }
+
+  function syncContextMenu() {
+    if (state.stopped) return;
+    if (!contextMenusSupported()) {
+      clearContextMenu();
+      return;
+    }
+    const menu = liveContextMenu();
+    if (!menu) {
+      clearContextMenu();
+      return;
+    }
+    if (state.contextMenu && state.contextMenu !== menu) clearContextMenu();
+    const model = contextMenuModel(menu);
+    if (!model) {
+      clearContextMenu();
+      return;
+    }
+    let kind = state.contextMenu === menu ? state.contextKind : "";
+    if (!kind) kind = resolveContextKind(model);
+    if (!kind) {
+      clearContextMenu();
+      return;
+    }
+    if (!contextMenuEnabled()) {
+      clearContextMenu();
+      return;
+    }
+    state.contextMenu = menu;
+    state.contextKind = kind;
+    state.contextRows = model;
+    applyContextLayout(model, kind, readContextMenuLayout(kind));
+  }
+
+  // The pending kind comes from the right-click that opened the menu. It is only
+  // trusted for a moment: a menu the user keeps open re-renders later (hover),
+  // and by then the stale pending value must not classify a different menu.
+  function resolveContextKind(model) {
+    const pending = state.contextPendingKind;
+    if (pending && Date.now() - state.contextPendingAt < 2000) return pending;
+    return contextKindFromLabels(model.rows.map((row) => row.label));
+  }
+
+  function scheduleContextSync() {
+    if (state.stopped || state.contextFrame) return;
+    if (!contextMenusSupported()) return;
+    const run = () => {
+      state.contextFrame = 0;
+      syncContextMenu();
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      state.contextFrame = window.requestAnimationFrame(run);
+    } else {
+      state.contextFrame = window.setTimeout(run, 16);
+    }
+  }
+
+  // A snapshot in the shape the generic drag pipeline expects. `found` is null
+  // on purpose: every `found` consumer is null-guarded, and the menu's own rect
+  // replaces the container/cross rects.
+  function buildContextSnapshot() {
+    const model = state.contextRows;
+    if (!model || !model.menu || !model.menu.isConnected) return null;
+    const items = [];
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    for (const row of model.rows) {
+      if (!row.item.isConnected) continue;
+      const rect = row.item.getBoundingClientRect();
+      if (!rect.width && !rect.height) continue;
+      items.push({ id: row.id, unit: row.item, target: row.item, rect });
+      left = Math.min(left, rect.left);
+      top = Math.min(top, rect.top);
+      right = Math.max(right, rect.right);
+      bottom = Math.max(bottom, rect.bottom);
+    }
+    if (!items.length || !isFinite(left)) return null;
+    items.sort((a, b) => a.rect.top - b.rect.top);
+    const menuRect = { left, top, right, bottom, width: right - left, height: bottom - top };
+    return {
+      found: null,
+      axis: "y",
+      container: menuRect,
+      crossRect: menuRect,
+      items,
+      menuItems: items,
+      menuTargets: items,
+      menuRect,
+      moreRect: null,
+    };
+  }
+
+  function contextRowAt(model, target) {
+    if (!model || !target) return null;
+    const item = target.closest("[data-dso-ctx-id]");
+    if (!item) return null;
+    for (const row of model.rows) {
+      if (row.item === item) return row;
+    }
+    return null;
+  }
+
+  function sortedContextRows(model) {
+    return model.rows.slice().sort((a, b) => a.item.getBoundingClientRect().top - b.item.getBoundingClientRect().top);
+  }
+
+  // Right-clicking a row toggles the divider directly BELOW it. The last row has
+  // nothing below it, so it is a no-op (a divider there would be trailing and
+  // the host hides it anyway).
+  function toggleContextDivider(row) {
+    const model = state.contextRows;
+    const kind = state.contextKind;
+    if (!model || !kind || !contextMenuEnabled()) return false;
+    const sorted = sortedContextRows(model);
+    const index = sorted.indexOf(row);
+    if (index === -1) return false;
+    const gap = index + 1;
+    if (gap >= sorted.length) return false;
+    const current = readContextMenuLayout(kind);
+    const layout = {
+      order: current.customized ? current.order.slice() : sorted.map((item) => item.id),
+      dividers: current.customized ? current.dividers.slice() : model.nativeDividers.slice(),
+      customized: true,
+    };
+    const at = layout.dividers.indexOf(gap);
+    if (at === -1) layout.dividers.push(gap);
+    else layout.dividers.splice(at, 1);
+    layout.dividers.sort((a, b) => a - b);
+    writeContextMenuLayout(kind, layout);
+    const next = contextMenuModel(model.menu) || model;
+    state.contextRows = next;
+    applyContextLayout(next, kind, readContextMenuLayout(kind));
+    return true;
+  }
+
+  function commitContextReorder(id, beforeId) {
+    const model = state.contextRows;
+    const kind = state.contextKind;
+    if (!model || !kind || !model.menu || !model.menu.isConnected) return false;
+    const ids = sortedContextRows(model).map((row) => row.id);
+    const from = ids.indexOf(id);
+    if (from === -1) return false;
+    ids.splice(from, 1);
+    let at = ids.length;
+    if (beforeId) {
+      const target = ids.indexOf(beforeId);
+      if (target !== -1) at = target;
+    }
+    ids.splice(at, 0, id);
+    const current = readContextMenuLayout(kind);
+    // Dividers are positional, so a drag never moves them: only the order of
+    // the rows changes. The first drag materializes the host grouping, exactly
+    // like the first divider toggle.
+    writeContextMenuLayout(kind, {
+      order: ids,
+      dividers: current.customized ? current.dividers : model.nativeDividers,
+      customized: true,
+    });
+    const next = contextMenuModel(model.menu) || model;
+    state.contextRows = next;
+    applyContextLayout(next, kind, readContextMenuLayout(kind));
+    return true;
+  }
+
+  // A right-click inside an already open menu belongs to us (toggle a divider)
+  // and must not also open the browser's own menu. Everywhere else the event is
+  // only observed: the host still opens its menu, and the next frame syncs it.
+  function onContextMenuCapture(event) {
+    if (state.stopped) return;
+    if (!contextMenusSupported()) return;
+    const target = event.target && event.target.nodeType === 1 ? event.target : null;
+    if (!target) return;
+    const menu = target.closest("[data-context-menu]");
+    if (menu) {
+      if (menu !== state.contextMenu) return;
+      const row = contextRowAt(state.contextRows, target);
+      if (!row) return;
+      if (toggleContextDivider(row)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
+    const rowKey = target.closest("[data-row-key]");
+    const kind = contextMenuKindFromRowKey(rowKey && rowKey.dataset ? rowKey.dataset.rowKey : "");
+    if (kind) {
+      state.contextPendingKind = kind;
+      state.contextPendingAt = Date.now();
+    }
+    scheduleContextSync();
+  }
+
+  function setContextMenuEnabled(enabled) {
+    writeContextMenuEnabled(Boolean(enabled));
+    if (!enabled) clearContextMenu();
+    else scheduleContextSync();
+    notify();
+    return Boolean(enabled);
+  }
+
+  function resetContextMenus() {
+    resetContextMenuLayouts();
+    clearContextMenu();
+    scheduleContextSync();
+    notify();
+  }
+
+  // The drop scope of the open menu. It is not part of SCOPE_KEYS: there are no
+  // persistent rows to discover, only the menu that happens to be open.
+  function dragAllowed(scope) {
+    if (scope === CONTEXT_SCOPE) return contextMenuEnabled();
+    return isDragEnabled(scope);
   }
 
   function normalizedLayout(scope) {
@@ -1511,6 +2061,7 @@ function createRuntime(ctx) {
   }
 
   function buildSnapshot(gesture) {
+    if (gesture && gesture.scope === CONTEXT_SCOPE) return buildContextSnapshot();
     let found = null;
     try {
       found = discoverScope(ctx, gesture.scope);
@@ -1857,6 +2408,16 @@ function createRuntime(ctx) {
     hideIndicator(gesture);
     markDropMore(gesture, false);
 
+    if (gesture.scope === CONTEXT_SCOPE) {
+      if (!snapshot.menuRect || !pointIn(snapshot.menuRect, x, y, 8)) return;
+      const targets = snapshot.menuTargets;
+      const others = targets.filter((item) => item.id !== gesture.id);
+      const hit = indexAt(others, x, y, "y", targets);
+      gesture.target = { kind: "ctx", index: hit.index, beforeId: others[hit.index] ? others[hit.index].id : null };
+      showIndicator(gesture, "y", hit.boundary, snapshot.menuRect, snapshot.menuRect);
+      return;
+    }
+
     if (gesture.source === "menu" && snapshot.menuRect && pointIn(snapshot.menuRect, x, y)) {
       const targets = snapshot.menuTargets || snapshot.menuItems;
       const others = targets.filter((item) => item.id !== gesture.id);
@@ -1887,7 +2448,7 @@ function createRuntime(ctx) {
 
   function beginDrag(gesture) {
     if (!gesture || state.gesture !== gesture || gesture.started) return;
-    if (!isDragEnabled(gesture.scope)) {
+    if (!dragAllowed(gesture.scope)) {
       cancelGesture();
       return;
     }
@@ -2059,6 +2620,16 @@ function createRuntime(ctx) {
       return;
     }
     const target = gesture.target;
+    if (gesture.scope === CONTEXT_SCOPE) {
+      if (target.kind === "ctx") {
+        commitContextReorder(gesture.id, target.beforeId);
+        // Reordering inside a popup is not leaving it: keep the menu open so the
+        // new order (and the dividers that stayed put) can be checked at once.
+        gesture.keepMenu = true;
+      }
+      endGesture(true);
+      return;
+    }
     const hostAction = gesture.scope === "header" && gesture.id.indexOf(HOST_ACTION_PREFIX) === 0;
     if (target.kind === "hide") {
       // Pulling a mirrored host action back into the menu removes the shortcut;
@@ -2111,6 +2682,16 @@ function createRuntime(ctx) {
     // pointer press elsewhere on the page while it waits for a key.
     if (state.hotkeyCapturing) return;
     if (!isHotkeyGateOpen()) return;
+
+    const contextItem = target.closest("[data-dso-ctx-id]");
+    if (contextItem) {
+      const contextModel = state.contextRows;
+      if (!contextModel || !contextMenuEnabled()) return;
+      const contextRow = contextRowAt(contextModel, contextItem);
+      if (!contextRow) return;
+      startGesture(contextRow.item, CONTEXT_SCOPE, contextRow.id, "ctx", event);
+      return;
+    }
 
     const menuRow = target.closest("[data-dso-more-key]");
     if (menuRow) {
@@ -2352,6 +2933,7 @@ function createRuntime(ctx) {
     addListener(document, "click", onClickCapture, true);
     addListener(document, "click", onHeaderMenuClick, true);
     addListener(document, "click", onDocumentClick);
+    addListener(document, "contextmenu", onContextMenuCapture, true);
     addListener(document, "keydown", onKeyDown, true);
     addListener(document, "keyup", onKeyUp, true);
     addListener(window, "keydown", onHotkeyCaptureKey, true);
@@ -2362,12 +2944,17 @@ function createRuntime(ctx) {
 
     if (typeof MutationObserver !== "undefined") {
       observer = new MutationObserver((mutations) => {
+        let layoutChanged = false;
         for (const mutation of mutations) {
           if (relevantMutation(mutation)) {
-            schedulePass();
-            return;
+            layoutChanged = true;
+            break;
           }
         }
+        if (layoutChanged) schedulePass();
+        // Hover re-renders and menu mounts are not layout passes, but they do
+        // rebuild the open menu, so its order and dividers must be repainted.
+        scheduleContextSync();
       });
       observer.observe(document.body, { childList: true, subtree: true });
     }
@@ -2389,15 +2976,22 @@ function createRuntime(ctx) {
     }, 500);
 
     pass(true);
+    scheduleContextSync();
   }
 
   function stop() {
     if (state.stopped) return;
     state.stopped = true;
     if (state.passFrame) window.cancelAnimationFrame(state.passFrame);
+    if (state.contextFrame) {
+      window.cancelAnimationFrame(state.contextFrame);
+      window.clearTimeout(state.contextFrame);
+      state.contextFrame = 0;
+    }
     if (state.pollTimer) window.clearInterval(state.pollTimer);
     if (observer) observer.disconnect();
     observer = null;
+    clearContextMenu();
     closeSettingsMoreMenu();
     state.headerMenu = null;
     removeHeaderMenuBlock();
@@ -2474,5 +3068,18 @@ function createRuntime(ctx) {
     labelFor,
     iconFor,
     status,
+    contextMenu: {
+      supported: contextMenusSupported(),
+      enabled: readContextMenuEnabled,
+      setEnabled: setContextMenuEnabled,
+      reset: resetContextMenus,
+      read: readContextMenuLayout,
+      // Diagnostics/support hook: write a layout and repaint the open menu.
+      set: (kind, layout) => {
+        writeContextMenuLayout(kind, layout);
+        scheduleContextSync();
+      },
+      refresh: scheduleContextSync,
+    },
   };
 }

@@ -7,9 +7,10 @@ DSH (DeepSeek Harness): the left sidebar, sidebar footer, conversation tabs,
 composer dock, session header, right sidebar, and settings navigation.
 
 > Latest: the desktop window and the Web UI share one layout (the settings page can
-> opt out); seven-scope ordering, tucking, and configuration import/export are all in.
-> For the full version history and downloads see
-> [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
+> opt out); seven-scope ordering, tucking, and configuration import/export are all in,
+> and since 0.8.1 you can also reorder the session / workspace right-click menus and
+> add or remove their dividers (DSH 0.2.2+). For the full version history and downloads
+> see [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
 
 ## What it does
 
@@ -56,6 +57,13 @@ composer dock, session header, right sidebar, and settings navigation.
   presses. The gate ignores bare keys typed into inputs/textareas, so ordinary
   typing never arms it; while unbound, or with both modes off, dragging behaves
   exactly as before.
+- **Right-click menus** (DSH 0.2.2+): long-press an item in the session or
+  workspace context menu to reorder it; while the menu is open, right-click a
+  non-bottom item to add or remove a divider below it (right-click again to
+  undo). Dividers are stored by position, so they stay put when items move, and
+  one that ends up below the last item is dropped. A dedicated "Context menus"
+  switch lives on the settings page; on 0.2.1 the feature turns itself off and
+  the card is not shown.
 - **Settings page**: DSH Settings → "Layout organizer", or this plugin's detail
   page. Seven location cards let you drag rows, move up/down, tuck/restore, and
   reset one section. Each card has its own "Drag" switch: turn it off and that
@@ -77,9 +85,10 @@ composer dock, session header, right sidebar, and settings navigation.
 - The layout survives page reloads and DSH restarts.
 - While dragging, rows under the pointer do not react with `:hover` or tooltips
   (rows get `pointer-events: none`; hit-testing is pure geometry).
-- **No** right-click menu, floating launcher, search, or grouping — those are
-  out of scope for this version; the drag hotkey only gates dragging and is not
-  a command shortcut.
+- **No** right-click menu of its own, floating launcher, search, or grouping: this
+  version only reorders and divides the host's existing session / workspace
+  context menus instead of adding a menu entry. The drag hotkey only gates
+  dragging and is not a command shortcut.
 
 ## Install
 
@@ -96,7 +105,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.8.0
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.8.1
 ```
 
 ### From npm
@@ -210,6 +219,20 @@ the page. Since 0.2.0 the mechanism is different:
   by >8 px movement) → ghost clone plus indicator; drop index from row midpoints
   along the scope axis; dropping inside that scope's More rect tucks the row;
   clicks within 500 ms of a drop are swallowed.
+- Right-click menus (0.8.1, DSH 0.2.2+ only): the host renders the session and
+  workspace menus as a shared `[role="menu"][data-context-menu]` whose items are
+  flex children of their `_viewport_`. A document-capture listener remembers
+  which row opened the menu; once it exists every item gets `style.order`
+  (drag reordering) and positional dividers are injected between chosen gaps.
+  Injected dividers carry inline `display:block` to beat the host's
+  first-of-type / adjacent-separator rules, items are `order = 2i` and dividers
+  `order = 2g - 1` so the two interleave without colliding, and a
+  `MutationObserver` re-syncs after re-renders or a close. The layout lives in
+  `dsh.sidebar-organizer.context-menu.v1` (`{ version, enabled, menus: { session,
+  workspace } }`, each menu with its own `order` / `dividers` / `customized`) and
+  is independent of the seven-scope layout, drag switches, and cross-window sync.
+  Dividers store gap indices only, so they stay in place while items move and a
+  trailing gap (`gap >= row count`) is pruned before it is written back.
 - The settings page uses native HTML5 drag and drop (`draggable` plus
   `dragstart/dragover/drop`) and adds no interaction library. Buttons only move
   up/down, tuck, or restore, so they cannot conflict with the long-press gesture.
@@ -262,6 +285,9 @@ restoration).
   host inserts a row and legacy positional ids migrate automatically.
 - 0.2.2 lays the settings nav out horizontally in short browser windows; the
   drag axis follows the rendered direction.
+- Session / workspace context-menu ordering and dividers exist only on 0.2.2+
+  (0.2.2 is where the host routes those menus through the shared contextual
+  menu); on 0.2.1 the feature turns itself off and its settings card is hidden.
 - The client only requires `react`; `MenuItemButton` from
   `@deepseek-ai/dsh-client-ui-primitives` is used when present, with a built-in
   fallback otherwise.
@@ -291,6 +317,7 @@ restoration).
 - [x] 0.7.4 — DSH 0.2.2-rc.1 support: content-stable ids for shipped header actions with automatic migration; settings drag axis follows a horizontal nav
 - [x] 0.7.5 — custom drag-panel icon for the settings nav (DSH 0.2.2+, falls back to the host default on older releases)
 - [x] 0.8.0 — drag hotkey: unbound by default, with independent Hold and Toggle gates
+- [x] 0.8.1 — session / workspace context menus: drag to reorder, right-click to toggle dividers (DSH 0.2.2+, auto-off on 0.2.1)
 
 ## Notices
 

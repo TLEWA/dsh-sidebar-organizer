@@ -190,6 +190,40 @@
 </div>
 <div id="result">running…</div>
 
+<!-- 0.2.2 right-click menus: the session row and workspace row open these
+     portals. Rows come from plugins (hence the display:contents slot wrappers in
+     the workspace menu), separators from the host. The runtime must reorder the
+     rows, keep the user's dividers positional, and leave the footer alone. -->
+<div class="fixture" id="context-fixture">
+  <div class="caption">right-click menus</div>
+  <div id="context-rows">
+    <div data-row-key="session:session-1" tabindex="0">会话 1</div>
+    <div data-row-key="workspace:project-1" tabindex="0">工作区 1</div>
+  </div>
+  <div class="ctx-menu" id="session-menu" data-context-menu role="menu" hidden style="left:420px;top:120px;">
+    <div class="_material_ctx"></div>
+    <div class="_viewport_ctx" id="session-menu-viewport">
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">置顶会话</span></button></div>
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">重命名</span><span class="_shortcut_ctx">Ctrl+Alt+G</span></button></div>
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">分叉会话</span><span class="_shortcut_ctx">Ctrl+Shift+F</span></button></div>
+      <div class="_separator_ctx" role="separator"></div>
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">复制 Session ID</span></button></div>
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">在文件夹显示</span></button></div>
+    </div>
+    <div class="_footer_ctx"><div class="_separator_ctx" role="separator"></div><div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">归档会话</span></button></div></div>
+  </div>
+  <div class="ctx-menu" id="workspace-menu" data-context-menu role="menu" hidden style="left:520px;top:120px;">
+    <div class="_viewport_ctx" id="workspace-menu-viewport">
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">新会话</span></button></div>
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">重命名工作区</span></button></div>
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">显示已归档会话</span></button></div>
+      <div class="_separator_ctx" role="separator"></div>
+      <div data-slot="contextMenu.content" style="display:contents"><div data-slot="sidebar.workspaces.session.menu.item" style="display:contents"><div class="_submenuHost_ctx"><button type="button" role="menuitem" class="ctx-row" aria-haspopup="menu"><span class="_itemLabel_ctx">打开方式</span></button></div></div></div>
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">删除工作区</span></button></div>
+    </div>
+  </div>
+</div>
+
 <script>
   const log = [];
   const failures = [];
@@ -1580,6 +1614,197 @@
       );
       api.resetScope("sidebar");
 
+      // ---- 0.2.2 right-click menus: reorder and positional dividers ----
+      // This page advertises no host version, which the gate treats as "supported"
+      // (same as a newer host). The 0.2.1 shutdown is verified on a 0.2.1 host.
+      const CTX_KEY = "dsh.sidebar-organizer.context-menu.v1";
+      const sessionMenu = document.getElementById("session-menu");
+      const workspaceMenu = document.getElementById("workspace-menu");
+      const sessionRow = document.querySelector('[data-row-key="session:session-1"]');
+      const workspaceRow = document.querySelector('[data-row-key="workspace:project-1"]');
+      const ctxLabel = (node) => {
+        const label = node.querySelector('[class*="itemLabel"]');
+        return (label || node).textContent.trim();
+      };
+      const ctxRowByLabel = (menu, label) => {
+        for (const node of menu.querySelectorAll('[role="menuitem"]')) {
+          if (ctxLabel(node) === label) return node;
+        }
+        return null;
+      };
+      const ctxUnit = (menu, label) => {
+        const node = ctxRowByLabel(menu, label);
+        return node ? node.closest("[data-dso-ctx-id]") : null;
+      };
+      const ctxVisual = (menu) =>
+        Array.from(menu.querySelectorAll("[data-dso-ctx-id]")).sort(
+          (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top
+        );
+      const ctxLabels = (menu) => ctxVisual(menu).map((unit) => ctxLabel(unit.querySelector('[role="menuitem"]')));
+      const ctxDividers = (menu) =>
+        Array.from(menu.querySelectorAll("[data-dso-ctx-divider]"))
+          .sort((a, b) => Number(a.style.order) - Number(b.style.order))
+          .map((node) => Number(node.dataset.dsoCtxGap));
+      const ctxStore = () => JSON.parse(localStorage.getItem(CTX_KEY) || "null");
+      const ctxToggle = async (menu, label) => {
+        ctxRowByLabel(menu, label).dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 })
+        );
+        await wait(60);
+      };
+      localStorage.removeItem(CTX_KEY);
+      sessionMenu.hidden = false;
+      sessionRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 40 }));
+      await wait(120);
+      assert(
+        "session menu rows are tagged for dragging",
+        sessionMenu.querySelectorAll("[data-dso-ctx-id]").length === 5,
+        String(sessionMenu.querySelectorAll("[data-dso-ctx-id]").length)
+      );
+      assert("the menu footer row is not reorderable", !ctxUnit(sessionMenu, "归档会话"), "footer row was tagged");
+      assert(
+        "shortcut hints stay out of the row identity",
+        ctxLabels(sessionMenu).join(",") === "置顶会话,重命名,分叉会话,复制 Session ID,在文件夹显示",
+        ctxLabels(sessionMenu).join(",")
+      );
+      assert(
+        "an untouched menu keeps the host order",
+        ctxVisual(sessionMenu).every((unit) => !unit.style.order),
+        ctxVisual(sessionMenu).map((unit) => unit.style.order).join(",")
+      );
+
+      await ctxToggle(sessionMenu, "重命名");
+      assert(
+        "right-clicking a row adds a divider below it",
+        ctxDividers(sessionMenu).join(",") === "2,3",
+        ctxDividers(sessionMenu).join(",")
+      );
+      const afterAdd = ctxStore();
+      assert("the toggle marks the menu custom", !!afterAdd && afterAdd.menus.session.customized === true, JSON.stringify(afterAdd));
+      await ctxToggle(sessionMenu, "重命名");
+      assert("right-clicking again removes that divider", ctxDividers(sessionMenu).join(",") === "3", ctxDividers(sessionMenu).join(","));
+      const beforeBottom = JSON.stringify(ctxStore());
+      await ctxToggle(sessionMenu, "在文件夹显示");
+      assert("the bottom row has nothing to divide", JSON.stringify(ctxStore()) === beforeBottom, JSON.stringify(ctxStore()));
+
+      const dragUnit = ctxUnit(sessionMenu, "置顶会话");
+      const targetUnit = ctxUnit(sessionMenu, "在文件夹显示");
+      const dragRect = dragUnit.getBoundingClientRect();
+      const targetRect = targetUnit.getBoundingClientRect();
+      dragUnit.querySelector('[role="menuitem"]').dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId: 81,
+          clientX: dragRect.left + 12,
+          clientY: dragRect.top + dragRect.height / 2,
+        })
+      );
+      await wait(330);
+      assert("dragging a menu row lifts a ghost", !!document.querySelector(".dso-ghost"), "no ghost");
+      document.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 81,
+          clientX: targetRect.left + 12,
+          clientY: targetRect.bottom - 1,
+        })
+      );
+      assert(
+        "the drop indicator tracks the open menu",
+        document.querySelector(".dso-indicator") !== null,
+        "no indicator"
+      );
+      document.dispatchEvent(
+        new PointerEvent("pointerup", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 81,
+          clientX: targetRect.left + 12,
+          clientY: targetRect.bottom - 1,
+        })
+      );
+      await wait(220);
+      assert("a dropped menu row moves to the end", ctxLabels(sessionMenu).slice(-1)[0] === "置顶会话", ctxLabels(sessionMenu).join(","));
+      assert("reordering inside the menu keeps it open", sessionMenu.hidden === false);
+      assert(
+        "dividers stay at their gap when rows move past them",
+        ctxDividers(sessionMenu).join(",") === "3",
+        ctxDividers(sessionMenu).join(",")
+      );
+      assert(
+        "the persisted order matches the painted order",
+        ctxStore().menus.session.order.join(",") === ctxVisual(sessionMenu).map((unit) => unit.dataset.dsoCtxId).join(","),
+        JSON.stringify(ctxStore().menus.session)
+      );
+
+      sessionMenu.hidden = true;
+      workspaceMenu.hidden = false;
+      workspaceRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 60 }));
+      await wait(120);
+      assert(
+        "workspace menu rows are tagged",
+        workspaceMenu.querySelectorAll("[data-dso-ctx-id]").length === 5,
+        String(workspaceMenu.querySelectorAll("[data-dso-ctx-id]").length)
+      );
+      const submenuUnit = ctxUnit(workspaceMenu, "打开方式");
+      assert("a display:contents contribution is still reorderable", !!submenuUnit, "submenu row not tagged");
+      assert(
+        "the tagged slot is the real flex item, not the wrapper",
+        !!submenuUnit && submenuUnit.classList.contains("_submenuHost_ctx"),
+        submenuUnit && submenuUnit.className
+      );
+      await ctxToggle(workspaceMenu, "重命名工作区");
+      assert(
+        "the workspace menu keeps its own layout",
+        ctxStore().menus.workspace.dividers.join(",") === "2,3",
+        JSON.stringify(ctxStore().menus.workspace)
+      );
+      // A divider below the last row is dropped on the next paint (the rule the
+      // user asked for), and the pruned list is written back.
+      api.contextMenu.set("workspace", { order: [], dividers: [3, 5], customized: true });
+      await wait(80);
+      assert(
+        "a divider past the last row is pruned",
+        ctxStore().menus.workspace.dividers.join(",") === "3",
+        JSON.stringify(ctxStore().menus.workspace)
+      );
+
+      api.contextMenu.setEnabled(false);
+      await wait(80);
+      assert(
+        "turning the feature off restores the host menu",
+        workspaceMenu.querySelectorAll("[data-dso-ctx-id]").length === 0 &&
+          workspaceMenu.querySelectorAll("[data-dso-ctx-divider]").length === 0,
+        "still painted"
+      );
+      api.contextMenu.setEnabled(true);
+      workspaceRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 60 }));
+      await wait(120);
+      assert(
+        "turning the feature back on repaints the custom layout",
+        ctxDividers(workspaceMenu).join(",") === "3",
+        ctxDividers(workspaceMenu).join(",")
+      );
+
+      workspaceMenu.hidden = true;
+      sessionMenu.hidden = true;
+      // The host unmounts the portal; here hiding is not a childList mutation, so
+      // ask for one more sync the way an unrelated DOM change would.
+      sessionRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 4, clientY: 4 }));
+      await wait(80);
+      assert("closing the menu releases the row tags", document.querySelectorAll("[data-dso-ctx-id]").length === 0);
+      api.contextMenu.reset();
+      await wait(60);
+      const clearedStore = ctxStore();
+      assert(
+        "reset clears the right-click menu customizations",
+        !clearedStore || !clearedStore.menus || !clearedStore.menus.session,
+        JSON.stringify(clearedStore)
+      );
+
       // Leave drag switches and layout in their default state for dispose.
       api.setDragEnabled("right", true);
       api.reset();
@@ -1599,6 +1824,13 @@
      entry radius through an ancestor variable that is absent on <body>. Keep
      that cascade order here so the ghost-radius regression is reproducible. */
   .guide-entry { border-radius: var(--harness-entry-radius); }
+  /* The context-menu fixtures are fixed portals like the host's; :not([hidden])
+     keeps the `hidden` attribute meaningful despite the flex layout. */
+  .ctx-menu { position: fixed; background: #26272b; padding: 4px; }
+  .ctx-menu:not([hidden]) { display: flex; flex-direction: column; }
+  .ctx-menu [class*="_viewport_"] { display: flex; flex-direction: column; }
+  .ctx-menu [class*="_itemWrap_"] { display: block; }
+  ._separator_ctx { flex: none; height: 1px; margin: 3px 8px; background: rgba(255, 255, 255, 0.12); }
 </style>
 </body>
 </html>

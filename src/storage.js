@@ -11,6 +11,7 @@ const LAYOUT_BACKUP_KEY = `${STORAGE_KEY}.v3-backup`;
 let layoutCache = null;
 let dragCache = null;
 let hotkeyCache = null;
+let contextMenuCache = null;
 
 function emptyScopeLayout() {
   return { order: [], hidden: [] };
@@ -371,6 +372,106 @@ function writeHostMenuOrder(labels) {
   } catch (err) {
     /* storage may be unavailable */
   }
+}
+
+/* ---- 0.2.2 right-click menus ------------------------------------------- */
+
+// The menu rows belong to the host (and to other plugins); what is ours is the
+// custom order and the dividers. Both live here, per menu kind, and are painted
+// onto the open DOM. `dividers` holds GAP indexes: gap N means "before the Nth
+// row of the saved order", so a divider keeps its place when rows move past it.
+//
+// Deliberately no noteLocalChange(): that marks the layout as customized and
+// publishes it to the other windows, which this file must not do for a menu-only
+// change (it would push the registered default order over a custom layout).
+function emptyContextMenuLayout() {
+  return { order: [], dividers: [], customized: false };
+}
+
+function normalizeContextMenuLayout(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const order = normalizeStringList(raw.order);
+  const dividers = [];
+  if (Array.isArray(raw.dividers)) {
+    for (const gap of raw.dividers) {
+      if (typeof gap !== "number" || !isFinite(gap)) continue;
+      const next = Math.max(0, Math.floor(gap));
+      if (dividers.indexOf(next) === -1) dividers.push(next);
+    }
+  }
+  dividers.sort((a, b) => a - b);
+  return { order, dividers, customized: raw.customized === true };
+}
+
+function readContextMenuStore() {
+  if (contextMenuCache) return contextMenuCache;
+  let parsed = null;
+  try {
+    const raw = window.localStorage.getItem(CONTEXT_MENU_KEY);
+    if (raw) parsed = JSON.parse(raw);
+  } catch (err) {
+    parsed = null;
+  }
+  const store = { version: CONTEXT_MENU_VERSION, enabled: true, menus: {} };
+  if (parsed && typeof parsed === "object") {
+    if (parsed.enabled === false) store.enabled = false;
+    if (parsed.menus && typeof parsed.menus === "object") {
+      for (const kind of CONTEXT_MENU_KINDS) {
+        if (!parsed.menus[kind]) continue;
+        store.menus[kind] = normalizeContextMenuLayout(parsed.menus[kind]);
+      }
+    }
+  }
+  contextMenuCache = store;
+  return store;
+}
+
+function writeContextMenuStore(store) {
+  const next = {
+    version: CONTEXT_MENU_VERSION,
+    enabled: store.enabled !== false,
+    menus: {},
+  };
+  for (const kind of CONTEXT_MENU_KINDS) {
+    if (store.menus[kind]) next.menus[kind] = normalizeContextMenuLayout(store.menus[kind]);
+  }
+  contextMenuCache = next;
+  try {
+    window.localStorage.setItem(CONTEXT_MENU_KEY, JSON.stringify(next));
+  } catch (err) {
+    /* keep the in-memory copy */
+  }
+  return next;
+}
+
+function readContextMenuLayout(kind) {
+  if (CONTEXT_MENU_KINDS.indexOf(kind) === -1) return emptyContextMenuLayout();
+  const store = readContextMenuStore();
+  return store.menus[kind] ? normalizeContextMenuLayout(store.menus[kind]) : emptyContextMenuLayout();
+}
+
+function writeContextMenuLayout(kind, layout) {
+  if (CONTEXT_MENU_KINDS.indexOf(kind) === -1) return emptyContextMenuLayout();
+  const store = readContextMenuStore();
+  const menus = Object.assign({}, store.menus);
+  menus[kind] = normalizeContextMenuLayout(layout);
+  writeContextMenuStore({ version: store.version, enabled: store.enabled, menus });
+  return menus[kind];
+}
+
+function readContextMenuEnabled() {
+  return readContextMenuStore().enabled !== false;
+}
+
+function writeContextMenuEnabled(enabled) {
+  const store = readContextMenuStore();
+  writeContextMenuStore({ version: store.version, enabled: Boolean(enabled), menus: store.menus });
+  return Boolean(enabled);
+}
+
+function resetContextMenuLayouts() {
+  const store = readContextMenuStore();
+  writeContextMenuStore({ version: store.version, enabled: store.enabled, menus: {} });
 }
 
 function exportConfigSnapshot() {

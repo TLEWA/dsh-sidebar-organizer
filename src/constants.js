@@ -66,6 +66,15 @@ const CROSS_WINDOW_KEY = "dsh.sidebar-organizer.cross-window.v1";
 // to be held while the long press starts; `toggle` flips a sticky state on each
 // press. Both may be on at once.
 const HOTKEY_KEY = "dsh.sidebar-organizer.hotkey.v1";
+// 0.2.2's unified right-click menus are the only surface these rows live on: the
+// session row menu and the workspace row menu. Both are host-rendered (rows come
+// from ctx.contextMenus registrations), so the custom order and the user's
+// dividers are applied to the open DOM and remembered here. Dividers are stored
+// as GAP indexes, never attached to a row: the user asked for a separator that
+// stays where it was placed when rows move across it.
+const CONTEXT_MENU_KEY = "dsh.sidebar-organizer.context-menu.v1";
+const CONTEXT_MENU_KINDS = ["session", "workspace"];
+const CONTEXT_MENU_VERSION = 1;
 // Keys that only exist as modifiers cannot be a binding on their own; the
 // capture UI waits for the non-modifier key of the chord.
 const HOTKEY_MODIFIER_KEYS = {
@@ -140,6 +149,9 @@ const STRINGS = {
     hotkeyToggleOn: "按一下热键开启拖动，再按一下关闭",
     hotkeyToggleOff: "开关模式已关闭",
     hotkeyNeedKey: "先绑定一个热键",
+    contextMenu: "右键菜单",
+    contextMenuOn: "会话与工作区右键菜单可拖动、可加分隔线",
+    contextMenuOff: "右键菜单整理已关闭",
     scopeNames: {
       sidebar: "左侧边栏",
       footer: "侧栏底部",
@@ -189,6 +201,9 @@ const STRINGS = {
     hotkeyToggleOn: "Press once to enable dragging, again to disable",
     hotkeyToggleOff: "Toggle mode is off",
     hotkeyNeedKey: "Bind a hotkey first",
+    contextMenu: "Context menus",
+    contextMenuOn: "Session and workspace menus can be reordered and divided",
+    contextMenuOff: "Context menu organizing is off",
     scopeNames: {
       sidebar: "Sidebar",
       footer: "Sidebar footer",
