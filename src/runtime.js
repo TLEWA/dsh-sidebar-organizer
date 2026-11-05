@@ -38,6 +38,7 @@ function createRuntime(ctx) {
     contextFrame: 0,
     contextPendingKind: "",
     contextPendingAt: 0,
+    contextOpenedAt: 0,
     contextPendingToggle: null,
   };
 
@@ -919,10 +920,17 @@ function createRuntime(ctx) {
     }
     const taken = new Set();
     const rows = [];
+    let dom = 0;
     for (const [item, entry] of byItem) {
       const label = contextRowLabel(entry.menuitem);
       if (!label) continue;
-      rows.push({ item, menuitem: entry.menuitem, label, rect: item.getBoundingClientRect() });
+      // `dom` is the host's own document order for this menu, captured before
+      // the visual sort. The first customization materializes the order from
+      // it, never from the measured rects: a menu that re-renders (hover opens
+      // a submenu, a plugin panel mounts late) can briefly measure a row at
+      // the wrong place, and that glitch would then be persisted as the order.
+      rows.push({ item, menuitem: entry.menuitem, label, dom: dom, rect: item.getBoundingClientRect() });
+      dom += 1;
     }
     if (!rows.length) return null;
     rows.sort((a, b) => a.rect.top - b.rect.top);
@@ -948,6 +956,10 @@ function createRuntime(ctx) {
       const middle = rect.top + rect.height / 2;
       let gap = 0;
       for (const row of rows) {
+        // A row that has not been laid out yet (a plugin registers its entries a
+        // moment after the menu opens, so its rect is 0) must not count as a row
+        // above the separator: that shifted the whole divider set by one.
+        if (row.rect.height <= 0) continue;
         if (row.rect.top + row.rect.height / 2 < middle) gap += 1;
       }
       if (nativeDividers.indexOf(gap) === -1) nativeDividers.push(gap);
@@ -1045,7 +1057,7 @@ function createRuntime(ctx) {
     return merged;
   }
 
-  function applyContextLayout(model, kind, layout) {
+  function applyContextLayout(model, kind, layout, force) {
     const customized = Boolean(layout && layout.customized);
     // Until the user customizes this menu the host layout stays exactly as it
     // shipped: the host separators keep their own groups and no row is moved.
@@ -1090,7 +1102,11 @@ function createRuntime(ctx) {
     for (const gap of layout.dividers || []) {
       if (gap >= 0 && gap < merged.length && gaps.indexOf(gap) === -1) gaps.push(gap);
     }
-    if (gaps.length !== (layout.dividers || []).length) {
+    // A divider past the end is dropped (the user's rule). The write-back waits
+    // briefly: plugins register their entries a moment after the menu opens, and
+    // pruning a still-growing row list would delete a divider the user saved.
+    const settled = force || !state.contextOpenedAt || Date.now() - state.contextOpenedAt > 500;
+    if (gaps.length !== (layout.dividers || []).length && settled) {
       writeContextMenuLayout(kind, { order: merged, dividers: gaps, customized: true });
     }
     renderContextDividers(model, gaps);
@@ -1142,6 +1158,7 @@ function createRuntime(ctx) {
       clearContextMenu();
       return;
     }
+    if (state.contextMenu !== menu) state.contextOpenedAt = Date.now();
     state.contextMenu = menu;
     state.contextKind = kind;
     state.contextRows = model;
@@ -1252,7 +1269,12 @@ function createRuntime(ctx) {
     if (gap >= sorted.length) return false;
     const current = readContextMenuLayout(kind);
     const layout = {
-      order: current.customized ? current.order.slice() : sorted.map((item) => item.id),
+      // First toggle: take the host's document order, not the measured order.
+      // A menu that just re-rendered can measure a row at 0px and sorting by
+      // rect would persist that glitch as the user's order.
+      order: current.customized
+        ? current.order.slice()
+        : model.rows.slice().sort((a, b) => a.dom - b.dom).map((item) => item.id),
       dividers: current.customized ? current.dividers.slice() : model.nativeDividers.slice(),
       customized: true,
     };
@@ -3118,7 +3140,14 @@ function createRuntime(ctx) {
       // Diagnostics/support hook: write a layout and repaint the open menu.
       set: (kind, layout) => {
         writeContextMenuLayout(kind, layout);
-        scheduleContextSync();
+        const model = state.contextRows;
+        if (model && state.contextKind === kind) {
+          const next = contextMenuModel(model.menu) || model;
+          state.contextRows = next;
+          applyContextLayout(next, kind, readContextMenuLayout(kind), true);
+        } else {
+          scheduleContextSync();
+        }
       },
       refresh: scheduleContextSync,
     },

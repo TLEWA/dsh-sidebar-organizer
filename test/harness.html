@@ -1801,6 +1801,29 @@
         ctxDividers(workspaceMenu).join(",")
       );
 
+      // A row that has not been laid out yet (a plugin registers its entries a
+      // beat after the menu opens) measures at 0px. The first toggle must save
+      // the host's document order, not that transient measurement.
+      workspaceMenu.hidden = true;
+      api.contextMenu.reset();
+      sessionMenu.hidden = false;
+      sessionRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 40 }));
+      await wait(120);
+      const misplaced = ctxUnit(sessionMenu, "分叉会话");
+      misplaced.style.position = "absolute";
+      misplaced.style.top = "0px";
+      misplaced.style.left = "600px";
+      const domIds = Array.from(sessionMenu.querySelectorAll("[data-dso-ctx-id]")).map((unit) => unit.dataset.dsoCtxId);
+      await ctxToggle(sessionMenu, "复制 Session ID");
+      assert(
+        "a row measured at zero keeps its document slot in the saved order",
+        ctxStore().menus.session.order.join(",") === domIds.join(","),
+        JSON.stringify(ctxStore().menus.session)
+      );
+      misplaced.style.position = "";
+      misplaced.style.top = "";
+      misplaced.style.left = "";
+
       workspaceMenu.hidden = true;
       sessionMenu.hidden = true;
       // The host unmounts the portal; here hiding is not a childList mutation, so

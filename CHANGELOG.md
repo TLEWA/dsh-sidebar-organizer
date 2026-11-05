@@ -3,6 +3,33 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.8.3 — 2026-11-06
+
+- 修复「重置后只删了一条分隔线，刷新窗口行顺序就乱」：首次定制时按**测量出来的位置**保存顺序，
+  而插件行（如「用 Visual Studio Code 打开」）常比菜单晚一帧挂载，量到的 `top` 是 0，
+  于是被当成第一行写进存储，刷新后就固定在那里。现在首次定制按**文档顺序**保存，
+  测量异常不会再被持久化；同时忽略未完成布局（高度为 0）的行对原生分隔线归属的判断。
+- 菜单还在挂载时不再回写剪裁后的分隔线（500ms 内只影响本次绘制），避免插件行晚到时把
+  用户存下的分隔线剪掉。
+- `contextMenu.set()` 立即重绘当前打开的菜单；设置页「恢复本组」对已打开的菜单同样即时生效。
+- 离线用例增至 224 条（全绿），新增“测量为 0 的行必须保持文档顺序”回归。
+
+### English
+
+- Fixed "reset, delete one divider, refresh — the order is scrambled": the first
+  customization saved the order from measured positions, but plugin rows (e.g. "Open with
+  Visual Studio Code") mount a beat after the menu and measure `top: 0`, so they were
+  written first and stuck there after a reload. The first customization now saves the
+  **document order**; a bogus measurement can no longer be persisted. Rows without a
+  layout (height 0) are also ignored when attributing the host's own separators.
+- A menu that is still mounting no longer writes pruned dividers back (for the first
+  500ms pruning affects only the current paint), so a late plugin row cannot delete a
+  saved divider.
+- `contextMenu.set()` repaints the open menu immediately, and the settings card's reset
+  now also applies to a menu that is already open.
+- Offline assertions grew to 224 (all green), including "a row measured at zero keeps its
+  document slot in the saved order".
+
 ## 0.8.2 — 2026-11-06
 
 - 修复右键菜单分隔线的增删与位置：菜单打开后再定制时，宿主自带的原生分隔线没有被隐藏

@@ -10,7 +10,8 @@ composer dock, session header, right sidebar, and settings navigation.
 > opt out); seven-scope ordering, tucking, and configuration import/export are all in,
 > and since 0.8.1 you can also reorder the session / workspace right-click menus and
 > add or remove their dividers (DSH 0.2.2+); 0.8.2 fixes divider toggling and drift
-> while the menu stays open, and customizations surviving a reload. For the full
+> while the menu stays open, and customizations surviving a reload; 0.8.3 keeps an order
+> saved on first customization stable even when a plugin row mounts a beat late. For the full
 > version history and downloads see [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
 
 ## What it does
@@ -106,7 +107,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.8.2
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.8.3
 ```
 
 ### From npm
@@ -320,6 +321,7 @@ restoration).
 - [x] 0.8.0 — drag hotkey: unbound by default, with independent Hold and Toggle gates
 - [x] 0.8.1 — session / workspace context menus: drag to reorder, right-click to toggle dividers (DSH 0.2.2+, auto-off on 0.2.1)
 - [x] 0.8.2 — fixed divider add/remove and drift while the menu stays open, row labels stolen by submenus, and customizations not persisting after a reload
+- [x] 0.8.3 — first customization saves document order (a plugin row measured at 0px can no longer corrupt it), and pruning waits for the menu to finish mounting
 
 ## Notices
 
