@@ -218,7 +218,7 @@
       <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">重命名工作区</span></button></div>
       <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">显示已归档会话</span></button></div>
       <div class="_separator_ctx" role="separator"></div>
-      <div data-slot="contextMenu.content" style="display:contents"><div data-slot="sidebar.workspaces.session.menu.item" style="display:contents"><div class="_submenuHost_ctx"><button type="button" role="menuitem" class="ctx-row" aria-haspopup="menu"><span class="_itemLabel_ctx">打开方式</span></button></div></div></div>
+      <div data-slot="contextMenu.content" style="display:contents"><div data-slot="sidebar.workspaces.session.menu.item" style="display:contents"><div class="_submenuHost_ctx"><button type="button" role="menuitem" class="ctx-row" aria-haspopup="menu"><span class="dsrm-submenu-label">打开方式</span></button><div class="_submenuPanel_ctx" hidden><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">文件资源管理器</span></button><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">Visual Studio Code</span></button></div></div></div></div>
       <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">删除工作区</span></button></div>
     </div>
   </div>
@@ -1623,7 +1623,7 @@
       const sessionRow = document.querySelector('[data-row-key="session:session-1"]');
       const workspaceRow = document.querySelector('[data-row-key="workspace:project-1"]');
       const ctxLabel = (node) => {
-        const label = node.querySelector('[class*="itemLabel"]');
+        const label = node.querySelector('[class*="itemLabel"], [class*="submenu-label"]');
         return (label || node).textContent.trim();
       };
       const ctxRowByLabel = (menu, label) => {
@@ -1681,6 +1681,14 @@
       );
       const afterAdd = ctxStore();
       assert("the toggle marks the menu custom", !!afterAdd && afterAdd.menus.session.customized === true, JSON.stringify(afterAdd));
+      const hostDividers = Array.from(
+        document.querySelectorAll("#session-menu-viewport [role=\"separator\"]")
+      ).filter((node) => !node.hasAttribute("data-dso-ctx-divider"));
+      assert(
+        "customizing hides the host's own separators",
+        hostDividers.length > 0 && hostDividers.every((node) => node.style.display === "none"),
+        hostDividers.map((node) => node.style.display || "(unset)").join(",")
+      );
       await ctxToggle(sessionMenu, "重命名");
       assert("right-clicking again removes that divider", ctxDividers(sessionMenu).join(",") === "3", ctxDividers(sessionMenu).join(","));
       const beforeBottom = JSON.stringify(ctxStore());
@@ -1750,11 +1758,15 @@
         String(workspaceMenu.querySelectorAll("[data-dso-ctx-id]").length)
       );
       const submenuUnit = ctxUnit(workspaceMenu, "打开方式");
-      assert("a display:contents contribution is still reorderable", !!submenuUnit, "submenu row not tagged");
-      assert(
+      assert("a display:contents contribution is still reorderable", !!submenuUnit, "submenu row not tagged");      assert(
         "the tagged slot is the real flex item, not the wrapper",
         !!submenuUnit && submenuUnit.classList.contains("_submenuHost_ctx"),
         submenuUnit && submenuUnit.className
+      );
+      assert(
+        "a hidden submenu panel neither adds rows nor steals the label",
+        ctxLabels(workspaceMenu).length === 5 && ctxLabels(workspaceMenu).indexOf("打开方式") !== -1,
+        ctxLabels(workspaceMenu).join(",")
       );
       await ctxToggle(workspaceMenu, "重命名工作区");
       assert(

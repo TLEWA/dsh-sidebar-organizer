@@ -3,6 +3,39 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.8.2 — 2026-11-06
+
+- 修复右键菜单分隔线的增删与位置：菜单打开后再定制时，宿主自带的原生分隔线没有被隐藏
+  （`rememberContextElement` 对已记录节点提前返回），它们以 `order: auto` 留在 flex 流里、
+  漂到列表顶部，看起来就是“线位置不对、加了删不掉”。现在首次定制会立刻接管并隐藏它们。
+- 修复行标签漂移：子菜单（如「打开方式」）面板里的 menuitem 会抢走所在行的标签，导致内容
+  哈希变化、行 id 不稳定；现在每个 flex 条目只取最外层的 menuitem，标签也识别
+  `.submenu-label`。
+- 修复“菜单刚展开就立刻右键”：此时行还没挂全，按半成品基线落库会丢行、丢原生分组。
+  这次右键现在先记账，等下一帧菜单完整后再执行；菜单内任意右键也不会再关闭菜单。
+- 分隔线仍按位置保存（不随条目移动），落到底部/越界时自动删除并回写。
+- 离线用例增至 223 条（全绿），新增“定制后宿主分隔线必须隐藏”“隐藏子菜单不得多出行或
+  抢标签”等回归。
+
+### English
+
+- Fixed divider add/remove and placement: when a menu was customized while open, the
+  host's own separators were never hidden (`rememberContextElement` returns early for
+  already-tracked nodes), so they stayed in the flex flow with `order: auto` and drifted
+  to the top of the list — the reported "wrong position / cannot remove". The first
+  customization now takes them over and hides them immediately.
+- Fixed row-label drift: entries of a submenu panel (e.g. "Open with") stole the label of
+  the row owning them, changing the content hash and destabilizing row ids. Each flex item
+  now keeps only its outermost menuitem, and labels also match `.submenu-label`.
+- Fixed "right-click immediately after the menu opens": rows were not all mounted yet, so
+  materializing the baseline lost a row and the shipped grouping. That right-click is now
+  parked and replayed on the next frame, after the menu is complete; right-clicks inside
+  the menu no longer close it either.
+- Dividers are still positional (they do not follow items) and one that lands below the
+  last item is dropped and written back.
+- Offline assertions grew to 223 (all green), including regressions for "customizing hides
+  the host's own separators" and "a hidden submenu adds no rows and steals no label".
+
 ## 0.8.1 — 2026-11-06
 
 - 新增会话栏 / 工作区栏右键菜单的整理能力（仅 DSH 0.2.2 及以上；0.2.1 上自动关闭，

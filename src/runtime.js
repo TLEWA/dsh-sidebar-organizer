@@ -38,6 +38,7 @@ function createRuntime(ctx) {
     contextFrame: 0,
     contextPendingKind: "",
     contextPendingAt: 0,
+    contextPendingToggle: null,
   };
 
   let observer = null;
@@ -869,7 +870,7 @@ function createRuntime(ctx) {
   // hints live in a sibling <kbd>, so textContent would bake "Ctrl+Alt+G" into
   // the hash and the same action would get a new id on every shortcut change.
   function contextRowLabel(menuitem) {
-    const label = menuitem.querySelector('[class*="itemLabel"]');
+    const label = menuitem.querySelector('[class*="itemLabel"], [class*="submenu-label"]');
     if (label && (label.textContent || "").trim()) return (label.textContent || "").trim();
     let text = "";
     for (const child of menuitem.childNodes) {
@@ -903,19 +904,28 @@ function createRuntime(ctx) {
     if (!menu || !menu.isConnected) return null;
     const viewport = contextMenuViewport(menu);
     if (!viewport) return null;
-    const seen = new Set();
-    const rows = [];
+    // One row per flex item, using the OUTERMOST menuitem. A submenu row can own
+    // a hidden panel whose entries are also menuitems; taking the first one in
+    // DOM order made the row's label (and therefore its content hash) flip as
+    // the user picked a different submenu entry.
+    const byItem = new Map();
     for (const menuitem of viewport.querySelectorAll('[role="menuitem"]')) {
       const item = contextFlexItem(menuitem, viewport);
-      if (!item || seen.has(item)) continue;
-      seen.add(item);
-      const label = contextRowLabel(menuitem);
+      if (!item) continue;
+      let depth = 0;
+      for (let node = menuitem; node && node !== item; node = node.parentElement) depth += 1;
+      const existing = byItem.get(item);
+      if (!existing || depth < existing.depth) byItem.set(item, { menuitem, depth });
+    }
+    const taken = new Set();
+    const rows = [];
+    for (const [item, entry] of byItem) {
+      const label = contextRowLabel(entry.menuitem);
       if (!label) continue;
-      rows.push({ item, menuitem, label, rect: item.getBoundingClientRect() });
+      rows.push({ item, menuitem: entry.menuitem, label, rect: item.getBoundingClientRect() });
     }
     if (!rows.length) return null;
     rows.sort((a, b) => a.rect.top - b.rect.top);
-    const taken = new Set();
     for (const row of rows) {
       const base = "ctx-" + hostLabelHash(row.label);
       let id = base;
@@ -1043,7 +1053,12 @@ function createRuntime(ctx) {
     for (const node of model.viewport.querySelectorAll('[role="separator"]')) {
       if (!isContextSeparator(node)) continue;
       if (node.hasAttribute("data-dso-ctx-divider")) continue;
-      const entry = rememberContextElement(node);
+      // `rememberContextElement` returns null once the node is already tracked;
+      // the entry itself must still be read, or a menu that was open before the
+      // first customization never hid its own separators (they then stayed in
+      // the flex flow with order 0 and drifted to the top of the list).
+      rememberContextElement(node);
+      const entry = state.contextStyled.get(node);
       if (!entry) continue;
       // Hide the host separators we replace; restore their inline display when
       // the menu is back to its shipped layout (after a reset).
@@ -1131,6 +1146,22 @@ function createRuntime(ctx) {
     state.contextKind = kind;
     state.contextRows = model;
     applyContextLayout(model, kind, readContextMenuLayout(kind));
+    consumePendingToggle(menu);
+  }
+
+  // A right-click that lands while the menu is still mounting cannot be judged
+  // safely: the row list would be partial and the first customization would
+  // freeze a half-built baseline. The click is parked here and replayed once
+  // the next sync has the full menu.
+  function consumePendingToggle(menu) {
+    const pending = state.contextPendingToggle;
+    if (!pending) return;
+    state.contextPendingToggle = null;
+    if (pending.menu !== menu || Date.now() - pending.at > 1500) return;
+    const row = state.contextRows
+      ? state.contextRows.rows.find((item) => item.label === pending.label)
+      : null;
+    if (row) toggleContextDivider(row);
   }
 
   // The pending kind comes from the right-click that opened the menu. It is only
@@ -1275,13 +1306,23 @@ function createRuntime(ctx) {
     if (!target) return;
     const menu = target.closest("[data-context-menu]");
     if (menu) {
-      if (menu !== state.contextMenu) return;
-      const row = contextRowAt(state.contextRows, target);
-      if (!row) return;
-      if (toggleContextDivider(row)) {
+      if (menu !== state.contextMenu || !state.contextRows) {
+        // Not measured yet: park the intent, keep this menu open, and let the
+        // next frame's sync act on the complete row list.
+        const button = target.closest('[role="menuitem"]');
+        const label = button ? contextRowLabel(button) : "";
+        if (label) state.contextPendingToggle = { menu, label, at: Date.now() };
         event.preventDefault();
         event.stopPropagation();
+        scheduleContextSync();
+        return;
       }
+      const row = contextRowAt(state.contextRows, target);
+      if (row) toggleContextDivider(row);
+      // Right-clicks inside our menu never reach the catalog/native menus, even
+      // on the footer row (where there is no divider to toggle).
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     const rowKey = target.closest("[data-row-key]");
