@@ -211,6 +211,7 @@
       <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">在文件夹显示</span></button></div>
     </div>
     <div class="_footer_ctx"><div class="_separator_ctx" role="separator"></div><div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">归档会话</span></button></div></div>
+    <button type="button" role="menuitem" class="ctx-row ctx-root-row"><span class="_itemLabel_ctx">记忆参与</span></button>
   </div>
   <div class="ctx-menu" id="workspace-menu" data-context-menu role="menu" hidden style="left:520px;top:120px;">
     <div class="_viewport_ctx" id="workspace-menu-viewport">
@@ -1643,8 +1644,8 @@
       const ctxLabels = (menu) => ctxVisual(menu).map((unit) => ctxLabel(unit.querySelector('[role="menuitem"]')));
       const ctxDividers = (menu) =>
         Array.from(menu.querySelectorAll("[data-dso-ctx-divider]"))
-          .sort((a, b) => Number(a.style.order) - Number(b.style.order))
-          .map((node) => Number(node.dataset.dsoCtxGap));
+          .map((node) => Number(node.dataset.dsoCtxGap))
+          .sort((a, b) => a - b);
       const ctxStore = () => JSON.parse(localStorage.getItem(CTX_KEY) || "null");
       const ctxToggle = async (menu, label) => {
         ctxRowByLabel(menu, label).dispatchEvent(
@@ -1676,24 +1677,34 @@
       await ctxToggle(sessionMenu, "重命名");
       assert(
         "right-clicking a row adds a divider below it",
-        ctxDividers(sessionMenu).join(",") === "2,3",
+        ctxDividers(sessionMenu).join(",") === "2,3,5",
         ctxDividers(sessionMenu).join(",")
       );
       const afterAdd = ctxStore();
       assert("the toggle marks the menu custom", !!afterAdd && afterAdd.menus.session.customized === true, JSON.stringify(afterAdd));
       const hostDividers = Array.from(
-        document.querySelectorAll("#session-menu-viewport [role=\"separator\"]")
+        sessionMenu.querySelectorAll('[role="separator"]')
       ).filter((node) => !node.hasAttribute("data-dso-ctx-divider"));
       assert(
         "customizing hides the host's own separators",
-        hostDividers.length > 0 && hostDividers.every((node) => node.style.display === "none"),
+        hostDividers.length > 1 && hostDividers.every((node) => node.style.display === "none"),
         hostDividers.map((node) => node.style.display || "(unset)").join(",")
       );
       await ctxToggle(sessionMenu, "重命名");
-      assert("right-clicking again removes that divider", ctxDividers(sessionMenu).join(",") === "3", ctxDividers(sessionMenu).join(","));
+      assert("right-clicking again removes that divider", ctxDividers(sessionMenu).join(",") === "3,5", ctxDividers(sessionMenu).join(","));
+      // The footer block and a button a plugin appended to the portal root are
+      // the bottom of the same list: they own the gaps around them even though
+      // they cannot be dragged.
+      await ctxToggle(sessionMenu, "归档会话");
+      assert(
+        "the footer action owns the gap below it",
+        ctxDividers(sessionMenu).join(",") === "3,5,6",
+        ctxDividers(sessionMenu).join(",")
+      );
+      await ctxToggle(sessionMenu, "归档会话");
       const beforeBottom = JSON.stringify(ctxStore());
-      await ctxToggle(sessionMenu, "在文件夹显示");
-      assert("the bottom row has nothing to divide", JSON.stringify(ctxStore()) === beforeBottom, JSON.stringify(ctxStore()));
+      await ctxToggle(sessionMenu, "记忆参与");
+      assert("the last action has nothing to divide", JSON.stringify(ctxStore()) === beforeBottom, JSON.stringify(ctxStore()));
 
       const dragUnit = ctxUnit(sessionMenu, "置顶会话");
       const targetUnit = ctxUnit(sessionMenu, "在文件夹显示");
@@ -1739,7 +1750,7 @@
       assert("reordering inside the menu keeps it open", sessionMenu.hidden === false);
       assert(
         "dividers stay at their gap when rows move past them",
-        ctxDividers(sessionMenu).join(",") === "3",
+        ctxDividers(sessionMenu).join(",") === "3,5",
         ctxDividers(sessionMenu).join(",")
       );
       assert(

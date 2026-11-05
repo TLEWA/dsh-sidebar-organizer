@@ -3,6 +3,30 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.8.4 — 2026-11-06
+
+- 右键菜单最下面那几个动作也能增删分隔线了：菜单底部（`归档会话`）与插件直接挂在
+  门户根节点上的按钮（如 `记忆参与 · 功能全开`）现在都参与“该条下方”的间隙计算，
+  只有整个菜单的最后一个动作是空操作。它们仍然不可拖动，顺序也不会被写进存储。
+- 位于 footer 的分隔线会渲染在 footer 自己的纵向排序里，视觉上仍落在
+  `永久删除会话` 与 `归档会话` 之间、或 `归档会话` 与下面那个按钮之间。
+- 离线用例 225 条（全绿），新增“footer 动作拥有它下方的空隙”“最后一个动作没有可以
+  分割的东西”等回归；会话菜单夹具补了一个直挂根节点的按钮。
+
+### English
+
+- The bottom actions of a context menu can toggle dividers too: the footer row
+  (`Archive`) and buttons plugins append straight to the portal root (e.g.
+  `Memory participation`) now take part in the "gap below this action" numbering;
+  only the very last action of the whole menu is a no-op. They still cannot be
+  dragged and their slots are never persisted.
+- A divider that belongs to the footer block renders in the footer's own vertical
+  order, so it still lands between `Delete permanently` and `Archive`, or between
+  `Archive` and the button below it.
+- Offline assertions grew to 225 (all green), adding "the footer action owns the
+  gap below it" and "the last action has nothing to divide"; the session-menu
+  fixture gained a button appended to the portal root.
+
 ## 0.8.3 — 2026-11-06
 
 - 修复「重置后只删了一条分隔线，刷新窗口行顺序就乱」：首次定制时按**测量出来的位置**保存顺序，
