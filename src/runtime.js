@@ -33,6 +33,11 @@ function createRuntime(ctx) {
     contextKind: "",
     contextRows: null,
     contextStyled: new Map(),
+    // The menu's own stacked blocks (scroll viewport, footer) are flattened to
+    // display:contents while a custom layout is applied, so every action in the
+    // menu - including 归档会话 and root-level plugin buttons - shares one flex
+    // sequence and can be ordered against each other.
+    contextShell: new Map(),
     contextDividerNodes: [],
     contextTemplate: null,
     contextFrame: 0,
@@ -858,10 +863,11 @@ function createRuntime(ctx) {
   }
 
   // The menu lays its actions out in up to three stacked flex containers: the
-  // scroll viewport (reorderable rows), the footer (归档会话 and friends) and
-  // the portal root, where some plugins append a button of their own. Dividers
-  // are positional, so every one of those actions takes part in the gap
-  // numbering even though only the viewport rows can be dragged.
+  // scroll viewport, the footer (归档会话 and friends) and the portal root,
+  // where some plugins append a button of their own. A custom layout flattens
+  // the viewport and footer to display:contents, which makes all three of them
+  // one flex sequence - every action is drag-reorderable and tuckable. The two
+  // wrappers are still returned so their inline display can be restored.
   function contextMenuContainers(menu) {
     const viewport = contextMenuViewport(menu);
     const footer = menu.querySelector('[class*="_footer_"]');
@@ -912,7 +918,7 @@ function createRuntime(ctx) {
         break;
       }
     }
-    return { container, item, reorderable: container === viewport };
+    return { container, item, reorderable: true };
   }
 
   // The row label is the row's identity (the host assigns no ids). Shortcut
@@ -1086,7 +1092,10 @@ function createRuntime(ctx) {
   }
 
   function renderContextDividers(model, gaps) {
-    const viewport = model.viewport;
+    // The menu is flattened (display:contents on the viewport/footer blocks), so
+    // dividers are ordered against every row in one sequence: row N owns 2N and
+    // the gap before it owns 2N-1.
+    const container = model.menu;
     const nodes = state.contextDividerNodes;
     while (nodes.length > gaps.length) {
       const extra = nodes.pop();
@@ -1099,22 +1108,9 @@ function createRuntime(ctx) {
       node.setAttribute("aria-hidden", "true");
       nodes.push(node);
     }
-    const viewportRows = model.rows.filter((row) => row.reorderable);
-    const footerRows = model.footer
-      ? model.rows.filter((row) => !row.reorderable && row.container === model.footer)
-      : [];
     nodes.forEach((node, index) => {
       const gap = gaps[index];
-      // Row N sits at order 2N, so the gap before it lands at 2N-1. Gaps past
-      // the viewport rows belong to the footer block, whose rows are numbered
-      // 2J in the same way.
-      let container = viewport;
-      let order = gap * 2 - 1;
-      if (footerRows.length && gap >= viewportRows.length) {
-        container = model.footer;
-        order = (gap - viewportRows.length) * 2 - 1;
-      }
-      const nextOrder = String(order);
+      const nextOrder = String(gap * 2 - 1);
       if (node.style.order !== nextOrder) node.style.order = nextOrder;
       if (node.style.display !== "block") node.style.display = "block";
       if (node.dataset.dsoCtxGap !== String(gap)) node.dataset.dsoCtxGap = String(gap);
@@ -1147,6 +1143,31 @@ function createRuntime(ctx) {
     return merged;
   }
 
+  // The host stacks the menu's actions in a scroll viewport plus a footer block.
+  // A custom layout flattens both to display:contents so the menu itself becomes
+  // one flex sequence that can order every action, including the footer block and
+  // root-level plugin buttons. Each wrapper's shipped inline display is remembered
+  // and restored as soon as the menu is no longer customized.
+  function rememberContextShell(node) {
+    if (!node) return null;
+    let entry = state.contextShell.get(node);
+    if (!entry) {
+      entry = { display: node.style.display };
+      state.contextShell.set(node, entry);
+    }
+    return entry;
+  }
+
+  function setContextShell(model, contents) {
+    for (const node of [model.viewport, model.footer]) {
+      if (!node || node === model.menu) continue;
+      const entry = rememberContextShell(node);
+      if (!entry) continue;
+      const display = contents ? "contents" : entry.display;
+      if (node.style.display !== display) node.style.display = display;
+    }
+  }
+
   function applyContextLayout(model, kind, layout, force) {
     const customized = Boolean(layout && layout.customized);
     // Until the user customizes this menu the host layout stays exactly as it
@@ -1174,19 +1195,18 @@ function createRuntime(ctx) {
       const display = customized ? "none" : entry.display;
       if (node.style.display !== display) node.style.display = display;
     }
+    setContextShell(model, customized);
     if (!customized) {
       for (const row of model.rows) {
         const entry = rememberContextElement(row.item);
         if (entry && row.item.style.order !== entry.order) row.item.style.order = entry.order;
-        if (!row.reorderable) continue;
         if (row.item.dataset.dsoCtxId !== row.id) row.item.dataset.dsoCtxId = row.id;
       }
       removeContextDividers();
       ensureContextMoreAnchor(model, kind, []);
       return model.rows.map((row) => row.id);
     }
-    const rows = model.rows.filter((row) => row.reorderable);
-    const merged = mergeContextOrder(layout.order, rows);
+    const merged = mergeContextOrder(layout.order, model.rows);
     // Rows filed under the More anchor. Only ids still present in this menu are
     // kept, so a host action that disappears for good leaves no ghost entry in
     // the tucked list; the pruned list is written back below.
@@ -1217,19 +1237,6 @@ function createRuntime(ctx) {
       if (row.item.style.order !== order) row.item.style.order = order;
       if (row.item.dataset.dsoCtxId !== id) row.item.dataset.dsoCtxId = id;
     });
-    // Footer rows cannot be dragged, but they need their own order slots so a
-    // divider placed under 永久删除会话 (or 归档会话) lands where the user
-    // right-clicked: the footer block is the bottom of the same list.
-    if (model.footer) {
-      let at = 0;
-      for (const row of model.rows) {
-        if (row.reorderable || row.container !== model.footer) continue;
-        rememberContextElement(row.item);
-        const order = String(at * 2);
-        if (row.item.style.order !== order) row.item.style.order = order;
-        at += 1;
-      }
-    }
     // A divider below the last action (or past it) has nothing to divide and is
     // dropped, which is the rule the user asked for; write the pruned list back
     // so it does not reappear when a row is added later.
@@ -1281,6 +1288,14 @@ function createRuntime(ctx) {
       }
     }
     state.contextStyled.clear();
+    for (const [element, entry] of state.contextShell) {
+      try {
+        element.style.display = entry.display;
+      } catch (err) {
+        /* the menu may already be gone */
+      }
+    }
+    state.contextShell.clear();
     state.contextTemplate = null;
     state.contextMenu = null;
     state.contextKind = "";
@@ -1533,6 +1548,9 @@ function createRuntime(ctx) {
 
   const CONTEXT_MORE_OPEN_DELAY = 120;
   const CONTEXT_MORE_CLOSE_DELAY = 200;
+  // Host rows never set `order`, so any large value seats "More" after the footer
+  // block and the root-level buttons the host appends to the same menu.
+  const CONTEXT_MORE_ORDER = "9999";
 
   function contextTuckedRows(model, hiddenIds) {
     if (!model) return [];
@@ -1615,12 +1633,11 @@ function createRuntime(ctx) {
     }
     if (!state.ctxMoreAnchor) state.ctxMoreAnchor = buildContextMoreAnchor();
     const anchor = state.ctxMoreAnchor;
-    if (anchor.parentNode !== model.viewport) model.viewport.appendChild(anchor);
-    // Visible rows own 0,2,4...; dividers take the odd slots. Placing the anchor
-    // well past both keeps it under the last row and under any divider.
-    const reorderable = model.rows.filter((row) => row.reorderable).length;
-    const order = String(reorderable * 2 + 4);
-    if (anchor.style.order !== order) anchor.style.order = order;
+    // The host paints the menu as viewport + footer block + root-level buttons, so
+    // appending into the viewport would park "More" above the footer actions. Hanging
+    // it off the menu root with a huge order value puts it under every one of them.
+    if (anchor.parentNode !== model.menu) model.menu.appendChild(anchor);
+    if (anchor.style.order !== CONTEXT_MORE_ORDER) anchor.style.order = CONTEXT_MORE_ORDER;
     if (!state.ctxMoreOpen) return;
     if (!tucked.length) {
       closeContextMorePanel();

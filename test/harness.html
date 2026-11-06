@@ -229,6 +229,7 @@
   const log = [];
   const failures = [];
   function note(text, ok) {
+    window.__lastNote = text;
     log.push((ok ? "PASS " : "FAIL ") + text);
     if (!ok) failures.push(text);
   }
@@ -1641,7 +1642,10 @@
         Array.from(menu.querySelectorAll("[data-dso-ctx-id]")).sort(
           (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top
         );
-      const ctxLabels = (menu) => ctxVisual(menu).map((unit) => ctxLabel(unit.querySelector('[role="menuitem"]')));
+      // A portal-level contribution can be the menuitem itself instead of a
+      // wrapper around it, so never assume the menuitem is a descendant.
+      const ctxMenuItem = (unit) => (unit.matches('[role="menuitem"]') ? unit : unit.querySelector('[role="menuitem"]'));
+      const ctxLabels = (menu) => ctxVisual(menu).map((unit) => ctxLabel(ctxMenuItem(unit)));
       const ctxDividers = (menu) =>
         Array.from(menu.querySelectorAll("[data-dso-ctx-divider]"))
           .map((node) => Number(node.dataset.dsoCtxGap))
@@ -1659,13 +1663,18 @@
       await wait(120);
       assert(
         "session menu rows are tagged for dragging",
-        sessionMenu.querySelectorAll("[data-dso-ctx-id]").length === 5,
+        sessionMenu.querySelectorAll("[data-dso-ctx-id]").length === 7,
         String(sessionMenu.querySelectorAll("[data-dso-ctx-id]").length)
       );
-      assert("the menu footer row is not reorderable", !ctxUnit(sessionMenu, "归档会话"), "footer row was tagged");
+      assert(
+        "the footer action and the portal button are reorderable too",
+        !!ctxUnit(sessionMenu, "归档会话") && !!ctxUnit(sessionMenu, "记忆参与"),
+        "footer or root row was not tagged"
+      );
       assert(
         "shortcut hints stay out of the row identity",
-        ctxLabels(sessionMenu).join(",") === "置顶会话,重命名,分叉会话,复制 Session ID,在文件夹显示",
+        ctxLabels(sessionMenu).join(",") ===
+          "置顶会话,重命名,分叉会话,复制 Session ID,在文件夹显示,归档会话,记忆参与",
         ctxLabels(sessionMenu).join(",")
       );
       assert(
@@ -1746,7 +1755,11 @@
         })
       );
       await wait(220);
-      assert("a dropped menu row moves to the end", ctxLabels(sessionMenu).slice(-1)[0] === "置顶会话", ctxLabels(sessionMenu).join(","));
+      assert(
+        "a dropped menu row lands where the indicator pointed",
+        ctxLabels(sessionMenu).indexOf("置顶会话") === ctxLabels(sessionMenu).indexOf("在文件夹显示") + 1,
+        ctxLabels(sessionMenu).join(",")
+      );
       assert("reordering inside the menu keeps it open", sessionMenu.hidden === false);
       assert(
         "dividers stay at their gap when rows move past them",
@@ -1756,6 +1769,58 @@
       assert(
         "the persisted order matches the painted order",
         ctxStore().menus.session.order.join(",") === ctxVisual(sessionMenu).map((unit) => unit.dataset.dsoCtxId).join(","),
+        JSON.stringify(ctxStore().menus.session)
+      );
+
+      // The host stacks the menu in blocks (scroll viewport, footer, portal root).
+      // A custom layout flattens those wrappers to display:contents, so one flex
+      // sequence can order every action - the footer action and the button a
+      // plugin appended after the menu children drag like any other row.
+      assert(
+        "a custom layout flattens the host menu blocks",
+        document.getElementById("session-menu-viewport").style.display === "contents" &&
+          sessionMenu.querySelector("._footer_ctx").style.display === "contents",
+        "blocks not flattened"
+      );
+      const crossDrag = async (unit, pointerId, targetUnit, mode) => {
+        const rect = unit.getBoundingClientRect();
+        ctxMenuItem(unit).dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            pointerId,
+            clientX: rect.left + 12,
+            clientY: rect.top + rect.height / 2,
+          })
+        );
+        await wait(330);
+        const drop = targetUnit.getBoundingClientRect();
+        const y = mode === "before" ? drop.top + 2 : drop.bottom - 1;
+        document.dispatchEvent(
+          new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId, clientX: drop.left + 12, clientY: y })
+        );
+        document.dispatchEvent(
+          new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId, clientX: drop.left + 12, clientY: y })
+        );
+        await wait(240);
+      };
+      const footerUnit = ctxUnit(sessionMenu, "归档会话");
+      const footerId = footerUnit.dataset.dsoCtxId;
+      await crossDrag(footerUnit, 84, ctxVisual(sessionMenu)[0], "before");
+      assert("a footer action drags into the main list", ctxLabels(sessionMenu)[0] === "归档会话", ctxLabels(sessionMenu).join(","));
+      assert("the cross-block order is persisted", ctxStore().menus.session.order[0] === footerId, JSON.stringify(ctxStore().menus.session));
+      const rootUnit = ctxUnit(sessionMenu, "记忆参与");
+      const rootId = rootUnit.dataset.dsoCtxId;
+      await crossDrag(rootUnit, 85, ctxVisual(sessionMenu)[1], "before");
+      assert(
+        "a portal-level button drags into the main list",
+        ctxLabels(sessionMenu)[1] === "记忆参与",
+        ctxLabels(sessionMenu).join(",")
+      );
+      assert(
+        "the cross-block order keeps every dragged id",
+        ctxStore().menus.session.order.indexOf(rootId) !== -1 && ctxStore().menus.session.order.indexOf(footerId) !== -1,
         JSON.stringify(ctxStore().menus.session)
       );
 

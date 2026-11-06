@@ -3,6 +3,39 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.9.1 — 2026-11-06
+
+- **「更多」落到整张菜单的最末端**：0.9.0 把锚点塞在 `_viewport_` 末尾，而宿主的
+  `归档会话` 在 `_footer_`、插件按钮直挂门户根节点，所以锚点一直夹在中间。现在锚点挂在
+  菜单根节点上、`order = 9999`，无论菜单底部还有谁，`··· 更多 ›` 都是最后一行。
+- **整张菜单都能拖**：`归档会话` 这类菜单底部动作、以及插件直接挂在根节点上的按钮
+  （如 `记忆参与 · 功能全开`）现在都能长按拖动，与主体条目一起排序、一起收进「更多」，
+  也能从「更多」里拖回菜单任意位置。实现方式是在首次定制时把宿主的 `_viewport_` 与
+  `_footer_` 内联 `display` 改为 `contents`，让所有行成为菜单这个 flex 容器的直接子级；
+  未定制或重置时把宿主自己的值原样写回。
+- 注入的分隔线也随之统一挂在菜单根节点上，间隙编号仍按「看得见的行」计数，
+  `order = 2g - 1` 与行的 `order = 2i` 交错约定不变。
+- 离线用例 251 条（全绿），新增：菜单底部动作与插件根级按钮可拖动、跨容器的顺序能落库、
+  定制时两个宿主编排块被扁平化、重置后排版完整还原。
+
+### English
+
+- **"More" now sits at the very end of the menu**: 0.9.0 appended the anchor inside
+  `_viewport_`, but the host keeps `Archive` in `_footer_` and plugin buttons on the
+  portal root, so the anchor stayed wedged in the middle. It now lives on the menu
+  root with `order = 9999`, so `··· More ›` is the last row no matter what follows.
+- **The whole menu drags**: bottom actions such as `Archive` and buttons plugins add
+  to the portal root (e.g. memory participation) can now be long-pressed and dragged
+  like any other item — reordered, tucked into "More", and dragged back out. On first
+  customization the plugin sets the host's `_viewport_` and `_footer_` inline
+  `display` to `contents`, so every row becomes a direct child of the menu's flex
+  container; without customization (or after a reset) the host's own values return.
+- Injected dividers move to the menu root too; gap indices still count visible rows,
+  with the same `order = 2g - 1` / `2i` interleaving.
+- 251 offline assertions (all green), new ones covering dragging the footer action and
+  the portal-level button, persisting a cross-block order, flattening the two host
+  blocks, and restoring the layout on reset.
+
 ## 0.9.0 — 2026-11-06
 
 - **右键菜单的「更多」收纳**：菜单打开时长按拖动条目，拖到列表最底部会出现

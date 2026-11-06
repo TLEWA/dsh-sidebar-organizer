@@ -12,7 +12,8 @@ composer dock, session header, right sidebar, and settings navigation.
 > add or remove their dividers (DSH 0.2.2+); 0.8.2 fixes divider toggling and drift
 > while the menu stays open, and customizations surviving a reload; 0.8.3 keeps an order
 > saved on first customization stable even when a plugin row mounts a beat late; 0.8.4 lets the menu footer and plugin-root buttons toggle dividers too; 0.9.0 tucks items
-> into a `··· More ›` submenu at the bottom of the menu. For the full
+> into a `··· More ›` submenu at the bottom of the menu; 0.9.1 pins that row to the very
+> end of the menu and lets the bottom action and plugin buttons drag and tuck too. For the full
 > version history and downloads see [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
 
 ## What it does
@@ -67,7 +68,9 @@ composer dock, session header, right sidebar, and settings navigation.
   one that ends up below the last item is dropped. Drag an item toward the bottom
   of the list and a `··· More ›` row appears; release there and it moves into that
   row's submenu (hover to open; clicking an entry clicks the original menu item).
-  Long-press a tucked entry to drag it back anywhere in the menu. Tucking is
+  Long-press a tucked entry to drag it back anywhere in the menu. That row always
+  comes last — below `Archive` and any button a plugin appends to the menu — and
+  those bottom rows drag, reorder, and tuck like everything else. Tucking is
   refused once only one visible item is left. A dedicated "Context menus"
   switch lives on the settings page; on 0.2.1 the feature turns itself off and
   the card is not shown.
@@ -227,10 +230,11 @@ the page. Since 0.2.0 the mechanism is different:
   along the scope axis; dropping inside that scope's More rect tucks the row;
   clicks within 500 ms of a drop are swallowed.
 - Right-click menus (0.8.1, DSH 0.2.2+ only): the host renders the session and
-  workspace menus as a shared `[role="menu"][data-context-menu]` whose items are
-  flex children of their `_viewport_`. A document-capture listener remembers
-  which row opened the menu; once it exists every item gets `style.order`
-  (drag reordering) and positional dividers are injected between chosen gaps.
+  workspace menus as a shared `[role="menu"][data-context-menu]` whose main items
+  live in `_viewport_`, with `Archive` in `_footer_` and plugin buttons added
+  straight to the portal root. A document-capture listener remembers which row
+  opened the menu; once it exists every item gets `style.order` (drag
+  reordering) and positional dividers are injected between chosen gaps.
   Injected dividers carry inline `display:block` to beat the host's
   first-of-type / adjacent-separator rules, items are `order = 2i` and dividers
   `order = 2g - 1` so the two interleave without colliding, and a
@@ -241,10 +245,17 @@ the page. Since 0.2.0 the mechanism is different:
   cross-window sync. Dividers store gap indices only, so they stay in place while
   items move and a trailing gap (`gap >= row count`) is pruned before it is
   written back.
-- Context-menu tucking (0.9.0): during a drag an anchor row is appended to the
-  `_viewport_` (`div[data-dso-ctx-more]` holding one `role=menuitem` button; it is
-  kept out of `model.rows`, never gets `data-dso-ctx-id`, and takes an `order`
-  after every item). Tucked ids live in `hidden`; their rows get
+- Cross-block ordering (0.9.1): the host keeps `Archive` in `_footer_` and plugin
+  buttons on the portal root, so `style.order` alone cannot sort them against the
+  main list. On first customization the plugin sets the inline `display` of
+  `_viewport_` and `_footer_` to `contents` (remembered in `state.contextShell`), so
+  every row becomes a direct child of the menu's flex container and shares one
+  numbering; reset hands the host's own values back.
+- Context-menu tucking (0.9.0): during a drag an anchor row is added to the
+  **menu root** (`div[data-dso-ctx-more]` holding one `role=menuitem` button; it is
+  kept out of `model.rows`, never gets `data-dso-ctx-id`, and takes `order = 9999`),
+  so it always comes after `_viewport_`, `_footer_`, and plugin buttons — the very
+  last row of the menu. Tucked ids live in `hidden`; their rows get
   `display:none`, visible rows are numbered by their visible index, so divider
   gaps still point at rows you can see. Dropping on the anchor tucks (refused
   when only one visible item is left); hovering it expands a body-level
@@ -343,6 +354,7 @@ restoration).
 - [x] 0.8.3 — first customization saves document order (a plugin row measured at 0px can no longer corrupt it), and pruning waits for the menu to finish mounting
 - [x] 0.8.4 — the menu footer and plugin-root buttons take part in divider gap numbering (only the last action is a no-op)
 - [x] 0.9.0 — right-click menu tucking: drop at the bottom to move an item into a `··· More ›` submenu, long-press to drag it back
+- [x] 0.9.1 — "More" is pinned to the very end of the menu, and the footer action / plugin-root buttons drag and tuck like any other row
 
 ## Notices
 
