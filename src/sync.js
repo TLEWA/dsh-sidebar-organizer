@@ -41,6 +41,11 @@ let syncClaiming = false;
 // the switch would immediately publish those private edits over the other window.
 let syncForceAdopt = false;
 let syncPushTimer = 0;
+// When the pending push timer fires (ms since epoch), and whether it must push
+// even without a user-made layout. A retry timer must not delay a new edit.
+let syncPushTimerAt = 0;
+let syncPushForce = false;
+let syncPullTimer = 0;
 let syncPushRunning = false;
 let syncPushQueued = false;
 let syncResetQueued = false;
@@ -107,11 +112,26 @@ function noteLocalChange(options) {
 }
 
 function scheduleHostPush(delay, force) {
-  if (syncPushTimer) return;
+  const wait = typeof delay === "number" ? delay : SYNC_PUSH_DELAY_MS;
+  const due = Date.now() + wait;
+  if (syncPushTimer) {
+    // A 5 s retry timer used to block every edit made during the outage, so a
+    // new layout waited for the retry. Keep whichever fires first and remember
+    // a force request so replacing the retry does not downgrade it.
+    syncPushForce = syncPushForce || Boolean(force);
+    if (syncPushTimerAt <= due) return;
+    window.clearTimeout(syncPushTimer);
+    syncPushTimer = 0;
+  }
+  syncPushForce = Boolean(force);
+  syncPushTimerAt = due;
   syncPushTimer = window.setTimeout(() => {
     syncPushTimer = 0;
-    pushHostLayout(force);
-  }, typeof delay === "number" ? delay : SYNC_PUSH_DELAY_MS);
+    syncPushTimerAt = 0;
+    const forced = syncPushForce;
+    syncPushForce = false;
+    pushHostLayout(forced);
+  }, wait);
 }
 
 async function pushHostLayout(force) {
@@ -209,7 +229,9 @@ async function pullHostLayout() {
       // The host route may not be mounted yet while the app is still booting.
       const delay = 1000 * Math.pow(2, syncPullAttempts);
       syncPullAttempts += 1;
-      window.setTimeout(() => {
+      if (syncPullTimer) window.clearTimeout(syncPullTimer);
+      syncPullTimer = window.setTimeout(() => {
+        syncPullTimer = 0;
         pullHostLayout();
       }, delay);
     }
@@ -333,6 +355,29 @@ function startHostSync() {
   };
   if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => begin());
   else begin();
+}
+
+// Counterpart of startHostSync: a hot reload applies the plugin again into the
+// same page, and the previous instance's wake listeners and retry timers must
+// not survive it (they would pull/push a layout for a runtime that is gone).
+function stopHostSync() {
+  if (!syncStarted) return;
+  syncStarted = false;
+  document.removeEventListener("visibilitychange", onSyncWake);
+  window.removeEventListener("focus", onSyncWake);
+  if (syncPushTimer) {
+    window.clearTimeout(syncPushTimer);
+    syncPushTimer = 0;
+  }
+  syncPushTimerAt = 0;
+  syncPushForce = false;
+  if (syncPullTimer) {
+    window.clearTimeout(syncPullTimer);
+    syncPullTimer = 0;
+  }
+  syncPushQueued = false;
+  syncResetQueued = false;
+  syncPullAttempts = 0;
 }
 
 

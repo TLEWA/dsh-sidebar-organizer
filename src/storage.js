@@ -164,6 +164,11 @@ function writeScope(scope, layout, options) {
   if (next.order.length || next.hidden.length) state.scopes[scope] = next;
   else delete state.scopes[scope];
   writeState(state);
+  // A layout the user arranged by hand is never "repaired" again: the one-shot
+  // 0.5.4 fix recognises an appended row by its shape, and a deliberate move to
+  // the end looks exactly like it. Marking the scope here means the fix can
+  // only ever touch layouts that predate this build.
+  if (options && options.user) markScopeRepaired(scope);
   noteLocalChange(options);
 }
 
@@ -325,27 +330,49 @@ function writeDragEnabled(scope, enabled) {
 // configured: the six-scope layout plus the per-section drag switches. The
 // repair ledger and the disabled kill switch are local runtime bookkeeping and
 // deliberately stay out of it.
+// readHostActions() runs inside every layout pass, and the store only changes
+// when this plugin writes it, so the last parse is memoised against its raw
+// string. Callers merge entries into the map before writing it back, so the
+// memo is never handed out directly.
+let hostActionsCacheRaw = null;
+let hostActionsCache = null;
+
 function readHostActions() {
+  let raw = "";
   try {
-    const raw = window.localStorage.getItem(HOST_ACTION_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const out = {};
-    for (const key of Object.keys(parsed)) {
-      const info = parsed[key];
-      if (!key || !info || typeof info.label !== "string") continue;
-      out[key] = { label: info.label, icon: typeof info.icon === "string" ? info.icon : "" };
-    }
-    return out;
+    raw = window.localStorage.getItem(HOST_ACTION_KEY) || "";
   } catch (err) {
     return {};
   }
+  if (hostActionsCache && hostActionsCacheRaw === raw) return Object.assign({}, hostActionsCache);
+  const out = {};
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const key of Object.keys(parsed)) {
+          const info = parsed[key];
+          if (!key || !info || typeof info.label !== "string") continue;
+          out[key] = { label: info.label, icon: typeof info.icon === "string" ? info.icon : "" };
+        }
+      }
+    } catch (err) {
+      // A corrupted store reads as empty and is rebuilt on the next menu open.
+    }
+  }
+  hostActionsCacheRaw = raw;
+  hostActionsCache = out;
+  return Object.assign({}, out);
 }
 
 function writeHostActions(map) {
+  const value = map || {};
+  // Keep the memo in step even if storage rejects the write: the in-memory copy
+  // is what the caller just acted on.
+  hostActionsCache = value;
+  hostActionsCacheRaw = null;
   try {
-    window.localStorage.setItem(HOST_ACTION_KEY, JSON.stringify(map || {}));
+    window.localStorage.setItem(HOST_ACTION_KEY, JSON.stringify(value));
   } catch (err) {
     /* storage may be unavailable */
   }

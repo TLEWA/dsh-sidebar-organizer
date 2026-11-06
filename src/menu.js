@@ -210,7 +210,10 @@ function createMenuEntry(region) {
       const hidden = runtime.hiddenIds("tabs");
       if (!hidden.length) return undefined;
       return hideFoldedTuckedRows(menu, new Set(hidden), props && props.entries);
-    });
+      // Without a dependency list this ran on *every* render, scanning the whole
+      // menu for rows each time. The runtime notification (force) and the entry
+      // list are what actually change the folded rows.
+    }, [region, props && props.entries, force, runtimeInstance]);
 
     const runtime = runtimeInstance;
     if (!runtime) return null;

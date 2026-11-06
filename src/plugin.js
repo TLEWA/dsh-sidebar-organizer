@@ -102,6 +102,7 @@ function apply(ctx) {
       if (runtime) runtime.stop();
       if (runtimeInstance === runtime) runtimeInstance = null;
       runtime = null;
+      stopHostSync();
     };
   });
 
@@ -246,6 +247,7 @@ function apply(ctx) {
       if (runtime) runtime.stop();
       runtime = null;
       runtimeInstance = null;
+      stopHostSync();
     },
     status: () => {
       if (!runtime) return { version: VERSION, scopes: {} };

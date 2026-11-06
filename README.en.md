@@ -18,7 +18,10 @@ composer dock, session header, right sidebar, and settings navigation.
 > invisible after being dragged back out of "More", and dividers landing one row low once the menu
 > had been reordered; 0.9.5 adds drag ordering for dsh-sidebar-row-menu's conversation-body context
 > menu and its "Open with" / "More actions" submenus, and fixes reordering inside the tucked "More"
-> panel plus the drag ghost being covered by row-menu's menu. For the full
+> panel plus the drag ghost being covered by row-menu's menu; 0.9.6 is a stability and performance
+> release that stops layout updates from being dropped for good, cancelled gestures from writing
+> the layout, and timers/listeners from surviving a disable or reload, fixes several settings-page
+> and context-menu mix-ups, and removes dead code. For the full
 > version history and downloads see [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
 
 ## What it does
@@ -128,7 +131,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.9.5
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.9.6
 ```
 
 ### From npm
@@ -411,6 +414,7 @@ restoration).
 - [x] 0.9.3 — opening a menu no longer forces a style recalc (the mirror reads the host's CSS variables and follows `data-menu-phase`), the opening fade returns without flicker, and the "More" shrink feedback is back
 - [x] 0.9.4 — a long-press on a submenu no longer drags its parent row, tucked entries keep their icons, rows stay visible after being dragged back out of "More", the popup matches dsh-sidebar-row-menu, and dividers land in painted order
 - [x] 0.9.5 — dsh-sidebar-row-menu integration (conversation-body menu first level and its Open with / More actions submenus); fixes reordering inside the tucked "More" panel and the drag ghost's z-index
+- [x] 0.9.6 — stability and performance: layout updates are no longer dropped for good, cancelled gestures no longer write the layout, disabling cleans up timers and listeners; settings-page drag-drop and cross-window toggles fixed, dead code removed
 
 ## Notices
 

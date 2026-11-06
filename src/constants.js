@@ -5,7 +5,6 @@ const VERSION = "__VERSION__";
 
 const PLUGIN_ID = "dsh-sidebar-organizer";
 const PANEL_SLOT = "sidebar.panellist";
-const ACTIONS_SLOT = "sidebar.panellist.actions";
 const FOOTER_SLOT = "sidebar.footer.action";
 const TABS_SLOT = "conversation.view";
 const COMPOSER_SLOT = "conversation.composer.dock";
@@ -116,6 +115,10 @@ const MOVE_TOLERANCE = 8;
 const CLICK_GUARD_MS = 500;
 const PASS_LIMIT = 90;
 const PASS_WINDOW_MS = 3000;
+// How long a pass skipped by the loop watchdog waits before retrying.
+const PASS_RETRY_MS = 400;
+// How long a right-click's menu-kind hint may be used by the first sync.
+const CONTEXT_PENDING_TTL = 2000;
 // dsh-sidebar-row-menu's blank menu is fixed at 2147483647; the ghost is
 // appended to <body> after it, so an equal z-index wins on DOM order while a
 // lower one would hide the dragged row behind that menu.
@@ -147,6 +150,7 @@ const STRINGS = {
     down: "下移",
     empty: "此位置暂无可整理项",
     pinned: "固定",
+    fixed: "宿主固定，位置不可调",
     more: "更多",
     moreMenu: "已收纳的设置项",
     drag: "拖动",
@@ -201,6 +205,7 @@ const STRINGS = {
     down: "Move down",
     empty: "Nothing to organize here yet",
     pinned: "Pinned",
+    fixed: "Fixed by the host, cannot be moved",
     more: "More",
     moreMenu: "Hidden settings items",
     drag: "Drag",

@@ -3,6 +3,65 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.9.6 — 2026-11-06
+
+一次以稳定性、性能与代码清理为主的版本：完整审查了运行时、设置页与宿主端代码，修掉布局更新被丢弃、
+取消手势仍然写盘、禁用后残留回调等问题，并删除了一批死代码。交互与视觉与 0.9.5 一致。
+
+- **布局更新不再会被永久丢弃**：某个区域这一轮发现 0 行时，上一轮记下的容器与行不会被清空，导致打开过
+  一次设置后每个 DOM 变更都触发全量重排；现在「没找到」与「找到 0 行」都会清空。重排看门狗超过阈值时
+  也不再直接放弃，而是等 400ms 后重置计数再试一次。
+- **取消手势不再写布局**：触摸被系统中断（pointercancel）不再走「松手提交」路径，不会收纳或重排；
+  拖影动画被取消（Esc、失焦、插件停止）时也不再执行原地的提交回调。
+- **禁用与热重载清理**：插件被禁用后不再继续响应 refresh / 重排；`stop()` 会清掉「更多」定时器、
+  复位重排调度、移除注入到宿主菜单里的按钮；跨窗口同步的 visibilitychange / focus 监听有了对称的
+  `stopHostSync()`，禁用后不再残留回调。
+- **用户把行拖到最后不会被当成坏数据回滚**：0.5.4 数据的一次性修复只对「非用户写入」生效，不再把
+  用户自己的排序判成错位并回滚。
+- **设置页与右键菜单**：设置里的「更多」芯片与「已定制」判断会过滤已消失的行；右键菜单的待定类型只
+  消费一次，不会跨菜单串味；菜单里尺寸为 0×0 的行不再把落区撑成全屏、也不会被排到最前面；行-menu
+  注入的「更多」行会复制 `aria-disabled`，禁用项不再可点。
+- **交互细节**：录制拖动热键时按 Esc 可以取消（插件详情页里的内联设置不再一直吞键盘）；`Alt+↑/↓`
+  长按只移动一格；设置页可以把行拖到列表末尾、拖拽经过时高亮不再闪烁、查找索引从 O(n²) 降到 O(n)；
+  两个窗口同时打开时，开关状态会即时同步。
+- **性能**：DOM 监听只在确有布局变化或菜单打开时同步菜单，不再每个 mutation 都跑三次全文档查询；
+  拖拽中的滚动用 rAF 合并；row-menu 面板先统一测量再写样式，避免逐个 reflow；宿主动作清单做了缓存，
+  不再每次重排都解析一遍 JSON。
+- **代码清理**：删掉恒为 true 的 `reorderable` 判断与 7 处过滤、只 remove 从未 add 的 `dso-pressing`、
+  无人读取的字段、恒假分支与死常量，合并了 `collectUnits` / `headerHiddenRows` 等重复实现。
+  宿主端会先看 Content-Length 拒绝超大请求，布局文件损坏时写警告日志而不是被静默覆盖。
+
+### English
+
+- **A layout update can no longer be dropped for good**: when a scope found zero rows this round, the
+  container and rows remembered from the previous round were kept, so after opening the settings page
+  once every DOM mutation triggered a full pass; both "not found" and "found zero rows" now clear the
+  record. The pass watchdog also retries after 400ms instead of giving up permanently.
+- **Cancelled gestures no longer write the layout**: a system-cancelled touch (pointercancel) no longer
+  takes the "release to commit" path, so it cannot tuck or reorder; a cancelled ghost animation
+  (Esc, blur, plugin stop) no longer runs the commit callback either.
+- **Disable and hot-reload cleanup**: a disabled plugin no longer keeps reacting to refresh / passes;
+  `stop()` clears the tuck timer, resets the pass schedule and removes the buttons injected into the
+  host menu; the cross-window visibilitychange / focus listeners now have a matching `stopHostSync()`.
+- **Dragging a row to the end is no longer treated as corrupt data**: the one-shot 0.5.4 repair only
+  runs for non-user writes, so it can no longer roll back the user's own ordering.
+- **Settings page and context menus**: the "More" chip and the "customized" check ignore ids that no
+  longer exist; a pending context-menu kind is consumed once and cannot leak across menus; rows measured
+  at 0×0 no longer inflate the drop area to the whole viewport or get sorted to the front; the "More"
+  rows injected into row-menu copy `aria-disabled`, so disabled entries are no longer clickable.
+- **Interaction details**: pressing Esc while recording a drag hotkey cancels it (the inline settings
+  page no longer swallows the keyboard); `Alt+↑/↓` moves one step per keypress; the settings list can
+  drop at the very end, drag-over no longer flickers, and its index lookup is O(n) instead of O(n²);
+  two open windows now share toggle state immediately.
+- **Performance**: the DOM observer only syncs menus when the layout changed or a menu is open, instead
+  of running three document-wide queries per mutation; scrolling while dragging is coalesced with rAF;
+  row-menu panes are measured first and styled in one go; the host action list is cached instead of
+  re-parsed on every pass.
+- **Cleanup**: removed the always-true `reorderable` checks (and seven filters), the never-added
+  `dso-pressing` class, unread fields, dead constants and an always-false branch; merged duplicated
+  helpers (`collectUnits`, `headerHiddenRows`). The host half rejects oversized bodies by
+  Content-Length and logs a warning for a corrupt layout file instead of silently overwriting it.
+
 ## 0.9.5 — 2026-11-06
 
 - **联动 dsh-sidebar-row-menu**：会话正文右键菜单（row-menu 自绘）的一级行，以及「打开方式」「更多操作」

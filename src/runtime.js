@@ -5,6 +5,9 @@ function createRuntime(ctx) {
     stopped: false,
     passScheduled: false,
     passTimes: [],
+    // Set by the watchdog: a backed-off pass must still run once the window
+    // idles, otherwise a layout update is lost until the next DOM change.
+    passRetryTimer: 0,
     gesture: null,
     guardUntil: 0,
     pollTimer: 0,
@@ -38,9 +41,11 @@ function createRuntime(ctx) {
     // menu - including 归档会话 and root-level plugin buttons - shares one flex
     // sequence and can be ordered against each other.
     contextShell: new Map(),
+  contextFlattened: false,
     contextDividerNodes: [],
     contextTemplate: null,
     contextFrame: 0,
+  scrollFrame: 0,
     contextPendingKind: "",
     contextPendingAt: 0,
     contextOpenedAt: 0,
@@ -120,10 +125,13 @@ function createRuntime(ctx) {
   // ordinary More target for dragging, but it needs its own popup: a small
   // body-level list of tucked rows, whose items reuse data-dso-more-key so the
   // existing drag source/reorder logic works unchanged.
-  function settingsHiddenRows() {
-    const found = state.found.settings;
+  // Tucked rows of a scope whose popup this plugin injects itself (the settings
+  // nav and the session header's shipped menu). The id is the identity; the
+  // label is what the row shows.
+  function tuckedRowsFor(scope) {
+    const found = state.found[scope];
     if (!found) return [];
-    const layout = normalizedLayout("settings");
+    const layout = normalizedLayout(scope);
     const out = [];
     for (const id of layout.hidden) {
       const row = rowFor(found, id);
@@ -161,7 +169,7 @@ function createRuntime(ctx) {
   }
 
   function openSettingsMoreMenu(anchor) {
-    const rows = settingsHiddenRows();
+    const rows = tuckedRowsFor("settings");
     if (!rows.length) return;
     closeSettingsMoreMenu();
     const text = strings();
@@ -202,18 +210,6 @@ function createRuntime(ctx) {
     const found = state.found.header;
     if (!found) return null;
     return found.moreTarget || found.more || null;
-  }
-
-  function headerHiddenRows() {
-    const found = state.found.header;
-    if (!found) return [];
-    const layout = normalizedLayout("header");
-    const out = [];
-    for (const id of layout.hidden) {
-      const row = rowFor(found, id);
-      if (row) out.push({ id, label: row.label || id });
-    }
-    return out;
   }
 
   function menuDistance(anchorRect, rect) {
@@ -326,7 +322,7 @@ function createRuntime(ctx) {
     // order must survive reloads, and the shelf must keep sorting above the
     // shipped rows.
     applyHostMenuOrder(menu);
-    const rows = headerHiddenRows();
+    const rows = tuckedRowsFor("header");
     if (!rows.length) {
       state.headerMenu = menu;
       removeHeaderMenuBlock();
@@ -767,7 +763,7 @@ function createRuntime(ctx) {
     // A click synthesized by the browser right after a drag belongs to the
     // drop, not to the row (the anchor has the same rule).
     if (Date.now() < state.guardUntil) return;
-    const parsed = parseMenuRow(item);
+    const parsed = menuKey(item);
     dismissHeaderMenu();
     if (parsed) activate(parsed.scope, parsed.id);
   }
@@ -784,7 +780,7 @@ function createRuntime(ctx) {
     const item = target.closest(".dso-settings-more-item");
     if (item) {
       if (!state.settingsMenu || !state.settingsMenu.contains(item)) return;
-      const parsed = parseMenuRow(item);
+      const parsed = menuKey(item);
       closeSettingsMoreMenu();
       if (parsed) activate(parsed.scope, parsed.id);
       return;
@@ -889,7 +885,11 @@ function createRuntime(ctx) {
     if (!viewport) return null;
     const chain = [];
     let node = menuitem;
-    while (node && node !== menu && chain.length < 14) {
+    // Deep enough for a plugin slot wrapped in several display:contents layers
+    // plus the host's own wrappers; the bound only exists so a detached row
+    // cannot walk the whole document, and bailing out silently drops the row
+    // from the menu, so keep it generous.
+    while (node && node !== menu && chain.length < 64) {
       chain.push(node);
       node = node.parentElement;
     }
@@ -923,7 +923,7 @@ function createRuntime(ctx) {
         break;
       }
     }
-    return { container, item, reorderable: true };
+    return { container, item };
   }
 
   // The row label is the row's identity (the host assigns no ids). Shortcut
@@ -997,7 +997,6 @@ function createRuntime(ctx) {
         label,
         dom: dom,
         container: entry.part.container,
-        reorderable: entry.part.reorderable,
         rect: item.getBoundingClientRect(),
       });
       dom += 1;
@@ -1164,6 +1163,9 @@ function createRuntime(ctx) {
   }
 
   function setContextShell(model, contents) {
+    // Remembered so the mirror step below knows whether this menu was flattened:
+    // a pristine menu keeps the host's own fade and must not be touched.
+    state.contextFlattened = !!contents;
     for (const node of [model.viewport, model.footer]) {
       if (!node || node === model.menu) continue;
       const entry = rememberContextShell(node);
@@ -1343,7 +1345,7 @@ function createRuntime(ctx) {
   function syncContextMirror(menu, force) {
     if (!menu || !menu.isConnected) return;
     // Only a flattened menu has lost the host's fade; leave a pristine menu be.
-    if (!state.contextShell.size) return;
+    if (!state.contextFlattened) return;
     const phase = String(menu.getAttribute("data-menu-phase") || "");
     if (!force && phase === state.contextMirrorPhase) return;
     state.contextMirrorPhase = phase;
@@ -1409,6 +1411,7 @@ function createRuntime(ctx) {
       }
     }
     state.contextShell.clear();
+    state.contextFlattened = false;
     if (state.contextPhaseObserver) {
       state.contextPhaseObserver.disconnect();
       state.contextPhaseObserver = null;
@@ -1488,12 +1491,19 @@ function createRuntime(ctx) {
     if (row) toggleContextDivider(row);
   }
 
-  // The pending kind comes from the right-click that opened the menu. It is only
-  // trusted for a moment: a menu the user keeps open re-renders later (hover),
-  // and by then the stale pending value must not classify a different menu.
+  // The pending kind comes from the right-click that opened the menu. It is
+  // consumed by the first sync that classifies a menu: a single stale hint is
+  // enough to misclassify the *next* menu (and then persist its rows under the
+  // wrong key), so it is never reused. The trust window only covers a menu the
+  // user keeps open across re-renders.
   function resolveContextKind(model) {
     const pending = state.contextPendingKind;
-    if (pending && Date.now() - state.contextPendingAt < 2000) return pending;
+    if (pending) {
+      const at = state.contextPendingAt;
+      state.contextPendingKind = "";
+      state.contextPendingAt = 0;
+      if (Date.now() - at < CONTEXT_PENDING_TTL) return pending;
+    }
     return contextKindFromLabels(model.rows.map((row) => row.label));
   }
 
@@ -1662,11 +1672,17 @@ function createRuntime(ctx) {
       clearRowMenuStyles();
       return;
     }
+    // Two phases: every measurement first, then every write. Interleaving them
+    // forced one synchronous reflow per pane.
+    const infos = [];
     for (const pane of rowMenuPanes()) {
       const rect = pane.getBoundingClientRect();
       if (!rect.width && !rect.height) continue;
       const info = rowMenuPaneInfo(pane);
       if (!info || !info.rows.length) continue;
+      infos.push(info);
+    }
+    for (const info of infos) {
       // 更多操作 is row-menu's view of the host More popup: its order is owned
       // by the host key the plugin already reads, so persist and paint there.
       const saved = info.name === "more" ? readHostMenuOrder() : readRowMenuPane(info.name).order;
@@ -1724,7 +1740,11 @@ function createRuntime(ctx) {
     if (!pane || !pane.isConnected) return false;
     const info = rowMenuPaneInfo(pane);
     if (!info || !info.rows.length) return false;
-    const visual = info.rows.slice().sort((a, b) => a.rect.top - b.rect.top);
+    // Rows that have not been laid out (a collapsed group) measure 0x0 at
+    // (0,0); sorting them with the rest put them first and persisted that order.
+    const measured = info.rows.filter((row) => row.rect && (row.rect.width > 0 || row.rect.height > 0));
+    const unmeasured = info.rows.filter((row) => measured.indexOf(row) === -1);
+    const visual = measured.slice().sort((a, b) => a.rect.top - b.rect.top);
     const from = visual.findIndex((row) => row.id === gesture.id);
     if (from === -1) return false;
     const dragged = visual[from];
@@ -1732,6 +1752,9 @@ function createRuntime(ctx) {
     let at = beforeId ? rest.findIndex((row) => row.id === beforeId) : rest.length;
     if (at === -1) at = rest.length;
     rest.splice(at, 0, dragged);
+    // Keep the unmeasured rows, in their stored relative order, at the end:
+    // dropping them here would erase their entries from the saved order.
+    const finalIds = rest.map((row) => row.id).concat(unmeasured.map((row) => row.id));
     if (info.name === "more") {
       // Keep the labels row-menu does not list right now at the end so the host
       // key stays a complete ranking instead of losing entries on every drag.
@@ -1743,11 +1766,11 @@ function createRuntime(ctx) {
       writeHostMenuOrder(labels);
       recordRowMenuHostWrite(labels);
     } else {
-      writeRowMenuPane(info.name, rest.map((row) => row.id));
+      writeRowMenuPane(info.name, finalIds);
     }
     const fresh = rowMenuPaneInfo(pane);
     if (fresh) {
-      const saved = info.name === "more" ? readHostMenuOrder() : rest.map((row) => row.id);
+      const saved = info.name === "more" ? readHostMenuOrder() : finalIds;
       applyRowMenuPane(fresh, saved, true);
     }
     return true;
@@ -1760,7 +1783,6 @@ function createRuntime(ctx) {
     const hidden = new Set(readContextMenuLayout(state.contextKind).hidden);
     const items = [];
     for (const row of model.rows) {
-      if (!row.reorderable) continue;
       if (hidden.has(row.id)) continue;
       if (!row.item.isConnected) continue;
       const rect = row.item.getBoundingClientRect();
@@ -1887,7 +1909,7 @@ function createRuntime(ctx) {
     const gap = index + 1;
     if (gap >= painted.length) return false;
     const current = readContextMenuLayout(kind);
-    const rows = model.rows.filter((item) => item.reorderable);
+    const rows = model.rows;
     const layout = {
       // First toggle: take the host's document order, not the measured order.
       // A menu that just re-rendered can measure a row at 0px and sorting by
@@ -1999,14 +2021,14 @@ function createRuntime(ctx) {
     // made the drop look like it did nothing.
     for (const id of hiddenIds) {
       const row = model.ids.get(id);
-      if (!row || !row.reorderable || seen.has(id)) continue;
+      if (!row || seen.has(id)) continue;
       seen.add(id);
       out.push(row);
     }
     // A row hidden by an older layout (or by another window) may not be listed
     // first; append it in document order so it never disappears from the popup.
     for (const row of model.rows) {
-      if (!row.reorderable || !hidden.has(row.id) || seen.has(row.id)) continue;
+      if (!hidden.has(row.id) || seen.has(row.id)) continue;
       seen.add(row.id);
       out.push(row);
     }
@@ -2111,12 +2133,23 @@ function createRuntime(ctx) {
     );
   }
 
+  // A host row can be disabled ("disabled" here means the host dimmed it with
+  // aria-disabled; the menu body still shows it because the host renders it).
+  // The injected copy has no state of its own, so it has to carry that flag or
+  // it would offer an action the host refuses.
+  function contextRowDisabled(row) {
+    const host = row && (row.menuitem || row.item);
+    return !!host && host.getAttribute("aria-disabled") === "true";
+  }
+
   function buildContextMoreRow(row) {
+    const disabled = contextRowDisabled(row);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "dso-ctx-panel-row";
     button.setAttribute("role", "menuitem");
     button.setAttribute("data-dso-ctx-more-key", row.id);
+    if (disabled) button.setAttribute("aria-disabled", "true");
     const icon = contextRowIcon(row);
     if (icon) {
       const wrapper = document.createElement("span");
@@ -2136,13 +2169,14 @@ function createRuntime(ctx) {
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (contextRowDisabled(row)) return;
       invokeContextMoreRow(row.id);
     });
     return button;
   }
 
   function renderContextMorePanel(model, tucked) {
-    const signature = tucked.map((row) => row.id).join("|");
+    const signature = tucked.map((row) => row.id + (contextRowDisabled(row) ? "!" : "")).join("|");
     let panel = state.ctxMorePanel;
     if (!panel || !panel.isConnected) {
       panel = document.createElement("div");
@@ -2269,7 +2303,7 @@ function createRuntime(ctx) {
     if (!model || !kind || !model.menu || !model.menu.isConnected) return false;
     const current = readContextMenuLayout(kind);
     if (current.hidden.indexOf(id) !== -1) return false;
-    const rows = model.rows.filter((row) => row.reorderable);
+    const rows = model.rows;
     const visible = rows.filter((row) => current.hidden.indexOf(row.id) === -1);
     // Never tuck the last remaining action: the menu would be left with a bare
     // More row and the tucked action could not be reached again from a menu
@@ -2296,7 +2330,7 @@ function createRuntime(ctx) {
     if (!model || !kind || !model.menu || !model.menu.isConnected) return false;
     const current = readContextMenuLayout(kind);
     if (current.hidden.indexOf(id) === -1) return false;
-    const rows = model.rows.filter((row) => row.reorderable);
+    const rows = model.rows;
     const ids = mergeContextOrder(
       current.customized ? current.order : rows.slice().sort((a, b) => a.dom - b.dom).map((row) => row.id),
       rows
@@ -2491,10 +2525,7 @@ function createRuntime(ctx) {
       const hiddenSet = new Set(layout.hidden);
       const visible = layout.order.filter((id) => !hiddenSet.has(id) && hostIds.indexOf(id) !== -1);
       const hostVisible = hostIds.filter((id) => visible.indexOf(id) !== -1);
-      if (visible.length !== hostVisible.length) continue;
-      for (let index = 0; index < visible.length; index += 1) {
-        if (visible[index] !== hostVisible[index]) return true;
-      }
+      if (!isSameOrder(visible, hostVisible)) return true;
       if (layout.hidden.some((id) => hostIds.indexOf(id) !== -1)) return true;
     }
     return false;
@@ -2556,8 +2587,10 @@ function createRuntime(ctx) {
       applyDisplay(found.more, false);
     } else if (found.more) {
       // Settings only grows its "More" row while something is tucked: with an
-      // empty shelf the extra control would just be another dead row.
-      const showMore = scope === "settings" ? layout.hidden.length > 0 : true;
+      // empty shelf the extra control would just be another dead row. Count
+      // only rows that still exist: a tucked row the host has since removed
+      // left its id in the saved list and kept an empty "More" chip alive.
+      const showMore = scope === "settings" ? layout.hidden.some((id) => byId.has(id)) : true;
       applyOrder(found.more, tailBase + tails.length + 1);
       applyDisplay(found.more, !showMore);
       if (!showMore) closeSettingsMoreMenu();
@@ -2580,6 +2613,14 @@ function createRuntime(ctx) {
     state.passTimes = state.passTimes.filter((time) => now - time < PASS_WINDOW_MS);
     if (state.passTimes.length > PASS_LIMIT) {
       warnOnce("watchdog", "layout pass loop detected; backing off");
+      if (!state.passRetryTimer) {
+        state.passRetryTimer = window.setTimeout(() => {
+          state.passRetryTimer = 0;
+          if (state.stopped) return;
+          state.passTimes = [];
+          schedulePass();
+        }, PASS_RETRY_MS);
+      }
       return;
     }
     state.passTimes.push(now);
@@ -2596,11 +2637,15 @@ function createRuntime(ctx) {
         found = null;
       }
       if (!found) {
-        if (def.key === "header") state.found.header = null;
+        // Drop the previous snapshot: a stale container keeps being treated as
+        // "still connected" by relevantMutation and canHide/buildSnapshot, so
+        // keeping it made every later mutation look significant.
+        state.found[def.key] = null;
         warnOnce(`missing:${def.key}`, `no rows found for scope "${def.key}"`);
         continue;
       }
       if (!found.rows.length && def.key !== "header") {
+        state.found[def.key] = null;
         warnOnce(`missing:${def.key}`, `no rows found for scope "${def.key}"`);
         continue;
       }
@@ -2815,12 +2860,16 @@ function createRuntime(ctx) {
     const scopes = scope ? [scope] : SCOPE_KEYS;
     for (const key of scopes) {
       const layout = readScope(key);
-      if (layout.hidden.length) return true;
       const found = state.found[key];
-      if (!found) continue;
+      if (!found) {
+        if (layout.hidden.length) return true;
+        continue;
+      }
       // Compare only rows the host currently exposes: remembered ids for
-      // temporarily absent rows are not a customization.
+      // temporarily absent rows are not a customization, and a tucked row the
+      // host has removed must not keep the scope "customized" forever.
       const present = new Set(found.rows.map((row) => row.id));
+      if (layout.hidden.some((id) => present.has(id))) return true;
       const visible = layout.order.filter((id) => present.has(id) && layout.hidden.indexOf(id) === -1);
       const defaultOrder = found.rows.map((row) => row.id);
       if (!isSameOrder(visible, defaultOrder)) return true;
@@ -2883,8 +2932,16 @@ function createRuntime(ctx) {
   function onHotkeyCaptureKey(event) {
     if (!state.hotkeyCapturing) return;
     // Escape belongs to the host dialog (it closes it, ending the recording);
-    // swallowing it here would only strand the recorder in a dead dialog.
-    if (event.key === "Escape") return;
+    // swallowing it here would only strand the recorder in a dead dialog. The
+    // recorder still receives it, because the settings page is also rendered
+    // inline in the plugin detail where no dialog exists to close.
+    if (event.key === "Escape") {
+      if (event.type === "keydown") {
+        const cancelHandler = state.hotkeyCaptureHandler;
+        if (cancelHandler) cancelHandler(event);
+      }
+      return;
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.type !== "keydown") return;
@@ -3104,10 +3161,6 @@ function createRuntime(ctx) {
     return { scope: raw.slice(0, at), id: raw.slice(at + 1) };
   }
 
-  function parseMenuRow(element) {
-    return menuKey(element);
-  }
-
   // Rows are stored in host DOM order, but `style.order` can make the visible
   // order different. Drop indexes are expressed in VISUAL order (the same
   // order `reorder` uses), so the snapshot must be sorted by geometry, not by
@@ -3154,9 +3207,14 @@ function createRuntime(ctx) {
     const menuItems = [];
     if (gesture.source === "menu") {
       for (const node of document.querySelectorAll("[data-dso-more-key]")) {
-        const parsed = parseMenuRow(node);
+        const parsed = menuKey(node);
         if (!parsed || parsed.scope !== gesture.scope) continue;
-        menuItems.push({ id: parsed.id, element: node, rect: node.getBoundingClientRect() });
+        const rect = node.getBoundingClientRect();
+        // A row the menu has not laid out yet (a submenu still collapsed)
+        // measures 0x0 at (0,0) and used to stretch the drop area over the whole
+        // viewport; it must not take part in hit-testing.
+        if (!rect.width && !rect.height) continue;
+        menuItems.push({ id: parsed.id, element: node, rect });
       }
       menuItems.sort((a, b) => a.rect.top - b.rect.top);
     }
@@ -3284,7 +3342,7 @@ function createRuntime(ctx) {
     clone.removeAttribute("data-dso-scope");
     clone.removeAttribute("data-dso-hidden");
     clone.removeAttribute("data-dso-more-key");
-    clone.classList.remove("dso-dragging", "dso-pressing", "dso-ghost-armed");
+    clone.classList.remove("dso-dragging", "dso-ghost-armed");
     clone.classList.add("dso-ghost");
     // Radius is often declared with a custom property defined on an ancestor
     // (the right guide sets --dsl-guide-entry-radius on `.p2k40q_guide`). The
@@ -3354,7 +3412,7 @@ function createRuntime(ctx) {
     if (gesture.ghost) gesture.ghost.remove();
     if (gesture.indicator) gesture.indicator.remove();
     if (gesture.element && gesture.element.classList) {
-      gesture.element.classList.remove("dso-dragging", "dso-pressing");
+      gesture.element.classList.remove("dso-dragging");
     }
     if (gesture.element && gesture.pointerId !== undefined) {
       try {
@@ -3789,8 +3847,9 @@ function createRuntime(ctx) {
           if (after) after();
         },
         () => {
-          if (state.gesture === gesture) endGesture(true);
-          if (after) after();
+          // The flight was interrupted (Escape, window blur, dispose). The drop
+          // never happened, so its commit must not run behind a closed menu.
+          if (state.gesture === gesture) cancelGesture();
         }
       );
     } else {
@@ -3837,7 +3896,7 @@ function createRuntime(ctx) {
         const model = state.contextRows;
         const hidden = model ? readContextMenuLayout(state.contextKind).hidden : [];
         const visible = model
-          ? model.rows.filter((row) => row.reorderable && hidden.indexOf(row.id) === -1).length
+          ? model.rows.filter((row) => hidden.indexOf(row.id) === -1).length
           : 0;
         if (visible <= 1) {
           // Tucking the last visible action would leave a menu whose only entry
@@ -3976,7 +4035,7 @@ function createRuntime(ctx) {
 
     const menuRow = target.closest("[data-dso-more-key]");
     if (menuRow) {
-      const parsed = parseMenuRow(menuRow);
+      const parsed = menuKey(menuRow);
       if (!parsed) return;
       if (!isDragEnabled(parsed.scope)) return;
       startGesture(menuRow, parsed.scope, parsed.id, "menu", event);
@@ -4023,7 +4082,7 @@ function createRuntime(ctx) {
     }
     state.gesture = gesture;
     gesture.timer = window.setTimeout(() => {
-      if (source === "row") element.classList.remove("dso-pressing");
+      if (source === "row") element.classList.remove("dso-dragging");
       beginDrag(gesture);
     }, LONG_PRESS_MS);
   }
@@ -4035,7 +4094,7 @@ function createRuntime(ctx) {
     gesture.y = event.clientY;
     if (!gesture.started) {
       if (Math.abs(event.clientX - gesture.startX) > MOVE_TOLERANCE || Math.abs(event.clientY - gesture.startY) > MOVE_TOLERANCE) {
-        if (gesture.element) gesture.element.classList.remove("dso-pressing");
+        if (gesture.element) gesture.element.classList.remove("dso-dragging");
         if (gesture.timer) window.clearTimeout(gesture.timer);
         cancelGesture();
       }
@@ -4044,6 +4103,12 @@ function createRuntime(ctx) {
     event.preventDefault();
     positionGhost(gesture);
     updateDragTarget(gesture, event.clientX, event.clientY);
+  }
+
+  // A cancelled pointer (touch scroll, pen leaving range) is not a drop: the
+  // user never released over a target. Treat it like Escape.
+  function onPointerCancel() {
+    if (state.gesture) cancelGesture();
   }
 
   function onPointerUp() {
@@ -4119,6 +4184,12 @@ function createRuntime(ctx) {
     const delta = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1;
     if (axis === "x" && (event.key === "ArrowUp" || event.key === "ArrowDown")) return;
     if (axis === "y" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) return;
+    // Auto-repeat would rewrite the whole layout dozens of times a second (and
+    // refocus the row on every tick). One row per deliberate press.
+    if (event.repeat) {
+      event.preventDefault();
+      return;
+    }
     event.preventDefault();
     // Step over the rows that are actually on screen, so an order entry for a
     // row the host has not mounted cannot swallow a keypress.
@@ -4174,10 +4245,23 @@ function createRuntime(ctx) {
     }
     const gesture = state.gesture;
     if (!gesture || !gesture.started) return;
-    const snapshot = buildSnapshot(gesture);
-    if (snapshot) gesture.snapshot = snapshot;
-    positionGhost(gesture);
-    updateDragTarget(gesture, gesture.x, gesture.y);
+    // A scrolling page fires several scroll events per frame, and rebuilding the
+    // snapshot measures every row; one rebuild per frame is enough.
+    if (state.scrollFrame) return;
+    const rebuild = () => {
+      state.scrollFrame = 0;
+      const live = state.gesture;
+      if (!live || !live.started) return;
+      const snapshot = buildSnapshot(live);
+      if (snapshot) live.snapshot = snapshot;
+      positionGhost(live);
+      updateDragTarget(live, live.x, live.y);
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      state.scrollFrame = window.requestAnimationFrame(rebuild);
+    } else {
+      rebuild();
+    }
   }
 
   function onResize() {
@@ -4231,6 +4315,10 @@ function createRuntime(ctx) {
     try {
       if (window.localStorage.getItem(DISABLED_KEY) === "1" || window.localStorage.getItem(LEGACY_DISABLED_KEY) === "1") {
         ctx.logger?.debug?.("[dsh-sidebar-organizer] disabled by " + DISABLED_KEY);
+        // Mark the runtime dead as well: the host keeps calling refresh()/pass()
+        // through the plugin handle (and the settings page), and a runtime that
+        // only skipped start() still applied every layout pass.
+        state.stopped = true;
         return;
       }
     } catch (err) {
@@ -4240,7 +4328,7 @@ function createRuntime(ctx) {
     addListener(document, "pointerdown", onPointerDown, true);
     addListener(document, "pointermove", onPointerMove, { capture: true, passive: false });
     addListener(document, "pointerup", onPointerUp, true);
-    addListener(document, "pointercancel", onPointerUp, true);
+    addListener(document, "pointercancel", onPointerCancel, true);
     addListener(document, "click", onClickCapture, true);
     addListener(document, "click", onHeaderMenuClick, true);
     addListener(document, "click", onDocumentClick);
@@ -4265,7 +4353,16 @@ function createRuntime(ctx) {
         if (layoutChanged) schedulePass();
         // Hover re-renders and menu mounts are not layout passes, but they do
         // rebuild the open menu, so its order and dividers must be repainted.
-        scheduleContextSync();
+        // With no menu on screen at all, skip the repaint (it costs three
+        // document-wide queries) after one cheap check.
+        if (
+          layoutChanged ||
+          state.contextMenu ||
+          state.ctxMoreOpen ||
+          document.querySelector('[role="menu"], [' + ROW_MENU_ATTR + "]")
+        ) {
+          scheduleContextSync();
+        }
       });
       observer.observe(document.body, { childList: true, subtree: true });
     }
@@ -4294,10 +4391,26 @@ function createRuntime(ctx) {
     if (state.stopped) return;
     state.stopped = true;
     if (state.passFrame) window.cancelAnimationFrame(state.passFrame);
+    state.passFrame = 0;
+    state.passScheduled = false;
+    state.passDeferred = false;
+    state.passTimes = [];
+    if (state.passRetryTimer) {
+      window.clearTimeout(state.passRetryTimer);
+      state.passRetryTimer = 0;
+    }
+    cancelContextMoreTimer();
+    // Shortcuts adopted out of the host menu are our DOM; leaving them behind
+    // keeps dead buttons in the header after a hot reload or plugin disable.
+    clearHostActionButtons();
     if (state.contextFrame) {
       window.cancelAnimationFrame(state.contextFrame);
       window.clearTimeout(state.contextFrame);
       state.contextFrame = 0;
+    }
+    if (state.scrollFrame) {
+      window.cancelAnimationFrame(state.scrollFrame);
+      state.scrollFrame = 0;
     }
     if (state.pollTimer) window.clearInterval(state.pollTimer);
     if (observer) observer.disconnect();
@@ -4328,6 +4441,7 @@ function createRuntime(ctx) {
     }
     state.decorated.clear();
     document.body.classList.remove("dso-dragging");
+    state.guardUntil = 0;
     state.found = {};
   }
 

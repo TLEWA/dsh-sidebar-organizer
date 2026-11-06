@@ -233,8 +233,14 @@ function createSettingsPage() {
       }
       runtime.setHotkeyCapture(true);
       function onRecord(event) {
-        // Escape belongs to the host here: it closes the settings dialog, which
-        // also ends the recording. Clicking anywhere else cancels as well.
+        // Escape: the host closes its dialog on it, but this card is also shown
+        // inline in the plugin detail, where nothing closes and the recorder
+        // would keep swallowing every key. Stop waiting here either way; it is
+        // never a binding.
+        if (event.key === "Escape") {
+          setRecording(false);
+          return;
+        }
         if (event.key === "Backspace" || event.key === "Delete") {
           runtime.setHotkey({ code: "", key: "", ctrl: false, alt: false, shift: false, meta: false });
           setRecording(false);
@@ -345,11 +351,30 @@ function createSettingsPage() {
     );
   }
 
+  // A switch whose value another window can also change. The copy lives in
+  // localStorage, which only notifies same-origin windows, and the desktop
+  // window has its own origin; re-read it whenever this window wakes instead.
+  function useSharedFlag(read) {
+    const [value, setValue] = React.useState(read);
+    React.useEffect(() => {
+      const refresh = () => setValue(read());
+      window.addEventListener("storage", refresh);
+      window.addEventListener("focus", refresh);
+      document.addEventListener("visibilitychange", refresh);
+      return () => {
+        window.removeEventListener("storage", refresh);
+        window.removeEventListener("focus", refresh);
+        document.removeEventListener("visibilitychange", refresh);
+      };
+    }, []);
+    return [value, setValue];
+  }
+
   // The escape hatch for the cross-window copy: off means every window keeps
   // the layout it has locally and nothing is uploaded (pre-0.7.2 behaviour).
   function SyncCard(props) {
     const text = props.text;
-    const [enabled, setEnabled] = React.useState(isCrossWindowEnabled());
+    const [enabled, setEnabled] = useSharedFlag(isCrossWindowEnabled);
     return h(
       "section",
       { className: "dso-config-card dso-config-card-sync" },
@@ -375,7 +400,7 @@ function createSettingsPage() {
   function ContextMenuCard(props) {
     const runtime = runtimeInstance;
     const text = props.text;
-    const [enabled, setEnabled] = React.useState(readContextMenuEnabled());
+    const [enabled, setEnabled] = useSharedFlag(readContextMenuEnabled);
     if (!contextMenusSupported()) return null;
     return h(
       "section",
@@ -423,6 +448,9 @@ function createSettingsPage() {
     const visible = rows.filter((row) => !row.hidden);
     const [over, setOver] = React.useState(null);
     const dragRef = React.useRef(null);
+    const dropAfterRef = React.useRef(false);
+    const indexById = new Map();
+    visible.forEach((row, index) => indexById.set(row.id, index));
 
     if (!rows.length) {
       return h(
@@ -443,15 +471,30 @@ function createSettingsPage() {
       runtime.reorder(scope.scope, row.id, index + delta);
     }
 
-    function dropOn(targetId) {
-      const source = dragRef.current;
-      if (!source || source === targetId) return;
-      const targetIndex = visible.findIndex((row) => row.id === targetId);
+    // `at` is an insertion index in the visible list counted with the source
+    // row still in it; reorder() expects the index after the source is removed.
+    function place(source, at) {
       const sourceIndex = visible.findIndex((row) => row.id === source);
-      if (targetIndex === -1 || sourceIndex === -1) return;
-      let at = targetIndex;
-      if (sourceIndex < targetIndex) at -= 1;
+      if (sourceIndex === -1) return;
+      if (sourceIndex < at) at -= 1;
+      if (at === sourceIndex) return;
       runtime.reorder(scope.scope, source, at);
+    }
+
+    // Dropping on a row's lower half puts the row after it; dropping on the
+    // empty area below the list moves it to the end (there was no way to reach
+    // the last slot before, because a drop always landed *before* its target).
+    function dropOn(targetId, after) {
+      const source = dragRef.current;
+      if (!source) return;
+      if (!targetId) {
+        place(source, visible.length);
+        return;
+      }
+      if (source === targetId) return;
+      const targetIndex = visible.findIndex((row) => row.id === targetId);
+      if (targetIndex === -1) return;
+      place(source, targetIndex + (after ? 1 : 0));
     }
 
     return h(
@@ -482,9 +525,21 @@ function createSettingsPage() {
       ),
       h(
         "div",
-        { className: "dso-config-list" },
+        {
+          className: "dso-config-list",
+          onDragOver: (event) => {
+            // An empty area under the rows must still accept the drop.
+            if (dragRef.current) event.preventDefault();
+          },
+          onDrop: (event) => {
+            event.preventDefault();
+            setOver(null);
+            dropOn(null, false);
+          },
+        },
         rows.map((row) => {
-          const index = visible.indexOf(row);
+          // O(1) lookup: indexOf() inside the render loop made this quadratic.
+          const index = row.hidden ? -1 : (indexById.has(row.id) ? indexById.get(row.id) : -1);
           const isHidden = row.hidden;
           return h(
             "div",
@@ -509,20 +564,27 @@ function createSettingsPage() {
               onDragOver: (event) => {
                 if (dragRef.current && !isHidden) {
                   event.preventDefault();
-                  setOver(row.id);
+                  const box = event.currentTarget.getBoundingClientRect();
+                  dropAfterRef.current = event.clientY > box.top + box.height / 2;
+                  setOver((value) => (value === row.id ? value : row.id));
                 }
               },
-              onDragLeave: () => {
+              onDragLeave: (event) => {
+                // Moving between a row's own children fires dragleave on the
+                // row too; only a real exit should clear the highlight.
+                const next = event.relatedTarget;
+                if (next && event.currentTarget.contains(next)) return;
                 setOver((value) => (value === row.id ? null : value));
               },
               onDrop: (event) => {
                 event.preventDefault();
+                event.stopPropagation();
                 setOver(null);
-                dropOn(row.id);
+                dropOn(row.id, dropAfterRef.current);
               },
             },
             row.fixed
-              ? h("span", { className: "dso-config-grip is-fixed", title: text.pinned }, h(Icon, { name: "grip" }))
+              ? h("span", { className: "dso-config-grip is-fixed", title: text.fixed }, h(Icon, { name: "grip" }))
               : h("span", { className: "dso-config-grip" }, h(Icon, { name: "grip" })),
             h("span", { className: "dso-config-label", title: row.label }, row.label),
             isHidden

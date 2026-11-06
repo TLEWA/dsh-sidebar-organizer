@@ -328,6 +328,8 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
 .dso-config-card-sync .dso-config-card-head { border-bottom: none; }
 /* The hotkey header holds the bind control; its mode row owns the divider. */
 .dso-config-card-hotkey .dso-config-card-head { border-bottom: none; }
+/* The context-menu card is a single header row as well. */
+.dso-config-card-context .dso-config-card-head { border-bottom: none; }
 .dso-config-hotkey-actions {
   display: flex;
   align-items: center;
@@ -488,7 +490,6 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   color: var(--dsw-alias-label-tertiary, rgba(235, 235, 245, 0.38));
   cursor: grab;
 }
-.dso-config-grip.is-pinned,
 .dso-config-grip.is-fixed { cursor: default; opacity: 0.4; }
 .dso-config-row:active .dso-config-grip { cursor: grabbing; }
 .dso-config-label {
@@ -684,7 +685,11 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   -webkit-user-select: none;
   user-select: none;
 }
-.dso-ctx-panel-row:hover:not(:disabled),
+.dso-ctx-panel-row[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.4;
+}
+.dso-ctx-panel-row:hover:not(:disabled):not([aria-disabled="true"]),
 .dso-ctx-panel-row:focus-visible {
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
   outline: none;

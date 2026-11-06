@@ -124,8 +124,13 @@ function assignIds(rows, entries) {
       }
     }
     if (!picked) {
+      // Positional fallback exists only for an entry that has no label of its
+      // own (icon-only buttons). Taking a *labelled* entry here would hand this
+      // row another row's id as soon as one row's label stops matching (a
+      // renamed action, or a row inserted before it), and the saved order for
+      // that id would silently follow the wrong row.
       for (const entry of available) {
-        if (!entry.taken) {
+        if (!entry.taken && !entry.label) {
           picked = entry;
           break;
         }
@@ -226,23 +231,11 @@ function collectSidebar(ctx) {
   };
 }
 
+// One row-collection rule for both call shapes: a container (used by the
+// settings nav) and an explicit unit list (used by the slot outlets). Keeping
+// two copies let one of them drift whenever the rules changed.
 function collectUnits(container, options) {
-  const opts = options || {};
-  const rows = [];
-  let more = null;
-  for (const child of elementChildren(container)) {
-    if (child.classList.contains("dso-ghost") || child.classList.contains("dso-indicator")) continue;
-    if (child.closest && child.closest(".dso-config")) continue;
-    if (isMoreTrigger(child)) {
-      more = child;
-      continue;
-    }
-    const target = clickableIn(child);
-    if (!target) continue;
-    if (opts.tabsOnly && !target.matches('[role="tab"]') && !child.matches('[role="tab"]')) continue;
-    rows.push({ unit: child, target, label: labelOf(target) });
-  }
-  return { rows, more };
+  return collectUnitsFromUnits(elementChildren(container), options);
 }
 
 function directContainer(outlet) {
