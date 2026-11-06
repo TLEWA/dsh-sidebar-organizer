@@ -1503,12 +1503,254 @@ function createRuntime(ctx) {
     const run = () => {
       state.contextFrame = 0;
       syncContextMenu();
+      syncRowMenus();
     };
     if (typeof window.requestAnimationFrame === "function") {
       state.contextFrame = window.requestAnimationFrame(run);
     } else {
       state.contextFrame = window.setTimeout(run, 16);
     }
+  }
+
+
+  /* ---- dsh-sidebar-row-menu panes -------------------------------------- */
+  //
+  // dsh-sidebar-row-menu paints its own blank-conversation menu instead of
+  // registering host context-menu rows. It mounts one pane per menu surface
+  // (the first level and, while open, the 打开方式 / 更多操作 submenus), and it
+  // rebuilds them from the session header toolbar on every open. The rows have
+  // no stable host ids, so the visible label is the handle; the label survives
+  // a React re-render and is what a later open can match again.
+  //
+  // The default order is row-menu's own: first level follows the header order,
+  // 更多操作 follows HOST_MENU_ORDER_KEY, 打开方式 follows its app settings.
+  // Nothing is overridden until the user drags a row in that pane, which is
+  // what keeps the one-way linkage intact for users who never touch it.
+
+  function rowMenuPaneElement(node) {
+    if (!node || node.nodeType !== 1) return null;
+    const pane = node.closest(".dsrm-menu-surface, .dsrm-submenu");
+    if (!pane) return null;
+    const host = pane.closest("[" + ROW_MENU_ATTR + "]");
+    if (host && host.contains(pane)) return pane;
+    // row-menu also injects its 打开方式 submenu into the host's own session /
+    // workspace context menu (as .dsrm-submenu-host > .dsrm-submenu). It is the
+    // same app pane as the blank menu's, so it shares that arrangement.
+    if (pane.classList.contains("dsrm-submenu") && pane.closest(".dsrm-submenu-host")) return pane;
+    return null;
+  }
+
+  function rowMenuPaneName(pane) {
+    if (!pane) return "";
+    if (pane.classList.contains("dsrm-menu-surface")) return "first";
+    const wrap = pane.closest(".dsrm-openwith");
+    if (wrap && wrap.classList.contains("dsrm-more")) return "more";
+    return "openwith";
+  }
+
+  function rowMenuRowLabel(item, menuitem) {
+    // The wrapper rows (打开方式 / 更多操作) put their visible text in a host
+    // label span; plain app/action rows use the shared itemLabel class.
+    const host = item.querySelector(".dsrm-host-label-text");
+    if (host && host.textContent.trim()) return host.textContent.replace(/\s+/g, " ").trim();
+    const label = menuitem.querySelector('[class*="itemLabel"]') || item.querySelector('[class*="itemLabel"]');
+    if (label && label.textContent.trim()) return label.textContent.replace(/\s+/g, " ").trim();
+    const aria = menuitem.getAttribute("aria-label") || item.getAttribute("aria-label");
+    if (aria && aria.trim()) return aria.trim();
+    return (menuitem.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  // One row per direct child of the pane. The material layer is aria-hidden;
+  // native separators are direct children too and belong to the row below them,
+  // exactly as row-menu renders them. The nested submenu lives inside its
+  // trigger's wrapper, so querySelector() finds the trigger first and never
+  // mistakes a submenu entry for a first-level row.
+  function rowMenuPaneInfo(pane) {
+    if (!pane || !pane.isConnected) return null;
+    const name = rowMenuPaneName(pane);
+    const rows = [];
+    const pending = [];
+    const seen = new Map();
+    for (const child of Array.from(pane.children)) {
+      if (child.getAttribute("aria-hidden") === "true") continue;
+      if (child.getAttribute("role") === "separator" || child.classList.contains("dsrm-sep")) {
+        pending.push(child);
+        continue;
+      }
+      const menuitem = child.querySelector('[role="menuitem"]');
+      if (!menuitem) continue;
+      const label = rowMenuRowLabel(child, menuitem);
+      if (!label) continue;
+      const count = (seen.get(label) || 0) + 1;
+      seen.set(label, count);
+      rows.push({
+        item: child,
+        menuitem,
+        label,
+        id: count === 1 ? label : label + "#" + count,
+        rect: child.getBoundingClientRect(),
+        seps: pending.splice(0),
+      });
+    }
+    return { pane, name, rows, trailingSeps: pending, rect: pane.getBoundingClientRect() };
+  }
+
+  // A pane is tagged on every sync (that tag is what starts a drag), but its
+  // display only becomes flex and its rows only get an explicit order once an
+  // arrangement exists. Rows are moved with style.order — React keeps owning
+  // the nodes, focus and keyboard navigation.
+  function applyRowMenuPane(info, saved, force) {
+    if (!info || !info.pane.isConnected) return;
+    for (const row of info.rows) {
+      if (row.item.getAttribute(ROW_MENU_ID_ATTR) !== row.id) row.item.setAttribute(ROW_MENU_ID_ATTR, row.id);
+    }
+    const remembered = (saved || []).filter((id) => typeof id === "string" && id);
+    if (!remembered.length && !force) return;
+    const merged = mergeContextOrder(remembered, info.rows.map((row) => ({ id: row.id })));
+    info.pane.classList.add(ROW_MENU_PANE_CLASS);
+    const byId = new Map();
+    for (const row of info.rows) {
+      if (!byId.has(row.id)) byId.set(row.id, row);
+    }
+    const painted = new Set();
+    let index = 0;
+    for (const id of merged) {
+      const row = byId.get(id);
+      if (!row || painted.has(id)) continue;
+      painted.add(id);
+      setOrder(row.item, index * 2);
+      for (const sep of row.seps) {
+        if (sep.getAttribute(ROW_MENU_SEP_ATTR) !== "") sep.setAttribute(ROW_MENU_SEP_ATTR, "");
+        setOrder(sep, index * 2 - 1);
+        const display = index === 0 ? "none" : "";
+        if (sep.style.display !== display) sep.style.display = display;
+      }
+      index += 1;
+    }
+    // mergeContextOrder() dedupes ids; an accidental duplicate label must not
+    // fall back to flex order 0 (which would lift it above everything).
+    for (const row of info.rows) {
+      if (painted.has(row.id)) continue;
+      painted.add(row.id);
+      setOrder(row.item, index * 2);
+      index += 1;
+    }
+    let tail = 999999;
+    for (const sep of info.trailingSeps) {
+      if (sep.getAttribute(ROW_MENU_SEP_ATTR) !== "") sep.setAttribute(ROW_MENU_SEP_ATTR, "");
+      setOrder(sep, tail);
+      tail += 1;
+      if (sep.style.display === "none") sep.style.display = "";
+    }
+  }
+
+  function rowMenuPanes() {
+    const panes = [];
+    const nodes = document.querySelectorAll(
+      "[" + ROW_MENU_ATTR + "] .dsrm-menu-surface, [" + ROW_MENU_ATTR + "] .dsrm-submenu, " +
+        ".dsrm-submenu-host .dsrm-submenu"
+    );
+    for (const pane of nodes) {
+      if (pane.isConnected) panes.push(pane);
+    }
+    return panes;
+  }
+
+  function syncRowMenus(force) {
+    if (state.stopped) return;
+    if (!contextMenuEnabled()) {
+      clearRowMenuStyles();
+      return;
+    }
+    for (const pane of rowMenuPanes()) {
+      const rect = pane.getBoundingClientRect();
+      if (!rect.width && !rect.height) continue;
+      const info = rowMenuPaneInfo(pane);
+      if (!info || !info.rows.length) continue;
+      // 更多操作 is row-menu's view of the host More popup: its order is owned
+      // by the host key the plugin already reads, so persist and paint there.
+      const saved = info.name === "more" ? readHostMenuOrder() : readRowMenuPane(info.name).order;
+      applyRowMenuPane(info, saved, force);
+    }
+  }
+
+  function clearRowMenuStyles() {
+    const nodes = document.querySelectorAll(
+      "[" + ROW_MENU_ID_ATTR + "], [" + ROW_MENU_SEP_ATTR + "], ." + ROW_MENU_PANE_CLASS
+    );
+    for (const node of nodes) {
+      if (node.hasAttribute(ROW_MENU_ID_ATTR)) {
+        node.removeAttribute(ROW_MENU_ID_ATTR);
+        node.style.removeProperty("order");
+      }
+      if (node.hasAttribute(ROW_MENU_SEP_ATTR)) {
+        node.removeAttribute(ROW_MENU_SEP_ATTR);
+        node.style.removeProperty("order");
+        node.style.removeProperty("display");
+      }
+      if (node.classList.contains(ROW_MENU_PANE_CLASS)) node.classList.remove(ROW_MENU_PANE_CLASS);
+    }
+  }
+
+  function buildRowMenuSnapshot(gesture) {
+    const pane = gesture && gesture.rowMenuPane;
+    if (!pane || !pane.isConnected) return null;
+    const info = rowMenuPaneInfo(pane);
+    if (!info || !info.rows.length) return null;
+    const items = [];
+    for (const row of info.rows) {
+      if (!row.rect.width && !row.rect.height) continue;
+      items.push({ id: row.id, unit: row.item, target: row.item, rect: row.rect });
+    }
+    if (!items.length) return null;
+    items.sort((a, b) => a.rect.top - b.rect.top);
+    if (items.every((item) => item.id !== gesture.id)) return null;
+    return {
+      found: null,
+      axis: "y",
+      container: info.rect,
+      crossRect: info.rect,
+      items,
+      menuItems: [],
+      menuTargets: [],
+      menuRect: null,
+      moreRect: null,
+      moreElement: null,
+    };
+  }
+
+  function commitRowMenuReorder(gesture, beforeId) {
+    const pane = gesture && gesture.rowMenuPane;
+    if (!pane || !pane.isConnected) return false;
+    const info = rowMenuPaneInfo(pane);
+    if (!info || !info.rows.length) return false;
+    const visual = info.rows.slice().sort((a, b) => a.rect.top - b.rect.top);
+    const from = visual.findIndex((row) => row.id === gesture.id);
+    if (from === -1) return false;
+    const dragged = visual[from];
+    const rest = visual.filter((row, at) => at !== from);
+    let at = beforeId ? rest.findIndex((row) => row.id === beforeId) : rest.length;
+    if (at === -1) at = rest.length;
+    rest.splice(at, 0, dragged);
+    if (info.name === "more") {
+      // Keep the labels row-menu does not list right now at the end so the host
+      // key stays a complete ranking instead of losing entries on every drag.
+      beginRowMenuHostEdit();
+      const labels = rest.map((row) => row.label);
+      for (const label of readHostMenuOrder()) {
+        if (labels.indexOf(label) === -1) labels.push(label);
+      }
+      writeHostMenuOrder(labels);
+      recordRowMenuHostWrite(labels);
+    } else {
+      writeRowMenuPane(info.name, rest.map((row) => row.id));
+    }
+    const fresh = rowMenuPaneInfo(pane);
+    if (fresh) {
+      const saved = info.name === "more" ? readHostMenuOrder() : rest.map((row) => row.id);
+      applyRowMenuPane(fresh, saved, true);
+    }
+    return true;
   }
 
   // A snapshot in the shape the generic drag pipeline expects. `found` is null
@@ -1701,6 +1943,35 @@ function createRuntime(ctx) {
     return true;
   }
 
+  // Reordering the tucked list only permutes `hidden`. The visible order is
+  // untouched, so the popup can be rearranged without disturbing the menu.
+  function commitContextPanelReorder(id, beforeId) {
+    const model = state.contextRows;
+    const kind = state.contextKind;
+    if (!model || !kind || !model.menu || !model.menu.isConnected) return false;
+    const current = readContextMenuLayout(kind);
+    const hidden = (current.hidden || []).slice();
+    const from = hidden.indexOf(id);
+    if (from === -1) return false;
+    hidden.splice(from, 1);
+    let at = hidden.length;
+    if (beforeId) {
+      const target = hidden.indexOf(beforeId);
+      if (target !== -1) at = target;
+    }
+    hidden.splice(at, 0, id);
+    writeContextMenuLayout(kind, {
+      order: current.order,
+      dividers: current.dividers,
+      customized: true,
+      hidden,
+    });
+    const next = contextMenuModel(model.menu) || model;
+    state.contextRows = next;
+    applyContextLayout(next, kind, readContextMenuLayout(kind), true);
+    return true;
+  }
+
   // ---------------------------------------------------------- context More --
   // A right-click menu ships no "More" row, so one is injected: a flex item
   // appended to the menu viewport with a late order (always last), plus a popup
@@ -1721,9 +1992,22 @@ function createRuntime(ctx) {
     const hidden = new Set(hiddenIds || []);
     if (!hidden.size) return [];
     const out = [];
+    const seen = new Set();
+    // The popup lists the rows in the order the user arranged them (the order
+    // of `hidden`), not in the menu's DOM order: a drag inside the popup is
+    // stored as a permutation of this list, and reading it back in DOM order
+    // made the drop look like it did nothing.
+    for (const id of hiddenIds) {
+      const row = model.ids.get(id);
+      if (!row || !row.reorderable || seen.has(id)) continue;
+      seen.add(id);
+      out.push(row);
+    }
+    // A row hidden by an older layout (or by another window) may not be listed
+    // first; append it in document order so it never disappears from the popup.
     for (const row of model.rows) {
-      if (!row.reorderable) continue;
-      if (!hidden.has(row.id)) continue;
+      if (!row.reorderable || !hidden.has(row.id) || seen.has(row.id)) continue;
+      seen.add(row.id);
       out.push(row);
     }
     return out;
@@ -2079,6 +2363,7 @@ function createRuntime(ctx) {
     writeContextMenuEnabled(Boolean(enabled));
     if (!enabled) clearContextMenu();
     else scheduleContextSync();
+    if (!enabled) clearRowMenuStyles();
     notify();
     return Boolean(enabled);
   }
@@ -2086,6 +2371,7 @@ function createRuntime(ctx) {
   function resetContextMenus() {
     resetContextMenuLayouts();
     clearContextMenu();
+    clearRowMenuStyles();
     scheduleContextSync();
     notify();
   }
@@ -2093,7 +2379,7 @@ function createRuntime(ctx) {
   // The drop scope of the open menu. It is not part of SCOPE_KEYS: there are no
   // persistent rows to discover, only the menu that happens to be open.
   function dragAllowed(scope) {
-    if (scope === CONTEXT_SCOPE) return contextMenuEnabled();
+    if (scope === CONTEXT_SCOPE || scope === ROW_MENU_SCOPE) return contextMenuEnabled();
     return isDragEnabled(scope);
   }
 
@@ -2843,6 +3129,7 @@ function createRuntime(ctx) {
   }
 
   function buildSnapshot(gesture) {
+    if (gesture && gesture.scope === ROW_MENU_SCOPE) return buildRowMenuSnapshot(gesture);
     if (gesture && gesture.scope === CONTEXT_SCOPE) return buildContextSnapshot(gesture);
     let found = null;
     try {
@@ -3216,6 +3503,31 @@ function createRuntime(ctx) {
     let dropMore = false;
     try {
 
+    if (gesture.scope === ROW_MENU_SCOPE) {
+      // Re-measure the pane on every move: opening a submenu, a hover
+      // re-render or row-menu's own order can move the rows under the ghost.
+      const pane = gesture.rowMenuPane;
+      if (!pane || !pane.isConnected) return;
+      const info = rowMenuPaneInfo(pane);
+      if (!info || !info.rows.length) return;
+      const live = info.rows
+        .filter((row) => row.rect.width || row.rect.height)
+        .map((row) => ({ id: row.id, unit: row.item, target: row.item, rect: row.rect }))
+        .sort((a, b) => a.rect.top - b.rect.top);
+      if (!live.length) return;
+      if (!pointIn(info.rect, x, y, 8)) return;
+      const others = live.filter((item) => item.id !== gesture.id);
+      if (!others.length) return;
+      const hit = indexAt(others, x, y, "y", live);
+      gesture.target = {
+        kind: "rowmenu",
+        index: hit.index,
+        beforeId: others[hit.index] ? others[hit.index].id : null,
+      };
+      showIndicator(gesture, "y", hit.boundary, info.rect, info.rect);
+      return;
+    }
+
     if (gesture.scope === CONTEXT_SCOPE) {
       // Live geometry: the host (and other plugins) append menu entries a beat
       // after the menu opens, and our own More anchor moves when that happens.
@@ -3238,6 +3550,31 @@ function createRuntime(ctx) {
         // menu; there is nothing to absorb, so no armed ring.
         dropMore = gesture.source !== "more";
         return;
+      }
+      // The popup hangs outside the menu rect, so its own reorder needs its own
+      // hit test: dropping between two tucked rows reorders the tucked list.
+      if (gesture.source === "more" && state.ctxMorePanel && state.ctxMorePanel.isConnected) {
+        const panelRect = state.ctxMorePanel.getBoundingClientRect();
+        if (pointIn(panelRect, x, y, 4)) {
+          const rows = Array.from(state.ctxMorePanel.querySelectorAll("[data-dso-ctx-more-key]"))
+            .map((element) => ({
+              id: element.getAttribute("data-dso-ctx-more-key"),
+              rect: element.getBoundingClientRect(),
+            }))
+            .filter((item) => item.id)
+            .sort((a, b) => a.rect.top - b.rect.top);
+          const others = rows.filter((item) => item.id !== gesture.id);
+          if (rows.length) {
+            const hit = indexAt(others, x, y, "y", rows);
+            gesture.target = {
+              kind: "ctx-panel",
+              index: hit.index,
+              beforeId: others[hit.index] ? others[hit.index].id : null,
+            };
+            showIndicator(gesture, "y", hit.boundary, panelRect, panelRect);
+            return;
+          }
+        }
       }
       if (!menuRect || !pointIn(menuRect, x, y, 8)) return;
       const targets = model ? contextVisibleItems(model) : null;
@@ -3472,6 +3809,21 @@ function createRuntime(ctx) {
       return;
     }
     const target = gesture.target;
+    if (gesture.scope === ROW_MENU_SCOPE) {
+      if (target.kind === "rowmenu") {
+        if (!commitRowMenuReorder(gesture, target.beforeId)) {
+          shakeGhost(gesture);
+          return;
+        }
+        // The menu must stay open: the user is arranging it, not choosing an
+        // action, and the new order should be visible right away.
+        gesture.keepMenu = true;
+        endGesture(true);
+        return;
+      }
+      endGesture(true);
+      return;
+    }
     if (gesture.scope === CONTEXT_SCOPE) {
       if (target.kind === "ctx") {
         commitContextReorder(gesture.id, target.beforeId);
@@ -3496,6 +3848,17 @@ function createRuntime(ctx) {
         // Same flight as every other More drop: the ghost flies into the anchor
         // and the row is hidden once it lands.
         absorbGhost(gesture, () => hideContextRow(gesture.id));
+        return;
+      }
+      if (target.kind === "ctx-panel") {
+        // Reordering inside the popup only permutes the tucked list; nothing
+        // leaves the menu, so the popup stays open for the next move.
+        if (!commitContextPanelReorder(gesture.id, target.beforeId)) {
+          shakeGhost(gesture);
+          return;
+        }
+        gesture.keepMenu = true;
+        endGesture(true);
         return;
       }
       if (target.kind === "ctx-reveal") {
@@ -3563,6 +3926,23 @@ function createRuntime(ctx) {
     if (state.hotkeyCapturing) return;
     if (!isHotkeyGateOpen()) return;
 
+    // dsh-sidebar-row-menu draws its own panes (the blank-conversation menu and
+    // its 打开方式 / 更多操作 submenus). Its rows are not host context-menu items,
+    // so they need this entry point; the pane the press landed in is the pane
+    // that drags, which is what makes a submenu drag rearrange the submenu
+    // instead of the menu that owns it.
+    const rowMenuPane = rowMenuPaneElement(target);
+    if (rowMenuPane) {
+      if (!contextMenuEnabled()) return;
+      const rowEl = target.closest("[" + ROW_MENU_ID_ATTR + "]");
+      if (!rowEl || !rowMenuPane.contains(rowEl)) return;
+      if (rowMenuPaneElement(rowEl) !== rowMenuPane) return;
+      const rowId = rowEl.getAttribute(ROW_MENU_ID_ATTR);
+      if (!rowId) return;
+      startGesture(rowEl, ROW_MENU_SCOPE, rowId, "rowmenu", event, { pane: rowMenuPane });
+      return;
+    }
+
     const contextItem = target.closest("[data-dso-ctx-id]");
     if (contextItem) {
       // The host opens a row's submenu INSIDE that row: the panel is a sibling
@@ -3615,12 +3995,13 @@ function createRuntime(ctx) {
     startGesture(row, scope, id, "row", event);
   }
 
-  function startGesture(element, scope, id, source, event) {
+  function startGesture(element, scope, id, source, event, meta) {
     const gesture = {
       element,
       scope,
       id,
       source,
+      rowMenuPane: meta && meta.pane ? meta.pane : null,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
@@ -3767,7 +4148,12 @@ function createRuntime(ctx) {
       const scrolled = event && event.target;
       const insidePanel =
         scrolled && scrolled.nodeType === 1 && state.ctxMorePanel && state.ctxMorePanel.contains(scrolled);
-      if (!insidePanel) closeContextMorePanel();
+      // Only a scroll INSIDE the menu detaches the anchor from its row. Page or
+      // conversation scrolling closes the host menu itself; closing the popup
+      // for it made the popup vanish whenever the chat stream scrolled.
+      const menu = state.contextRows && state.contextRows.menu;
+      const insideMenu = scrolled && menu && menu.contains(scrolled);
+      if (insideMenu && !insidePanel) closeContextMorePanel();
     }
     if (state.settingsMenu && !state.gesture) {
       const target = event && event.target;
@@ -3917,6 +4303,7 @@ function createRuntime(ctx) {
     if (observer) observer.disconnect();
     observer = null;
     clearContextMenu();
+    clearRowMenuStyles();
     closeSettingsMoreMenu();
     state.headerMenu = null;
     removeHeaderMenuBlock();

@@ -16,7 +16,9 @@ composer dock, session header, right sidebar, and settings navigation.
 > end of the menu and lets the bottom action and plugin buttons drag and tuck too; 0.9.4 fixes a
 > long-press on a submenu dragging its parent row, missing icons in tucked entries, rows turning
 > invisible after being dragged back out of "More", and dividers landing one row low once the menu
-> had been reordered. For the full
+> had been reordered; 0.9.5 adds drag ordering for dsh-sidebar-row-menu's conversation-body context
+> menu and its "Open with" / "More actions" submenus, and fixes reordering inside the tucked "More"
+> panel plus the drag ghost being covered by row-menu's menu. For the full
 > version history and downloads see [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
 
 ## What it does
@@ -77,6 +79,14 @@ composer dock, session header, right sidebar, and settings navigation.
   refused once only one visible item is left. A dedicated "Context menus"
   switch lives on the settings page; on 0.2.1 the feature turns itself off and
   the card is not shown.
+- **dsh-sidebar-row-menu integration** (optional, when that plugin is installed): rows in the
+  plugin-drawn conversation-body context menu and in its "Open with" / "More actions" submenus can be
+  reordered with a long-press drag. The "Open with" submenu that row-menu adds to the session /
+  workspace context menus shares the body menu's app order. The first level keeps following this
+  plugin's session-header order until you actually drag one of its rows; after that it keeps your
+  arrangement. "More actions" writes this plugin's header-menu order (the native session-header More
+  popover follows); "Open with" is stored separately. Reset restores the default linkage. No
+  dsh.sidebar-row-menu.* storage key is ever written, and the "Context menus" switch still gates it.
 - **Settings page**: DSH Settings → "Layout organizer", or this plugin's detail
   page. Seven location cards let you drag rows, move up/down, tuck/restore, and
   reset one section. Each card has its own "Drag" switch: turn it off and that
@@ -118,7 +128,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.9.4
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.9.5
 ```
 
 ### From npm
@@ -268,6 +278,16 @@ the page. Since 0.2.0 the mechanism is different:
   `data-dso-ctx-more-key` and long-press drags them back with the drag layer's
   `more` source, writing the order and removing the id from `hidden`. Hit-testing
   uses the menu's live rect, never a frozen snapshot.
+- dsh-sidebar-row-menu integration (0.9.5): row-menu draws its own menus without the host's
+  `[data-context-menu]`, so it gets a separate pane adapter: the first level is
+  `.dsrm-menu-surface`, submenus are `.dsrm-submenu` (including the "Open with" panes under
+  `.dsrm-submenu-host` in the session / workspace menus). The pane is `display: block`, so
+  `style.order` only works after adding a flex column (`.dso-rm-pane`); rows are numbered `2i` and
+  their adjacent native separators `2i-1`, while the material layer is absolutely positioned and
+  stays out of the flex flow. The first level is stored in this plugin's `row-menu-layout.v1` and is
+  left completely alone until customized; "More actions" writes this plugin's `host-menu-order.v1`
+  (the key row-menu's `orderMoreItems` reads); "Open with" lives in the `openwith` pane of
+  `row-menu-layout.v1`. Only visual order changes — row-menu's React nodes are never moved.
 - Context-menu details (0.9.4): the host renders a submenu inside its row button (the panel is a
   sibling of the button), so a press is first matched with `role=menuitem` against the row's own
   button and anything inside the submenu is handed back to the host; the popup clones the whole
@@ -390,6 +410,7 @@ restoration).
 - [x] 0.9.2 — the closing fade is back (replayed on the rows after flattening), and hovering "More" while dragging no longer shakes
 - [x] 0.9.3 — opening a menu no longer forces a style recalc (the mirror reads the host's CSS variables and follows `data-menu-phase`), the opening fade returns without flicker, and the "More" shrink feedback is back
 - [x] 0.9.4 — a long-press on a submenu no longer drags its parent row, tucked entries keep their icons, rows stay visible after being dragged back out of "More", the popup matches dsh-sidebar-row-menu, and dividers land in painted order
+- [x] 0.9.5 — dsh-sidebar-row-menu integration (conversation-body menu first level and its Open with / More actions submenus); fixes reordering inside the tucked "More" panel and the drag ghost's z-index
 
 ## Notices
 

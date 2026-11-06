@@ -12,6 +12,7 @@ let layoutCache = null;
 let dragCache = null;
 let hotkeyCache = null;
 let contextMenuCache = null;
+let rowMenuCache = null;
 
 function emptyScopeLayout() {
   return { order: [], hidden: [] };
@@ -484,6 +485,128 @@ function writeContextMenuEnabled(enabled) {
 function resetContextMenuLayouts() {
   const store = readContextMenuStore();
   writeContextMenuStore({ version: store.version, enabled: store.enabled, menus: {} });
+  clearRowMenuLayout();
+}
+
+/* ---- dsh-sidebar-row-menu panes ---------------------------------------- */
+
+// row-menu rebuilds its blank-conversation menu from scratch on every open and
+// on every header reorder. Its rows have no host ids, so the stable handle is
+// the visible label (occasionally with a suffix when two rows share a label).
+// The store only remembers the panes the user actually rearranged; an absent
+// pane keeps following row-menu's own order.
+function emptyRowMenuPane() {
+  return { order: [] };
+}
+
+function normalizeRowMenuPane(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  return { order: normalizeStringList(raw.order) };
+}
+
+function readRowMenuStore() {
+  if (rowMenuCache) return rowMenuCache;
+  let parsed = null;
+  try {
+    const raw = window.localStorage.getItem(ROW_MENU_LAYOUT_KEY);
+    if (raw) parsed = JSON.parse(raw);
+  } catch (err) {
+    parsed = null;
+  }
+  const store = { version: ROW_MENU_LAYOUT_VERSION, panes: {} };
+  if (parsed && typeof parsed === "object" && parsed.version === ROW_MENU_LAYOUT_VERSION) {
+    if (parsed.panes && typeof parsed.panes === "object") {
+      for (const name of ROW_MENU_PANES) {
+        if (parsed.panes[name]) store.panes[name] = normalizeRowMenuPane(parsed.panes[name]);
+      }
+    }
+    // 更多操作 is row-menu's view of the header More menu, so it is arranged by
+    // writing the host order key. Keeping the value we replaced lets a reset put
+    // the header menu back instead of stranding that reorder forever.
+    if (parsed.host && typeof parsed.host === "object" && Array.isArray(parsed.host.backup)) {
+      store.host = {
+        backup: normalizeStringList(parsed.host.backup),
+        written: Array.isArray(parsed.host.written) ? normalizeStringList(parsed.host.written) : null,
+      };
+    }
+  }
+  rowMenuCache = store;
+  return store;
+}
+
+function writeRowMenuStore(store) {
+  const next = { version: ROW_MENU_LAYOUT_VERSION, panes: {} };
+  for (const name of ROW_MENU_PANES) {
+    if (store.panes[name]) next.panes[name] = normalizeRowMenuPane(store.panes[name]);
+  }
+  if (store.host && Array.isArray(store.host.backup)) {
+    next.host = {
+      backup: normalizeStringList(store.host.backup),
+      written: Array.isArray(store.host.written) ? normalizeStringList(store.host.written) : null,
+    };
+  }
+  rowMenuCache = next;
+  try {
+    window.localStorage.setItem(ROW_MENU_LAYOUT_KEY, JSON.stringify(next));
+  } catch (err) {
+    /* keep the in-memory copy */
+  }
+  return next;
+}
+
+function readRowMenuPane(name) {
+  if (ROW_MENU_PANES.indexOf(name) === -1) return emptyRowMenuPane();
+  const store = readRowMenuStore();
+  return store.panes[name] ? normalizeRowMenuPane(store.panes[name]) : emptyRowMenuPane();
+}
+
+function writeRowMenuPane(name, order) {
+  if (ROW_MENU_PANES.indexOf(name) === -1) return emptyRowMenuPane();
+  const store = readRowMenuStore();
+  const panes = Object.assign({}, store.panes);
+  panes[name] = normalizeRowMenuPane({ order });
+  writeRowMenuStore({ version: store.version, panes, host: store.host });
+  return panes[name];
+}
+
+function beginRowMenuHostEdit() {
+  const store = readRowMenuStore();
+  if (store.host) return store.host;
+  const host = { backup: readHostMenuOrder(), written: null };
+  writeRowMenuStore({ version: store.version, panes: store.panes, host });
+  return host;
+}
+
+function recordRowMenuHostWrite(labels) {
+  const store = readRowMenuStore();
+  if (!store.host) return;
+  writeRowMenuStore({
+    version: store.version,
+    panes: store.panes,
+    host: { backup: store.host.backup, written: normalizeStringList(labels) },
+  });
+}
+
+function endRowMenuHostEdit() {
+  const store = readRowMenuStore();
+  if (!store.host || !store.host.written) return;
+  const current = readHostMenuOrder();
+  const written = store.host.written;
+  const same =
+    current.length === written.length && current.every((label, index) => label === written[index]);
+  // Only unwind the exact order this feature wrote. A header reorder made after
+  // the drag is the user's newer decision and must survive a context-menu reset.
+  if (same) writeHostMenuOrder(store.host.backup);
+}
+
+function clearRowMenuLayout() {
+  endRowMenuHostEdit();
+  rowMenuCache = { version: ROW_MENU_LAYOUT_VERSION, panes: {} };
+  try {
+    window.localStorage.removeItem(ROW_MENU_LAYOUT_KEY);
+  } catch (err) {
+    /* ignore */
+  }
 }
 
 function exportConfigSnapshot() {

@@ -75,6 +75,21 @@ const HOTKEY_KEY = "dsh.sidebar-organizer.hotkey.v1";
 const CONTEXT_MENU_KEY = "dsh.sidebar-organizer.context-menu.v1";
 const CONTEXT_MENU_KINDS = ["session", "workspace"];
 const CONTEXT_MENU_VERSION = 1;
+// dsh-sidebar-row-menu draws its own blank-conversation menu from the session
+// header toolbar. Its first level normally follows the header order (and its
+// More submenu follows HOST_MENU_ORDER_KEY), so that one-way linkage stays
+// untouched until the user actually drags a row in that menu. From then on the
+// menu keeps its own order here, independent of the toolbar. Its submenus are
+// managed the same way; the More submenu is persisted through the host key
+// above because row-menu sorts it from there on every open.
+const ROW_MENU_LAYOUT_KEY = "dsh.sidebar-organizer.row-menu-layout.v1";
+const ROW_MENU_LAYOUT_VERSION = 1;
+const ROW_MENU_PANES = ["first", "openwith"];
+const ROW_MENU_SCOPE = "rowmenu";
+const ROW_MENU_ATTR = "data-dsh-sidebar-row-menu";
+const ROW_MENU_ID_ATTR = "data-dso-rm-id";
+const ROW_MENU_SEP_ATTR = "data-dso-rm-sep";
+const ROW_MENU_PANE_CLASS = "dso-rm-pane";
 // Keys that only exist as modifiers cannot be a binding on their own; the
 // capture UI waits for the non-modifier key of the chord.
 const HOTKEY_MODIFIER_KEYS = {
@@ -101,7 +116,10 @@ const MOVE_TOLERANCE = 8;
 const CLICK_GUARD_MS = 500;
 const PASS_LIMIT = 90;
 const PASS_WINDOW_MS = 3000;
-const GHOST_Z = 2147483000;
+// dsh-sidebar-row-menu's blank menu is fixed at 2147483647; the ghost is
+// appended to <body> after it, so an equal z-index wins on DOM order while a
+// lower one would hide the dragged row behind that menu.
+const GHOST_Z = 2147483647;
 
 /** Shared modules resolved by the client module loader. */
 let sharedRequire = null;

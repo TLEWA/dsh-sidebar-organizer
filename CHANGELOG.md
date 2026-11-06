@@ -3,6 +3,47 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.9.5 — 2026-11-06
+
+- **联动 dsh-sidebar-row-menu**：会话正文右键菜单（row-menu 自绘）的一级行，以及「打开方式」「更多操作」
+  两个二级菜单里的行，现在都能长按拖动排序。会话 / 工作区右键菜单里 row-menu 追加的「打开方式」
+  子菜单与正文菜单共用同一套应用顺序。全程不写 dsh.sidebar-row-menu.* 的任何存储键。
+- **默认不接管顺序**：一级菜单在没有自定义顺序时仍然完全跟随本插件的会话头部工具条顺序（row-menu
+  单向读取它），只有用户真的拖动过一级行，本插件才写自己的顺序；此后按用户安排显示，重置后恢复联动。
+- **「更多操作」写回本插件的头部菜单顺序**：在 row-menu 的「更多操作」二级菜单里排序，会写入
+  dsh.sidebar-organizer.host-menu-order.v1（row-menu 的 orderMoreItems 读同一个键），所以会话头部
+  原生「更多操作」弹窗的顺序也会同步变化；「打开方式」的顺序单独保存在本插件的 row-menu-layout.v1
+  里。row-menu 菜单的 DOM、键盘顺序不移动，只改视觉顺序。
+- **「更多」收纳面板内部可以拖了**：面板挂在菜单右侧之外，原来的命中检测只认菜单与锚点矩形，
+  在面板里按住拖动是 no-op。现在面板整体参与命中，面板内的行按 hidden 存储顺序重排后写回；
+  页面或流式输出滚动不再关闭面板（只关闭菜单自身的滚动）。
+- **z-index 修复**：row-menu 的菜单层是 2147483647，原拖影 2147483000 会被菜单盖住；拖影提到
+  2147483647，同值时后插入 body 的拖影显示在菜单之上。
+- 离线用例 264 条（全绿）。
+
+### English
+
+- **dsh-sidebar-row-menu integration**: rows in the plugin-drawn conversation-body context menu, plus
+  rows in its "Open with" and "More actions" submenus, can now be reordered with a long-press drag.
+  The "Open with" submenu that row-menu adds to the session / workspace context menus shares the same
+  app order as the body menu. No dsh.sidebar-row-menu.* storage key is ever written.
+- **The default order is untouched**: with no custom order, the first level still follows this plugin's
+  session-header order (row-menu reads it one-way). Only an actual drag on a first-level row saves an
+  order here; after that the menu keeps what the user arranged, and Reset restores the linkage.
+- **"More actions" writes this plugin's header-menu order**: reordering inside row-menu's "More actions"
+  submenu writes dsh.sidebar-organizer.host-menu-order.v1 (the same key row-menu's orderMoreItems reads),
+  so the native session-header More popover follows too. The "Open with" order is stored separately in
+  this plugin's row-menu-layout.v1. Row-menu's DOM and keyboard order are never moved; only the visual
+  order changes.
+- **The tucked "More" panel can be reordered from the inside**: the panel sits outside the menu, and the
+  old hit test only knew the menu and anchor rectangles, so dragging inside it was a no-op. The panel now
+  takes part in hit testing; its rows are reordered by the stored hidden order and written back. Page
+  and streaming scrolls no longer close the panel (only scrolling the menu itself does).
+- **z-index fix**: row-menu's menu layer is 2147483647 while the drag ghost was 2147483000, so the menu
+  covered the ghost. The ghost now uses 2147483647; being appended to body later, it wins the tie and
+  stays above the menu.
+- 264 offline assertions (all green).
+
 ## 0.9.4 — 2026-11-06
 
 - **长按二级菜单不会再拖动一级行**：宿主把 `打开方式` 这类子菜单渲染在行按钮**内部**（面板是

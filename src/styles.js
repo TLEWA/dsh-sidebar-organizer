@@ -651,6 +651,18 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
+/* dsh-sidebar-row-menu's MenuSurface ships display:block, so an inline
+   style.order would be ignored. Once the user arranges one of its panes we
+   turn the pane itself into a flex column; the host's absolutely positioned
+   material layer leaves the flow, and its own left/top/size stay untouched. */
+.dsrm-menu-surface.dso-rm-pane,
+.dsrm-submenu.dso-rm-pane {
+  display: flex !important;
+  flex-direction: column;
+}
+/* Submenus scroll (max-height 64vh); without this the rows would shrink to
+   fit instead of overflowing. */
+.dso-rm-pane > * { flex: 0 0 auto; }
 /* 1:1 with the host's menu item (._item_1p5el_105). */
 .dso-ctx-panel-row {
   display: flex;
