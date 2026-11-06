@@ -426,15 +426,32 @@ function createSettingsPage() {
           })
         ),
         h(
-          "button",
-          {
-            type: "button",
-            className: "dso-config-reset",
-            onClick: () => {
-              if (runtime) runtime.contextMenu.reset();
+          "div",
+          { className: "dso-config-actions" },
+          h(
+            "button",
+            {
+              type: "button",
+              className: "dso-config-reset",
+              title: text.resetRowMenuHint,
+              onClick: () => {
+                if (runtime) runtime.contextMenu.resetRowMenu();
+              },
             },
-          },
-          text.resetScope
+            text.resetRowMenu
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "dso-config-reset",
+              title: text.resetScopeHint,
+              onClick: () => {
+                if (runtime) runtime.contextMenu.reset();
+              },
+            },
+            text.resetScope
+          )
         )
       )
     );

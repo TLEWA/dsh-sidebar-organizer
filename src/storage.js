@@ -13,6 +13,9 @@ let dragCache = null;
 let hotkeyCache = null;
 let contextMenuCache = null;
 let rowMenuCache = null;
+// The raw string the cache was parsed from, so another window writing the key
+// invalidates the copy instead of being silently ignored.
+let rowMenuCacheRaw = null;
 
 function emptyScopeLayout() {
   return { order: [], hidden: [] };
@@ -531,22 +534,84 @@ function normalizeRowMenuPane(value) {
   return { order: normalizeStringList(raw.order) };
 }
 
+// One promoted 更多操作 entry. The host action id is what runs; the label is
+// the handle in the first-level order and what the submenu row is hidden by.
+function normalizeRowMenuPromoted(value) {
+  const list = [];
+  if (!Array.isArray(value)) return list;
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    if (typeof item.id !== "string" || !item.id) continue;
+    if (typeof item.label !== "string" || !item.label) continue;
+    if (list.some((entry) => entry.label === item.label)) continue;
+    list.push({
+      id: item.id,
+      label: item.label,
+      icon: typeof item.icon === "string" ? item.icon : "",
+    });
+  }
+  return list;
+}
+
+function normalizeRowMenuDividers(value) {
+  const gaps = [];
+  if (!Array.isArray(value)) return gaps;
+  for (const raw of value) {
+    const gap = Number(raw);
+    if (!Number.isInteger(gap) || gap < 1) continue;
+    if (gaps.indexOf(gap) === -1) gaps.push(gap);
+  }
+  gaps.sort((a, b) => a - b);
+  return gaps;
+}
+
+// Presence matters: an absent pane still follows row-menu's own separators,
+// while an empty array is a deliberate "no dividers at all".
+function normalizeRowMenuDividerMap(value) {
+  const map = {};
+  if (!value || typeof value !== "object") return map;
+  for (const name of ROW_MENU_PANES) {
+    if (Object.prototype.hasOwnProperty.call(value, name)) {
+      map[name] = normalizeRowMenuDividers(value[name]);
+    }
+  }
+  return map;
+}
+
 function readRowMenuStore() {
-  if (rowMenuCache) return rowMenuCache;
+  let raw = null;
+  try {
+    raw = window.localStorage.getItem(ROW_MENU_LAYOUT_KEY);
+  } catch (err) {
+    raw = null;
+  }
+  if (rowMenuCache && raw === rowMenuCacheRaw) return rowMenuCache;
   let parsed = null;
   try {
-    const raw = window.localStorage.getItem(ROW_MENU_LAYOUT_KEY);
     if (raw) parsed = JSON.parse(raw);
   } catch (err) {
     parsed = null;
   }
-  const store = { version: ROW_MENU_LAYOUT_VERSION, panes: {} };
+  const store = {
+    version: ROW_MENU_LAYOUT_VERSION,
+    panes: {},
+    takeover: false,
+    promoted: [],
+    dividers: {},
+  };
   if (parsed && typeof parsed === "object" && parsed.version === ROW_MENU_LAYOUT_VERSION) {
     if (parsed.panes && typeof parsed.panes === "object") {
       for (const name of ROW_MENU_PANES) {
         if (parsed.panes[name]) store.panes[name] = normalizeRowMenuPane(parsed.panes[name]);
       }
     }
+    store.takeover = parsed.takeover === true;
+    store.promoted = normalizeRowMenuPromoted(parsed.promoted);
+    store.dividers = normalizeRowMenuDividerMap(parsed.dividers);
+    // Builds before the takeover flag already froze individual panes. Reading
+    // them as a takeover keeps the old frozen order instead of letting the
+    // header (and the More submenu) start overwriting one of the two halves.
+    if (!store.takeover && Object.keys(store.panes).length > 0) store.takeover = true;
     // 更多操作 is row-menu's view of the header More menu, so it is arranged by
     // writing the host order key. Keeping the value we replaced lets a reset put
     // the header menu back instead of stranding that reorder forever.
@@ -558,11 +623,18 @@ function readRowMenuStore() {
     }
   }
   rowMenuCache = store;
+  rowMenuCacheRaw = raw;
   return store;
 }
 
 function writeRowMenuStore(store) {
-  const next = { version: ROW_MENU_LAYOUT_VERSION, panes: {} };
+  const next = {
+    version: ROW_MENU_LAYOUT_VERSION,
+    panes: {},
+    takeover: store.takeover === true,
+    promoted: normalizeRowMenuPromoted(store.promoted),
+    dividers: normalizeRowMenuDividerMap(store.dividers),
+  };
   for (const name of ROW_MENU_PANES) {
     if (store.panes[name]) next.panes[name] = normalizeRowMenuPane(store.panes[name]);
   }
@@ -573,8 +645,10 @@ function writeRowMenuStore(store) {
     };
   }
   rowMenuCache = next;
+  const serialized = JSON.stringify(next);
+  rowMenuCacheRaw = serialized;
   try {
-    window.localStorage.setItem(ROW_MENU_LAYOUT_KEY, JSON.stringify(next));
+    window.localStorage.setItem(ROW_MENU_LAYOUT_KEY, serialized);
   } catch (err) {
     /* keep the in-memory copy */
   }
@@ -592,15 +666,89 @@ function writeRowMenuPane(name, order) {
   const store = readRowMenuStore();
   const panes = Object.assign({}, store.panes);
   panes[name] = normalizeRowMenuPane({ order });
-  writeRowMenuStore({ version: store.version, panes, host: store.host });
+  writeRowMenuStore({
+    version: store.version,
+    panes,
+    host: store.host,
+    takeover: store.takeover,
+    promoted: store.promoted,
+    dividers: store.dividers,
+  });
   return panes[name];
+}
+
+function readRowMenuTakeover() {
+  return readRowMenuStore().takeover === true;
+}
+
+function setRowMenuTakeover(value) {
+  const store = readRowMenuStore();
+  writeRowMenuStore({
+    version: store.version,
+    panes: store.panes,
+    host: store.host,
+    takeover: Boolean(value),
+    promoted: store.promoted,
+    dividers: store.dividers,
+  });
+  return Boolean(value);
+}
+
+function readRowMenuPromoted() {
+  return readRowMenuStore().promoted.map((entry) => Object.assign({}, entry));
+}
+
+function writeRowMenuPromoted(list) {
+  const store = readRowMenuStore();
+  const promoted = normalizeRowMenuPromoted(list);
+  writeRowMenuStore({
+    version: store.version,
+    panes: store.panes,
+    host: store.host,
+    takeover: store.takeover,
+    promoted,
+    dividers: store.dividers,
+  });
+  return promoted;
+}
+
+// null means "this pane still follows row-menu's own separators"; an array
+// (possibly empty) is the user's own divider set.
+function readRowMenuDividers(name) {
+  if (ROW_MENU_PANES.indexOf(name) === -1) return null;
+  const store = readRowMenuStore();
+  if (!Object.prototype.hasOwnProperty.call(store.dividers, name)) return null;
+  return normalizeRowMenuDividers(store.dividers[name]);
+}
+
+function writeRowMenuDividers(name, gaps) {
+  if (ROW_MENU_PANES.indexOf(name) === -1) return null;
+  const store = readRowMenuStore();
+  const dividers = Object.assign({}, store.dividers);
+  dividers[name] = normalizeRowMenuDividers(gaps);
+  writeRowMenuStore({
+    version: store.version,
+    panes: store.panes,
+    host: store.host,
+    takeover: store.takeover,
+    promoted: store.promoted,
+    dividers,
+  });
+  return dividers[name];
 }
 
 function beginRowMenuHostEdit() {
   const store = readRowMenuStore();
   if (store.host) return store.host;
   const host = { backup: readHostMenuOrder(), written: null };
-  writeRowMenuStore({ version: store.version, panes: store.panes, host });
+  writeRowMenuStore({
+    version: store.version,
+    panes: store.panes,
+    host,
+    takeover: store.takeover,
+    promoted: store.promoted,
+    dividers: store.dividers,
+  });
   return host;
 }
 
@@ -611,6 +759,9 @@ function recordRowMenuHostWrite(labels) {
     version: store.version,
     panes: store.panes,
     host: { backup: store.host.backup, written: normalizeStringList(labels) },
+    takeover: store.takeover,
+    promoted: store.promoted,
+    dividers: store.dividers,
   });
 }
 
@@ -628,7 +779,14 @@ function endRowMenuHostEdit() {
 
 function clearRowMenuLayout() {
   endRowMenuHostEdit();
-  rowMenuCache = { version: ROW_MENU_LAYOUT_VERSION, panes: {} };
+  rowMenuCache = {
+    version: ROW_MENU_LAYOUT_VERSION,
+    panes: {},
+    takeover: false,
+    promoted: [],
+    dividers: {},
+  };
+  rowMenuCacheRaw = null;
   try {
     window.localStorage.removeItem(ROW_MENU_LAYOUT_KEY);
   } catch (err) {

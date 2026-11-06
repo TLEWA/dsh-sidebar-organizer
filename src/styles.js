@@ -336,6 +336,12 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   gap: 4px;
   margin-left: auto;
 }
+.dso-config-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
 .dso-config-hotkey {
   flex: none;
   padding: 2px 8px;

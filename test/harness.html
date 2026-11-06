@@ -227,6 +227,32 @@
   </div>
 </div>
 
+<!-- dsh-sidebar-row-menu draws the blank-conversation session menu itself
+     (header toolbar order, plus 打开方式 / 更多操作 submenus). The plugin must
+     arrange that menu too: toggle its dividers, pull entries out of 更多操作,
+     then freeze the order once the user edits it. -->
+<div class="fixture" id="rowmenu-fixture">
+  <div class="caption">dsh-sidebar-row-menu (session menu)</div>
+  <div data-dsh-sidebar-row-menu>
+    <div class="dsrm-menu">
+      <div class="dsrm-menu-surface" role="group">
+        <div class="rm-item"><button type="button" role="menuitem"><span class="dsrm-header-icon"><svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor"/></svg></span><span class="_itemLabel_rm">用 Visual Studio Code 打开</span></button></div>
+        <div class="dsrm-openwith"><div class="rm-item"><button type="button" role="menuitem" aria-haspopup="menu"><span class="dsrm-host-label-text">打开方式</span></button></div><div class="dsrm-submenu" role="group"><div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">文件资源管理器</span></button></div><div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">Visual Studio Code</span></button></div></div></div>
+        <div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">本会话的变更请求</span></button></div>
+        <div class="dsrm-sep" role="separator"></div>
+        <div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">展开底部面板</span></button></div>
+        <div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">解除卡顿</span></button></div>
+        <div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">上下文诊断</span></button></div>
+        <div class="dsrm-sep" role="separator"></div>
+        <div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">查找</span></button></div>
+        <div class="dsrm-sep" role="separator"></div>
+        <div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">打开右侧栏</span></button></div>
+        <div class="dsrm-openwith dsrm-more"><div class="rm-item"><button type="button" role="menuitem" aria-haspopup="menu"><span class="dsrm-host-label-text">更多操作</span></button></div><div class="dsrm-submenu" role="group"><div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">下载 Session 日志</span></button></div><div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">反馈</span></button></div><div class="rm-item"><button type="button" role="menuitem"><span class="_itemLabel_rm">复制会话为 Markdown</span></button></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   const log = [];
   const failures = [];
@@ -1499,6 +1525,52 @@
       assert("header drag lands where the drop line was drawn", matrixProblems.length === 0, matrixProblems.join(" | "));
       api.resetScope("header");
       await wait(60);
+      // The drop line must never paint through the row being dragged. 0.2.2 wraps
+      // header icons in slot children that render with display:contents, so the
+      // unit measures 0x0, drops out of the drag snapshot, and the gap midpoint
+      // between its neighbours lands inside the glyph: a blue bar across the
+      // icon ("现在拖动右上角的组件会出现显示错误").
+      api.resetScope("header");
+      await wait(40);
+      const probeButton = document.querySelector('[data-testid="header-context"]');
+      const probeHolder = document.createElement("span");
+      probeHolder.style.display = "contents";
+      probeButton.parentNode.insertBefore(probeHolder, probeButton);
+      probeHolder.appendChild(probeButton);
+      api.refresh();
+      await wait(160);
+      const probeRect = probeButton.getBoundingClientRect();
+      const probeY = probeRect.top + probeRect.height / 2;
+      const probeX = probeRect.left + probeRect.width / 2;
+      probeButton.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 120,
+        clientX: probeX, clientY: probeY,
+      }));
+      await wait(330);
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId: 120,
+        clientX: probeX + 3, clientY: probeY,
+      }));
+      await wait(20);
+      const selfIndicator = document.querySelector(".dso-indicator");
+      const selfX = selfIndicator ? parseFloat(selfIndicator.style.left) + 1 : NaN;
+      const selfVisible = !!selfIndicator && selfIndicator.dataset.visible === "1";
+      assert(
+        "no drop line inside a box-less dragged row",
+        selfVisible && !(selfX > probeRect.left && selfX < probeRect.right),
+        `visible=${selfVisible} x=${selfX} inside ${probeRect.left}..${probeRect.right}`
+      );
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 120,
+        clientX: probeX + 3, clientY: probeY,
+      }));
+      await wait(20);
+      probeHolder.parentNode.insertBefore(probeButton, probeHolder);
+      probeHolder.remove();
+      api.resetScope("header");
+      await wait(60);
+
 
       // Regression: a fresh 0.2.2 session can expose only the shipped More
       // button in the header slot. The scope must still be remembered so the
@@ -2208,6 +2280,218 @@
         JSON.stringify(clearedStore)
       );
 
+      // ---- dsh-sidebar-row-menu linkage: dividers, pull-out, takeover ----
+      const RM_KEY = "dsh.sidebar-organizer.row-menu-layout.v1";
+      const rmStore = () => {
+        try {
+          return JSON.parse(localStorage.getItem(RM_KEY) || "null");
+        } catch (error) {
+          return null;
+        }
+      };
+      const rmFirst = () => document.querySelector("#rowmenu-fixture .dsrm-menu-surface");
+      const rmMore = () => document.querySelector("#rowmenu-fixture .dsrm-openwith.dsrm-more");
+      const rmSub = () => document.querySelector("#rowmenu-fixture .dsrm-openwith.dsrm-more .dsrm-submenu");
+      const rmLabel = (item) => {
+        const host = item.querySelector(".dsrm-host-label-text");
+        const label = item.querySelector('[class*="itemLabel"]');
+        return ((host && host.textContent.trim()) || (label && label.textContent.trim()) || "").trim();
+      };
+      const rmPainted = (pane) =>
+        Array.from(pane.children)
+          .filter((child) => !child.hasAttribute("data-dso-rm-divider"))
+          .filter((child) => child.getAttribute("role") !== "separator" && !child.classList.contains("dsrm-sep"))
+          .filter((child) => child.querySelector('[role="menuitem"]'))
+          .filter((child) => {
+            const rect = child.getBoundingClientRect();
+            return rect.width > 0 || rect.height > 0;
+          })
+          .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+      const rmLabels = (pane) => rmPainted(pane).map(rmLabel);
+
+      api.contextMenu.setEnabled(true);
+      localStorage.removeItem("dsh.sidebar-organizer.host-menu-order.v1");
+      api.contextMenu.resetRowMenu();
+      api.contextMenu.refresh();
+      await wait(180);
+      const firstPane = rmFirst();
+      const subPane = rmSub();
+      assert(
+        "row-menu panes are discovered",
+        rmLabels(firstPane).length === 9 && rmLabels(subPane).length === 3,
+        rmLabels(firstPane).join(",") + " / " + rmLabels(subPane).join(",")
+      );
+
+      // The fixture keeps row-menu's own separators (gaps 3, 6 and 7); the first
+      // edit freezes them as the baseline, exactly like the host menu does.
+      const dividerRow = rmPainted(firstPane)[3];
+      dividerRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 24, clientY: 24 }));
+      await wait(160);
+      const injectedDivider = firstPane.querySelector('[data-dso-rm-divider="4"]');
+      assert(
+        "right-clicking a row-menu row adds a divider",
+        !!injectedDivider && !!rmStore() && rmStore().dividers.first.join(",") === "3,4,6,7",
+        JSON.stringify(rmStore() && rmStore().dividers)
+      );
+      assert(
+        "the divider is painted between the clicked row and the next one",
+        !!injectedDivider && Number(injectedDivider.style.order) === 7 && firstPane.querySelectorAll("[data-dso-rm-divider]").length === 4,
+        injectedDivider && injectedDivider.style.order
+      );
+      assert(
+        "the first row-menu edit takes over the whole menu",
+        !!rmStore() && rmStore().takeover === true && rmStore().panes.first.order.length === 9,
+        JSON.stringify(rmStore() && rmStore().panes.first)
+      );
+
+      dividerRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 24, clientY: 24 }));
+      await wait(160);
+      assert(
+        "right-clicking the same row again removes the divider",
+        !firstPane.querySelector('[data-dso-rm-divider="4"]') && rmStore().dividers.first.join(",") === "3,6,7",
+        JSON.stringify(rmStore().dividers)
+      );
+
+      // Once edited, 更多操作 must follow the plugin, not the header toolbar key.
+      const storeAfterToggle = rmStore();
+      storeAfterToggle.panes.more = { order: ["复制会话为 Markdown", "反馈", "下载 Session 日志"] };
+      localStorage.setItem(RM_KEY, JSON.stringify(storeAfterToggle));
+      localStorage.setItem("dsh.sidebar-organizer.host-menu-order.v1", JSON.stringify(["下载 Session 日志", "复制会话为 Markdown", "反馈"]));
+      api.contextMenu.refresh();
+      await wait(180);
+      assert(
+        "after takeover 更多操作 follows the plugin order, not the header",
+        rmLabels(subPane).join(",") === "复制会话为 Markdown,反馈,下载 Session 日志",
+        rmLabels(subPane).join(",")
+      );
+
+      // Pull 反馈 out of 更多操作 by dragging it onto the first level. row-menu
+      // keeps its controller (items/onSelect) on the React fiber; the harness
+      // stands in for it with the same internal property name.
+      const moreWrap = rmMore();
+      const moreActions = [];
+      let moreClosed = 0;
+      moreWrap["__reactFiber$harness"] = {
+        memoizedProps: {
+          controller: {
+            items: [
+              { id: "download-log", label: "下载 Session 日志", icon: "" },
+              { id: "feedback", label: "反馈", icon: "" },
+              { id: "copy-markdown", label: "复制会话为 Markdown", icon: "" },
+            ],
+            onSelect: (id) => moreActions.push(id),
+          },
+          onClose: () => {
+            moreClosed += 1;
+          },
+        },
+      };
+      const feedbackRow = rmPainted(subPane).find((item) => rmLabel(item) === "反馈");
+      const feedbackButton = feedbackRow.querySelector('[role="menuitem"]');
+      const feedbackRect = feedbackButton.getBoundingClientRect();
+      feedbackButton.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId: 91,
+          clientX: feedbackRect.left + 10,
+          clientY: feedbackRect.top + feedbackRect.height / 2,
+        })
+      );
+      await wait(330);
+      const promoteTarget = rmPainted(firstPane)[0];
+      const promoteRect = promoteTarget.getBoundingClientRect();
+      const promoteX = promoteRect.left + 12;
+      const promoteY = promoteRect.top + 2;
+      document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 91, clientX: promoteX, clientY: promoteY }));
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 91, clientX: promoteX, clientY: promoteY }));
+      await wait(260);
+      const promoted = firstPane.querySelector('[data-dso-rm-promoted="反馈"]');
+      assert(
+        "a 更多操作 entry can be dragged out to the first level",
+        !!promoted && rmLabels(firstPane)[0] === "反馈",
+        rmLabels(firstPane).join(",")
+      );
+      assert(
+        "the pulled-out entry is persisted",
+        !!rmStore() && rmStore().promoted.length === 1 && rmStore().promoted[0].label === "反馈",
+        JSON.stringify(rmStore() && rmStore().promoted)
+      );
+      assert(
+        "the entry disappears from 更多操作",
+        !!feedbackRow && feedbackRow.getAttribute("data-dso-rm-hidden") === "" && feedbackRow.style.display === "none",
+        feedbackRow && feedbackRow.getAttribute("data-dso-rm-hidden") + " / " + feedbackRow.style.display
+      );
+      assert(
+        "the 更多操作 order drops the promoted entry",
+        !!rmStore() && rmStore().panes.more.order.indexOf("反馈") === -1,
+        JSON.stringify(rmStore() && rmStore().panes.more)
+      );
+      await wait(560);
+      if (promoted) {
+        promoted.querySelector('[role="menuitem"]').dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        await wait(60);
+      }
+      assert(
+        "clicking the pulled-out row runs the original action",
+        moreActions.join(",") === "feedback" && moreClosed >= 1,
+        moreActions.join(",") + " closed=" + moreClosed
+      );
+
+      // Dropping the promoted row back on 更多操作 returns it to the submenu.
+      if (promoted) {
+        const promotedButton = promoted.querySelector('[role="menuitem"]');
+        const promotedRect = promotedButton.getBoundingClientRect();
+        promotedButton.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            pointerId: 92,
+            clientX: promotedRect.left + 10,
+            clientY: promotedRect.top + promotedRect.height / 2,
+          })
+        );
+        await wait(330);
+        const dropMore = moreWrap.getBoundingClientRect();
+        const demoteX = dropMore.left + dropMore.width / 2;
+        const demoteY = dropMore.top + dropMore.height / 2;
+        document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 92, clientX: demoteX, clientY: demoteY }));
+        document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 92, clientX: demoteX, clientY: demoteY }));
+        await wait(260);
+      }
+      assert(
+        "dropping it back on 更多操作 restores the submenu entry",
+        !firstPane.querySelector("[data-dso-rm-promoted]") &&
+          rmLabels(firstPane).indexOf("反馈") === -1 &&
+          !!feedbackRow &&
+          !feedbackRow.hasAttribute("data-dso-rm-hidden") &&
+          !!rmStore() &&
+          rmStore().promoted.length === 0,
+        JSON.stringify(rmStore() && rmStore().promoted)
+      );
+
+      // Restore: release the takeover and go back to row-menu's default mapping.
+      localStorage.setItem("dsh.sidebar-organizer.host-menu-order.v1", JSON.stringify(["反馈", "下载 Session 日志", "复制会话为 Markdown"]));
+      api.contextMenu.resetRowMenu();
+      await wait(220);
+      assert("restore releases the takeover", !localStorage.getItem(RM_KEY), localStorage.getItem(RM_KEY));
+      assert(
+        "restore removes injected dividers and promoted rows",
+        firstPane.querySelectorAll("[data-dso-rm-divider], [data-dso-rm-promoted]").length === 0,
+        firstPane.innerHTML.length
+      );
+      assert(
+        "restore gives 更多操作 back to the header order",
+        rmLabels(subPane).join(",") === "反馈,下载 Session 日志,复制会话为 Markdown",
+        rmLabels(subPane).join(",")
+      );
+      localStorage.removeItem("dsh.sidebar-organizer.host-menu-order.v1");
+      api.contextMenu.resetRowMenu();
+      api.contextMenu.refresh();
+      await wait(80);
+
       // Leave drag switches and layout in their default state for dispose.
       api.setDragEnabled("right", true);
       api.reset();
@@ -2234,6 +2518,16 @@
   .ctx-menu [class*="_viewport_"] { display: flex; flex-direction: column; }
   .ctx-menu [class*="_itemWrap_"] { display: block; }
   ._separator_ctx { flex: none; height: 1px; margin: 3px 8px; background: rgba(255, 255, 255, 0.12); }
+  /* row-menu's blank-conversation menu: panes are flex columns, rows are
+     MenuItemButton wrappers, and the More submenu is always mounted here (the
+     real one mounts on hover, but the arrangement is the same). */
+  #rowmenu-fixture .dsrm-menu-surface { display: flex; flex-direction: column; width: 260px; padding: 4px; background: #26272b; }
+  #rowmenu-fixture .rm-item { display: block; }
+  #rowmenu-fixture .rm-item button { display: flex; align-items: center; gap: 6px; min-height: 30px; }
+  #rowmenu-fixture .dsrm-openwith { display: block; }
+  #rowmenu-fixture .dsrm-submenu { display: flex; flex-direction: column; width: 240px; margin-left: 12px; padding: 4px; background: #2c2d31; }
+  #rowmenu-fixture .dsrm-sep { flex: none; height: 1px; margin: 3px 8px; background: rgba(255, 255, 255, 0.12); }
+  #rowmenu-fixture .dsrm-header-icon { display: inline-flex; width: 16px; }
 </style>
 </body>
 </html>

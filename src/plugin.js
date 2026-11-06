@@ -76,6 +76,10 @@ function contextMenusSupported() {
 }
 
 function apply(ctx) {
+  // Which build the page is actually running. The host can serve a client.js
+  // from an earlier build right after a sync, so verification reads this
+  // stamp instead of assuming the newest file is what executed.
+  window.__DSO_BUILD__ = "__BUILD__";
   // eslint-disable-next-line no-console
   console.info("[dsh-sidebar-organizer] client loaded v" + VERSION);
   // hot-reload safety: dispose a previous instance before installing
@@ -273,10 +277,24 @@ function apply(ctx) {
         if (runtime) runtime.contextMenu.reset();
         else resetContextMenuLayouts();
       },
+      resetRowMenu: () => {
+        if (runtime) return runtime.contextMenu.resetRowMenu();
+        clearRowMenuLayout();
+        return true;
+      },
       read: (kind) => readContextMenuLayout(kind),
       set: (kind, layout) => {
         if (runtime) runtime.contextMenu.set(kind, layout);
         else writeContextMenuLayout(kind, layout);
+      },
+      refresh: () => {
+        if (runtime) runtime.contextMenu.refresh();
+        else scheduleContextSync();
+      },
+      rowMenu: {
+        takeover: () => readRowMenuTakeover(),
+        promoted: () => readRowMenuPromoted(),
+        dividers: (name) => readRowMenuDividers(name),
       },
     },
   };

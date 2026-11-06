@@ -83,12 +83,20 @@ const CONTEXT_MENU_VERSION = 1;
 // above because row-menu sorts it from there on every open.
 const ROW_MENU_LAYOUT_KEY = "dsh.sidebar-organizer.row-menu-layout.v1";
 const ROW_MENU_LAYOUT_VERSION = 1;
-const ROW_MENU_PANES = ["first", "openwith"];
+const ROW_MENU_PANES = ["first", "openwith", "more"];
 const ROW_MENU_SCOPE = "rowmenu";
 const ROW_MENU_ATTR = "data-dsh-sidebar-row-menu";
 const ROW_MENU_ID_ATTR = "data-dso-rm-id";
 const ROW_MENU_SEP_ATTR = "data-dso-rm-sep";
 const ROW_MENU_PANE_CLASS = "dso-rm-pane";
+// Dividers are positional (a gap under the Nth visible row), exactly like the
+// host menu's. The marker keeps our injected separators out of the pane scan.
+const ROW_MENU_DIVIDER_ATTR = "data-dso-rm-divider";
+// A 更多操作 entry the user pulled into the first level becomes our own row:
+// row-menu has no idea it exists, so we render it and remember which host
+// action it runs.
+const ROW_MENU_PROMOTED_ATTR = "data-dso-rm-promoted";
+const ROW_MENU_HIDDEN_ATTR = "data-dso-rm-hidden";
 // Keys that only exist as modifiers cannot be a binding on their own; the
 // capture UI waits for the non-modifier key of the chord.
 const HOTKEY_MODIFIER_KEYS = {
@@ -143,7 +151,10 @@ const STRINGS = {
     importOk: "配置已导入",
     importVersion: "配置文件版本不兼容，未导入",
     importInvalid: "配置文件无法读取，未导入",
-    resetScope: "恢复本组",
+    resetScope: "重置全部右键菜单",
+    resetScopeHint: "清空会话与工作区右键菜单的排序、分隔线和收纳（含会话菜单还原）",
+    resetRowMenu: "仅还原会话菜单",
+    resetRowMenuHint: "只把会话右键菜单恢复成跟随右上栏工具顺序，工作区菜单不受影响",
     restore: "恢复显示",
     tuck: "收进更多",
     up: "上移",
@@ -198,7 +209,10 @@ const STRINGS = {
     importOk: "Configuration imported",
     importVersion: "Unsupported configuration version — nothing imported",
     importInvalid: "Could not read the configuration file — nothing imported",
-    resetScope: "Reset section",
+    resetScope: "Reset all context menus",
+    resetScopeHint: "Clears order, dividers and tucked rows in session and workspace menus (includes restoring the session menu)",
+    resetRowMenu: "Restore session menu only",
+    resetRowMenuHint: "Restores only the session menu to the header toolbar order; workspace menus stay as they are",
     restore: "Restore",
     tuck: "Move into More",
     up: "Move up",

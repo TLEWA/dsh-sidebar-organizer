@@ -3,6 +3,58 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.9.7 — 2026-11-07
+
+把 dsh-sidebar-row-menu 的会话右键菜单真正接过来：可以在这个菜单里增删分隔线、把「··· 更多操作」二级
+菜单里的条目提到一级，并在你编辑过一次之后由本插件保存顺序；同时给了一个一键还原的出口。另外修好了
+工具条拖动时落点判断的几个老问题。
+
+- **接管 row-menu 的会话右键菜单**：在这个菜单里增删分隔线、拖动排序、或把「更多操作」的条目提到
+  一级之后，菜单顺序改由本插件保存；右上栏工具条随后的改动不会再回头把它重排。没有动过的菜单仍然
+  照旧跟随右上栏顺序。
+- **右键增删分隔线**：在 row-menu 的正文一级菜单里右键任一行，即可在该行下方插入或移除一条分隔线
+  （与宿主菜单同一条落位规则，最后一行下方不可插入）；自定义分隔线画出来时原生分隔线隐藏，不会出现
+  两套线；在空白处或分隔线上右键会被吞掉，不会漏到宿主菜单。
+- **把「更多操作」里的条目拖到一级**：从二级菜单把条目拖到一级，会在落点生成一个同名行，点击等同于
+  点二级菜单里的那一项；把它拖回「更多操作」即撤销。
+- **一键还原本插件对这个菜单的接管**：配置页新增「仅还原会话菜单」——只把会话右键菜单恢复成跟随
+  右上栏工具顺序，工作区菜单不受影响；旁边的「重置全部右键菜单」连工作区一起清空排序、分隔线与收纳。
+- **工具条落点修复**：指示线按视觉顺序落位（工具条用 CSS order 重排、DOM 顺序与之不同时，线不会
+  再被钉在较早的间隙里）；把图标拖到工具条左侧或右侧之外，仍然表示「放到这一端」；读取容器几何时
+  兼容已经测量好的 DOMRect（此前会在 pointermove 里抛异常，吞掉整次落点更新）；落线不再压在图标上；
+  松手按线所指向的那一行插入，修好了「预览能拖过去、松手却没动」（隐藏的 0×0 槽位让索引偏了一格）；
+  提交失败会抖动提示，不再静默。
+- **排障**：页面暴露 `window.__DSO_BUILD__`（版本 + 构建哈希），可以确认宿主实际加载的是哪一版。
+- **质量**：断言从 264 条增加到 280 条，全部通过；并用真实指针事件验证了工具条从最左拖到最右的
+  落点与最终顺序。
+
+### English
+
+- **Takes over row-menu's session context menu**: after you add or remove a divider, reorder a row, or
+  pull an entry out of "More actions" onto the first level, this plugin saves the menu order; later
+  changes to the header toolbar no longer reshuffle it behind your back. A menu you never touched
+  still follows the header order as before.
+- **Right-click to toggle a divider**: right-click any first-level row of row-menu's body menu to add
+  or remove the divider underneath it (same gap rule as the host menu; the last row has no gap). Native
+  separators are hidden while custom ones are painted, so the two sets never stack, and a right-click
+  on empty space or on a divider is swallowed instead of falling through to the host menu.
+- **Drag an entry out of "More actions"**: dragging a submenu entry onto the first level creates a row
+  of the same name that runs the same host action; dragging it back into "More actions" undoes it.
+- **One-click restore**: the settings page gains "Restore session menu only", which puts just the
+  session context menu back on the header toolbar order (workspace menus are untouched); the adjacent
+  "Reset all context menus" also clears order, dividers and tucked rows in the workspace menus.
+- **Header strip drop targeting**: the indicator now follows visual order (the strip reorders with CSS
+  `order`, so a DOM-order scan used to leave the line pinned in an earlier gap); dragging past either
+  end of the strip still means "this end"; container geometry accepts an already-measured DOMRect
+  (reading it as an element used to throw inside pointermove and swallow the whole update); the line no
+  longer cuts through an icon; and the release inserts in front of the row the line pointed at, fixing
+  "the preview moves but releasing does nothing" (hidden 0×0 slot rows shifted the index by one).
+  A rejected drop now shakes instead of failing silently.
+- **Diagnostics**: the page exposes `window.__DSO_BUILD__` (version plus build hash) so you can tell
+  which build the host actually loaded.
+- **Quality**: assertions grew from 264 to 280, all passing, and real pointer events verify a drag from
+  the far left of the strip to the far right, including the final order.
+
 ## 0.9.6 — 2026-11-06
 
 一次以稳定性、性能与代码清理为主的版本：完整审查了运行时、设置页与宿主端代码，修掉布局更新被丢弃、

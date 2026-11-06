@@ -10,6 +10,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 const root = path.resolve(import.meta.dirname, "..");
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -30,11 +31,15 @@ const MODULES = [
 ];
 
 const sourceDir = path.join(root, "src");
-const parts = MODULES.map((file) => {
-  const full = path.join(sourceDir, file);
-  const text = fs.readFileSync(full, "utf8").replace(/\s+$/, "");
-  return text.replaceAll("__VERSION__", pkg.version);
-});
+// Normalise line endings before hashing and emitting: a Windows checkout reads
+// sources as CRLF while CI checks out LF, and hashing the raw bytes made the
+// build hash (and therefore the committed bundle) differ per platform.
+const readSource = (file) =>
+  fs.readFileSync(path.join(sourceDir, file), "utf8").replace(/\r\n/g, "\n").replace(/\s+$/, "");
+const rawParts = MODULES.map((file) => readSource(file).replaceAll("__VERSION__", pkg.version));
+// Short content hash so a running page can report exactly which bundle it got.
+const build = pkg.version + "+" + crypto.createHash("sha256").update(rawParts.join("\n")).digest("hex").slice(0, 10);
+const parts = MODULES.map((file) => readSource(file).replaceAll("__BUILD__", build));
 
 const banner = `/**
  * dsh-sidebar-organizer — client half (v${pkg.version}).
@@ -68,5 +73,5 @@ const output = `${banner}${wrapperHead}${parts.join("\n\n")}${wrapperTail}`;
 const target = path.join(root, "lib", "client.js");
 fs.writeFileSync(target, output, "utf8");
 process.stdout.write(
-  `built ${path.relative(root, target)} from ${MODULES.length} modules (${output.split("\n").length} lines)\n`
+  `built ${path.relative(root, target)} from ${MODULES.length} modules (${output.split("\n").length} lines) build ${build}\n`
 );

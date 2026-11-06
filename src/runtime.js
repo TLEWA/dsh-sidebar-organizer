@@ -1583,6 +1583,16 @@ function createRuntime(ctx) {
     const seen = new Map();
     for (const child of Array.from(pane.children)) {
       if (child.getAttribute("aria-hidden") === "true") continue;
+      // Our injected divider is a flex child of the pane, so it must not be
+      // mistaken for a row-menu separator (those are hidden while custom
+      // dividers are painted).
+      if (child.hasAttribute(ROW_MENU_DIVIDER_ATTR)) continue;
+      // A 更多操作 entry that was pulled out to the first level stays in the
+      // submenu's DOM but must not count as a row (or drag) any more.
+      if (child.hasAttribute(ROW_MENU_HIDDEN_ATTR)) {
+        pending.length = 0;
+        continue;
+      }
       if (child.getAttribute("role") === "separator" || child.classList.contains("dsrm-sep")) {
         pending.push(child);
         continue;
@@ -1603,6 +1613,120 @@ function createRuntime(ctx) {
       });
     }
     return { pane, name, rows, trailingSeps: pending, rect: pane.getBoundingClientRect() };
+  }
+
+  function rowMenuVisualRows(info) {
+    const measured = info.rows.filter((row) => row.rect && (row.rect.width > 0 || row.rect.height > 0));
+    return measured.slice().sort((a, b) => a.rect.top - b.rect.top);
+  }
+
+  function rowMenuFirstPane() {
+    return document.querySelector("[" + ROW_MENU_ATTR + "] .dsrm-menu-surface");
+  }
+
+  function rowMenuMoreWrap() {
+    return document.querySelector("[" + ROW_MENU_ATTR + "] .dsrm-openwith.dsrm-more");
+  }
+
+  // The glass of the fiber bridge into row-menu's own React tree. Neither menu
+  // exposes a public API for its rows: the 更多操作 controller (items/onSelect)
+  // is the only way to both read the host action id of a row and run it later.
+  function rowMenuFiberOf(node) {
+    if (!node || typeof node !== "object") return null;
+    for (const key of Object.keys(node)) {
+      if (key.indexOf("__reactFiber$") === 0 || key.indexOf("__reactInternalInstance$") === 0) {
+        return node[key];
+      }
+    }
+    return null;
+  }
+
+  function rowMenuMoreProps(node) {
+    let fiber = rowMenuFiberOf(node);
+    let hops = 0;
+    let controller = null;
+    let onClose = null;
+    while (fiber && hops < 24) {
+      const props = fiber.memoizedProps;
+      if (props && typeof props === "object") {
+        if (!controller && props.controller && typeof props.controller.onSelect === "function") {
+          controller = props.controller;
+        }
+        if (!onClose && typeof props.onClose === "function") onClose = props.onClose;
+      }
+      if (controller && onClose) break;
+      fiber = fiber.return;
+      hops += 1;
+    }
+    return controller ? { controller, onClose } : null;
+  }
+
+  function rowMenuMoreEntryForRow(rowEl) {
+    const wrap = rowEl.closest(".dsrm-openwith.dsrm-more");
+    if (!wrap) return null;
+    const menuitem = rowEl.querySelector('[role="menuitem"]') || rowEl;
+    const label = rowEl.getAttribute(ROW_MENU_ID_ATTR) || rowMenuRowLabel(rowEl, menuitem);
+    if (!label) return null;
+    const props = rowMenuMoreProps(wrap);
+    if (!props) return null;
+    const items = Array.isArray(props.controller.items) ? props.controller.items : [];
+    const wanted = label.trim();
+    let entry = null;
+    for (const item of items) {
+      if (!item || item.label === undefined || item.label === null) continue;
+      if (String(item.label).trim() === wanted) {
+        entry = item;
+        break;
+      }
+    }
+    if (!entry) return null;
+    const icon = rowEl.querySelector(".dsrm-header-icon");
+    return {
+      id: entry.id,
+      label: String(entry.label).replace(/\s+/g, " ").trim(),
+      icon: icon ? icon.innerHTML : "",
+    };
+  }
+
+  // Runs a promoted row's host action. row-menu closes the menu before it
+  // invokes the controller, so mirror that order: closing unmounts the wrapper,
+  // but the controller object we captured stays callable.
+  function selectPromotedRowMenuEntry(label) {
+    const entry = readRowMenuPromoted().find((item) => item.label === label);
+    if (!entry) return false;
+    const wrap = rowMenuMoreWrap();
+    const info = wrap ? rowMenuMoreProps(wrap) : null;
+    if (!info) return false;
+    try {
+      if (info.onClose) info.onClose();
+    } catch (error) {
+      /* the menu may already be closing */
+    }
+    try {
+      info.controller.onSelect(entry.id);
+    } catch (error) {
+      console.warn("[dsh-sidebar-organizer] promoted menu action failed:", error);
+      return false;
+    }
+    return true;
+  }
+
+  // The first row-menu edit freezes the whole menu: from then on the header
+  // toolbar keeps following its own order without dragging this menu along.
+  // Snapshot every open pane before the edit writes anything.
+  function ensureRowMenuTakeover() {
+    if (readRowMenuTakeover()) return false;
+    const snapshots = {};
+    for (const pane of rowMenuPanes()) {
+      const info = rowMenuPaneInfo(pane);
+      if (!info || !info.rows.length) continue;
+      snapshots[info.name] = rowMenuVisualRows(info).map((row) => row.id);
+    }
+    if (!snapshots.first) return false;
+    if (!snapshots.more) snapshots.more = readHostMenuOrder();
+    setRowMenuTakeover(true);
+    for (const name of Object.keys(snapshots)) writeRowMenuPane(name, snapshots[name]);
+    return true;
   }
 
   // A pane is tagged on every sync (that tag is what starts a drag), but its
@@ -1666,35 +1790,328 @@ function createRuntime(ctx) {
     return panes;
   }
 
+  function rowMenuTemplateRow(pane) {
+    for (const child of Array.from(pane.children)) {
+      if (child.hasAttribute(ROW_MENU_PROMOTED_ATTR)) continue;
+      if (child.hasAttribute(ROW_MENU_DIVIDER_ATTR)) continue;
+      if (child.hasAttribute(ROW_MENU_HIDDEN_ATTR)) continue;
+      if (child.getAttribute("role") === "separator" || child.classList.contains("dsrm-sep")) continue;
+      if (child.querySelector(".dsrm-openwith")) continue;
+      if (!child.querySelector('[role="menuitem"]')) continue;
+      return child;
+    }
+    return null;
+  }
+
+  // A promoted row is a copy of a real first-level row, rewired to invoke the
+  // 更多操作 action by its host entry id. React owns the original rows, so this
+  // clone is never touched by row-menu's render pass.
+  function createPromotedRow(template, entry) {
+    if (!template || !entry) return null;
+    const wrapper = template.cloneNode(true);
+    wrapper.removeAttribute("style");
+    wrapper.removeAttribute(ROW_MENU_ID_ATTR);
+    wrapper.removeAttribute(ROW_MENU_SEP_ATTR);
+    wrapper.removeAttribute("data-dso-ctx-item");
+    wrapper.setAttribute(ROW_MENU_PROMOTED_ATTR, entry.label);
+    for (const node of Array.from(wrapper.children)) {
+      if (node.getAttribute && node.getAttribute("role") === "separator") node.remove();
+    }
+    const button = wrapper.querySelector('[role="menuitem"]');
+    if (!button) return null;
+    const iconClass = (wrapper.querySelector('[class*="itemIcon"]') || {}).className || "";
+    const labelClass = (wrapper.querySelector('[class*="itemLabel"]') || {}).className || "";
+    button.removeAttribute("id");
+    button.removeAttribute("aria-haspopup");
+    button.removeAttribute("aria-expanded");
+    button.removeAttribute("aria-controls");
+    button.removeAttribute("aria-describedby");
+    button.removeAttribute("aria-checked");
+    button.removeAttribute("aria-disabled");
+    button.removeAttribute("disabled");
+    button.removeAttribute("data-state");
+    button.textContent = "";
+    if (entry.icon) {
+      const icon = document.createElement("span");
+      icon.className = iconClass || "dsrm-header-icon";
+      icon.innerHTML = entry.icon;
+      button.appendChild(icon);
+    }
+    const label = document.createElement("span");
+    label.className = labelClass || "dsrm-host-label-text";
+    label.textContent = entry.label;
+    button.appendChild(label);
+    button.addEventListener(
+      "click",
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectPromotedRowMenuEntry(entry.label);
+      },
+      true
+    );
+    return wrapper;
+  }
+
+  function materializePromotedRows(pane) {
+    if (!pane || !pane.isConnected) return;
+    const promoted = readRowMenuPromoted();
+    const labels = new Set(promoted.map((entry) => entry.label));
+    const existing = new Set();
+    for (const child of Array.from(pane.children)) {
+      const label = child.getAttribute(ROW_MENU_PROMOTED_ATTR);
+      if (label === null) continue;
+      if (labels.has(label)) {
+        existing.add(label);
+        continue;
+      }
+      child.remove();
+    }
+    if (!promoted.length) return;
+    const template = rowMenuTemplateRow(pane);
+    if (!template) return;
+    for (const entry of promoted) {
+      if (existing.has(entry.label)) continue;
+      const node = createPromotedRow(template, entry);
+      if (node) pane.appendChild(node);
+    }
+  }
+
+  function hideRowMenuNode(node) {
+    if (!node) return;
+    node.setAttribute(ROW_MENU_HIDDEN_ATTR, "");
+    node.style.display = "none";
+  }
+
+  function showRowMenuNode(node) {
+    if (!node) return;
+    node.removeAttribute(ROW_MENU_HIDDEN_ATTR);
+    node.style.removeProperty("display");
+    node.style.removeProperty("order");
+  }
+
+  // Keeps the 更多操作 submenu rows for promoted entries in the DOM but out of
+  // sight: React must still own them, otherwise closing the menu would throw.
+  function paintHiddenMoreRows(pane) {
+    if (!pane || !pane.isConnected) return;
+    for (const child of Array.from(pane.children)) {
+      if (child.hasAttribute(ROW_MENU_HIDDEN_ATTR)) showRowMenuNode(child);
+    }
+    const promoted = readRowMenuPromoted();
+    if (!promoted.length) return;
+    const labels = new Set(promoted.map((entry) => entry.label));
+    const pending = [];
+    for (const child of Array.from(pane.children)) {
+      if (child.hasAttribute(ROW_MENU_DIVIDER_ATTR)) continue;
+      if (child.getAttribute("role") === "separator" || child.classList.contains("dsrm-sep")) {
+        pending.push(child);
+        continue;
+      }
+      const menuitem = child.querySelector('[role="menuitem"]');
+      if (!menuitem) {
+        pending.length = 0;
+        continue;
+      }
+      const label = rowMenuRowLabel(child, menuitem);
+      if (labels.has(label)) {
+        for (const sep of pending) hideRowMenuNode(sep);
+        hideRowMenuNode(child);
+      }
+      pending.length = 0;
+    }
+  }
+
+  function rowMenuNativeSeparator(info) {
+    for (const row of info.rows) {
+      for (const sep of row.seps) if (sep.isConnected) return sep;
+    }
+    for (const sep of info.trailingSeps) if (sep.isConnected) return sep;
+    return null;
+  }
+
+  function rowMenuNativeGaps(info) {
+    const gaps = [];
+    const rows = rowMenuVisualRows(info);
+    for (let index = 1; index < rows.length; index += 1) {
+      const shown = rows[index].seps.some(
+        (sep) => sep.isConnected && sep.style.display !== "none" && sep.getBoundingClientRect().height > 0
+      );
+      if (shown) gaps.push(index);
+    }
+    return gaps;
+  }
+
+  function createRowMenuDivider(info, gap) {
+    const native = rowMenuNativeSeparator(info);
+    let node = null;
+    if (native) {
+      node = native.cloneNode(true);
+      node.removeAttribute(ROW_MENU_SEP_ATTR);
+      node.removeAttribute(ROW_MENU_HIDDEN_ATTR);
+      node.removeAttribute("aria-hidden");
+      node.style.removeProperty("order");
+      node.style.removeProperty("display");
+    } else {
+      node = document.createElement("div");
+      node.className = "dsrm-sep";
+    }
+    node.setAttribute("role", "separator");
+    node.setAttribute(ROW_MENU_DIVIDER_ATTR, String(gap));
+    return node;
+  }
+
+  // Dividers are painted as pane-level flex children, so they can sit between
+  // rows that React renders. Native separators are hidden while the pane is
+  // customised; otherwise both sets would show.
+  function applyRowMenuDividers(info) {
+    if (!info || !info.pane.isConnected) return;
+    const pane = info.pane;
+    const injected = [];
+    for (const child of Array.from(pane.children)) {
+      if (child.hasAttribute(ROW_MENU_DIVIDER_ATTR)) injected.push(child);
+    }
+    const gaps = readRowMenuDividers(info.name);
+    if (!gaps) {
+      for (const node of injected) node.remove();
+      return;
+    }
+    const used = new Set();
+    for (const gap of gaps) {
+      let node = null;
+      for (const candidate of injected) {
+        if (used.has(candidate) || !candidate.isConnected) continue;
+        if (Number(candidate.getAttribute(ROW_MENU_DIVIDER_ATTR)) === gap) {
+          node = candidate;
+          break;
+        }
+      }
+      if (!node) {
+        node = createRowMenuDivider(info, gap);
+        pane.appendChild(node);
+      }
+      used.add(node);
+      node.setAttribute(ROW_MENU_DIVIDER_ATTR, String(gap));
+      setOrder(node, gap * 2 - 1);
+      if (node.style.display === "none") node.style.display = "";
+    }
+    for (const node of injected) {
+      if (!used.has(node) && node.isConnected) node.remove();
+    }
+    for (const row of info.rows) {
+      for (const sep of row.seps) sep.style.display = "none";
+    }
+    for (const sep of info.trailingSeps) sep.style.display = "none";
+  }
+
+  function toggleRowMenuDivider(info, row) {
+    if (!info || !row) return false;
+    const painted = rowMenuVisualRows(info);
+    const index = painted.findIndex((candidate) => candidate.id === row.id);
+    if (index === -1) return false;
+    // One click toggles the line underneath the row (the same gap the host
+    // context menu uses). The last row has no gap below it.
+    const gap = index + 1;
+    if (gap >= painted.length) return false;
+    ensureRowMenuTakeover();
+    const stored = readRowMenuDividers(info.name);
+    const gaps = stored ? stored.slice() : rowMenuNativeGaps(info);
+    const at = gaps.indexOf(gap);
+    if (at === -1) gaps.push(gap);
+    else gaps.splice(at, 1);
+    gaps.sort((a, b) => a - b);
+    writeRowMenuDividers(info.name, gaps);
+    const fresh = rowMenuPaneInfo(info.pane);
+    if (fresh) {
+      applyRowMenuPane(fresh, readRowMenuPane(info.name).order, true);
+      applyRowMenuDividers(fresh);
+    }
+    return true;
+  }
+
+  function promoteRowMenuEntry(gesture, beforeId) {
+    const entry = gesture && gesture.rowMenuMoreEntry;
+    const firstPane = rowMenuFirstPane();
+    if (!entry || !firstPane || !rowMenuTemplateRow(firstPane)) return false;
+    ensureRowMenuTakeover();
+    const promoted = readRowMenuPromoted().filter((item) => item.label !== entry.label);
+    promoted.push({ id: entry.id, label: entry.label, icon: entry.icon || "" });
+    writeRowMenuPromoted(promoted);
+    const first = readRowMenuPane("first").order.slice();
+    const ids = first.filter((id) => id !== entry.label);
+    let at = beforeId ? ids.indexOf(beforeId) : ids.length;
+    if (at === -1) at = ids.length;
+    ids.splice(at, 0, entry.label);
+    writeRowMenuPane("first", ids);
+    const moreStored = readRowMenuPane("more").order;
+    const more = (moreStored.length ? moreStored : readHostMenuOrder()).filter((label) => label !== entry.label);
+    writeRowMenuPane("more", more);
+    syncRowMenus(true);
+    return true;
+  }
+
+  function demoteRowMenuEntry(gesture) {
+    const label = gesture && gesture.id;
+    if (!label) return false;
+    const promoted = readRowMenuPromoted();
+    const entry = promoted.find((item) => item.label === label);
+    if (!entry) return false;
+    writeRowMenuPromoted(promoted.filter((item) => item.label !== label));
+    writeRowMenuPane("first", readRowMenuPane("first").order.filter((id) => id !== label));
+    const moreStored = readRowMenuPane("more").order;
+    const more = moreStored.length ? moreStored.slice() : readHostMenuOrder();
+    if (more.indexOf(entry.label) === -1) more.push(entry.label);
+    writeRowMenuPane("more", more);
+    syncRowMenus(true);
+    return true;
+  }
+
   function syncRowMenus(force) {
     if (state.stopped) return;
     if (!contextMenuEnabled()) {
       clearRowMenuStyles();
       return;
     }
-    // Two phases: every measurement first, then every write. Interleaving them
-    // forced one synchronous reflow per pane.
-    const infos = [];
+    // Rewrite the React-owned rows first (promoted clones / hidden submenu
+    // entries), then measure every pane, then write styles. Interleaving the
+    // measurements forced one synchronous reflow per pane.
+    const panes = [];
     for (const pane of rowMenuPanes()) {
       const rect = pane.getBoundingClientRect();
       if (!rect.width && !rect.height) continue;
+      const name = rowMenuPaneName(pane);
+      if (name === "first") materializePromotedRows(pane);
+      if (name === "more") paintHiddenMoreRows(pane);
+      panes.push(pane);
+    }
+    const infos = [];
+    for (const pane of panes) {
       const info = rowMenuPaneInfo(pane);
       if (!info || !info.rows.length) continue;
       infos.push(info);
     }
+    const takeover = readRowMenuTakeover();
     for (const info of infos) {
-      // 更多操作 is row-menu's view of the host More popup: its order is owned
-      // by the host key the plugin already reads, so persist and paint there.
-      const saved = info.name === "more" ? readHostMenuOrder() : readRowMenuPane(info.name).order;
+      // Until the first row-menu edit, 更多操作 mirrors the host's More popup
+      // key; after the user customises this menu the plugin owns it outright.
+      let saved;
+      if (info.name === "more") {
+        const stored = readRowMenuPane("more").order;
+        saved = takeover && stored.length ? stored : readHostMenuOrder();
+      } else {
+        saved = readRowMenuPane(info.name).order;
+      }
       applyRowMenuPane(info, saved, force);
+      applyRowMenuDividers(info);
     }
   }
 
   function clearRowMenuStyles() {
     const nodes = document.querySelectorAll(
-      "[" + ROW_MENU_ID_ATTR + "], [" + ROW_MENU_SEP_ATTR + "], ." + ROW_MENU_PANE_CLASS
+      "[" + ROW_MENU_ID_ATTR + "], [" + ROW_MENU_SEP_ATTR + "], ." + ROW_MENU_PANE_CLASS +
+        ", [" + ROW_MENU_HIDDEN_ATTR + "]"
     );
     for (const node of nodes) {
+      if (node.hasAttribute(ROW_MENU_HIDDEN_ATTR)) showRowMenuNode(node);
       if (node.hasAttribute(ROW_MENU_ID_ATTR)) {
         node.removeAttribute(ROW_MENU_ID_ATTR);
         node.style.removeProperty("order");
@@ -1706,6 +2123,8 @@ function createRuntime(ctx) {
       }
       if (node.classList.contains(ROW_MENU_PANE_CLASS)) node.classList.remove(ROW_MENU_PANE_CLASS);
     }
+    for (const node of document.querySelectorAll("[" + ROW_MENU_DIVIDER_ATTR + "]")) node.remove();
+    for (const node of document.querySelectorAll("[" + ROW_MENU_PROMOTED_ATTR + "]")) node.remove();
   }
 
   function buildRowMenuSnapshot(gesture) {
@@ -1740,6 +2159,9 @@ function createRuntime(ctx) {
     if (!pane || !pane.isConnected) return false;
     const info = rowMenuPaneInfo(pane);
     if (!info || !info.rows.length) return false;
+    // Any reorder is a row-menu edit: freeze the menu before this drop lands so
+    // the header toolbar can no longer reshuffle it behind the user's back.
+    ensureRowMenuTakeover();
     // Rows that have not been laid out (a collapsed group) measure 0x0 at
     // (0,0); sorting them with the rest put them first and persisted that order.
     const measured = info.rows.filter((row) => row.rect && (row.rect.width > 0 || row.rect.height > 0));
@@ -1756,23 +2178,21 @@ function createRuntime(ctx) {
     // dropping them here would erase their entries from the saved order.
     const finalIds = rest.map((row) => row.id).concat(unmeasured.map((row) => row.id));
     if (info.name === "more") {
-      // Keep the labels row-menu does not list right now at the end so the host
-      // key stays a complete ranking instead of losing entries on every drag.
-      beginRowMenuHostEdit();
+      // After takeover the 更多操作 order lives in our store. Keep the labels
+      // row-menu does not list right now at the end so the stored ranking stays
+      // complete instead of losing entries on every drag.
       const labels = rest.map((row) => row.label);
+      for (const label of readRowMenuPane("more").order) {
+        if (labels.indexOf(label) === -1) labels.push(label);
+      }
       for (const label of readHostMenuOrder()) {
         if (labels.indexOf(label) === -1) labels.push(label);
       }
-      writeHostMenuOrder(labels);
-      recordRowMenuHostWrite(labels);
+      writeRowMenuPane("more", labels);
     } else {
       writeRowMenuPane(info.name, finalIds);
     }
-    const fresh = rowMenuPaneInfo(pane);
-    if (fresh) {
-      const saved = info.name === "more" ? readHostMenuOrder() : finalIds;
-      applyRowMenuPane(fresh, saved, true);
-    }
+    syncRowMenus(true);
     return true;
   }
 
@@ -2086,7 +2506,10 @@ function createRuntime(ctx) {
   }
 
   function ensureContextMoreAnchor(model, kind, hiddenIds) {
-    if (!model || !model.viewport) return;
+    // A menu whose scroll viewport we cannot identify still takes the anchor:
+    // hanging it off the menu root is all the placement needs, and refusing to
+    // inject it here would silently disable the whole drag-to-More affordance.
+    if (!model || !model.menu) return;
     const tucked = contextTuckedRows(model, hiddenIds || (kind ? readContextMenuLayout(kind).hidden : []));
     // The anchor only exists once something is tucked away, or while a menu row
     // is actually being dragged: that drag is the affordance for the first one,
@@ -2363,6 +2786,29 @@ function createRuntime(ctx) {
     if (!contextMenusSupported()) return;
     const target = event.target && event.target.nodeType === 1 ? event.target : null;
     if (!target) return;
+    // dsh-sidebar-row-menu's own panes (the blank-conversation menu and its
+    // submenus) are arranged by this plugin too, so a right-click there toggles
+    // one of OUR dividers instead of the browser/host menu.
+    const rowPane = rowMenuPaneElement(target);
+    if (rowPane) {
+      if (!contextMenuEnabled()) return;
+      const info = rowMenuPaneInfo(rowPane);
+      if (info) {
+        let row = null;
+        for (const candidate of info.rows) {
+          if (candidate.item === target || candidate.item.contains(target)) {
+            row = candidate;
+            break;
+          }
+        }
+        if (row) toggleRowMenuDivider(info, row);
+      }
+      // Always swallow the event: a right-click on a divider or on empty pane
+      // space must not fall through to the host's menu.
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const menu = target.closest("[data-context-menu]");
     if (menu) {
       if (menu !== state.contextMenu || !state.contextRows) {
@@ -2408,6 +2854,16 @@ function createRuntime(ctx) {
     clearRowMenuStyles();
     scheduleContextSync();
     notify();
+  }
+
+  // Release this plugin's takeover of dsh-sidebar-row-menu: drop the saved
+  // order/dividers/promotions and let row-menu map the header toolbar again.
+  function resetRowMenu() {
+    clearRowMenuLayout();
+    clearRowMenuStyles();
+    scheduleContextSync();
+    notify();
+    return true;
   }
 
   // The drop scope of the open menu. It is not part of SCOPE_KEYS: there are no
@@ -2750,8 +3206,18 @@ function createRuntime(ctx) {
     return list.filter((key) => here.has(key));
   }
 
-  function placeIndex(scope, list, id, index) {
+  function placeIndex(scope, list, id, index, beforeId) {
     const others = list.filter((key) => key !== id);
+    // The drop line names the row it was painted in front of, so prefer that
+    // identity over the numeric index: the index counts the rows the user can
+    // see, while the saved order also holds rows that are mounted but measure
+    // 0x0 (a slot wrapper with display:contents). Every such entry before the
+    // gap shifted the splice, and when it shifted back onto the row itself the
+    // drop looked accepted but nothing moved.
+    if (beforeId) {
+      const at = others.indexOf(beforeId);
+      if (at !== -1) return at;
+    }
     const here = presentIds(scope, others);
     const at = Math.max(0, Math.min(here.length, typeof index === "number" ? index : here.length));
     if (at < here.length) return others.indexOf(here[at]);
@@ -2760,7 +3226,7 @@ function createRuntime(ctx) {
     return others.indexOf(here[here.length - 1]) + 1;
   }
 
-  function reveal(scope, id, index) {
+  function reveal(scope, id, index, beforeId) {
     const found = state.found[scope];
     const row = rowFor(found, id);
     if (!row) return false;
@@ -2768,14 +3234,14 @@ function createRuntime(ctx) {
     if (layout.hidden.indexOf(id) === -1) return false;
     const hidden = layout.hidden.filter((key) => key !== id);
     const visible = layout.order.filter((key) => hidden.indexOf(key) === -1);
-    visible.splice(placeIndex(scope, visible, id, index), 0, id);
+    visible.splice(placeIndex(scope, visible, id, index, beforeId), 0, id);
     writeScope(scope, { order: visible.concat(hidden), hidden }, { user: true });
     refreshScope(scope);
     notify();
     return true;
   }
 
-  function reorder(scope, id, index) {
+  function reorder(scope, id, index, beforeId) {
     const found = state.found[scope];
     const row = rowFor(found, id);
     // `fixed` rows belong to another plugin and must not move at all; `pinned`
@@ -2786,19 +3252,19 @@ function createRuntime(ctx) {
     const from = visible.indexOf(id);
     if (from === -1) return false;
     const others = visible.filter((key) => key !== id);
-    others.splice(placeIndex(scope, visible, id, index), 0, id);
+    others.splice(placeIndex(scope, visible, id, index, beforeId), 0, id);
     writeScope(scope, { order: others.concat(layout.hidden), hidden: layout.hidden }, { user: true });
     refreshScope(scope);
     notify();
     return true;
   }
 
-  function reorderHidden(scope, id, index) {
+  function reorderHidden(scope, id, index, beforeId) {
     const layout = normalizedLayout(scope);
     const from = layout.hidden.indexOf(id);
     if (from === -1) return false;
     const others = layout.hidden.filter((key) => key !== id);
-    others.splice(placeIndex(scope, layout.hidden, id, index), 0, id);
+    others.splice(placeIndex(scope, layout.hidden, id, index, beforeId), 0, id);
     writeScope(scope, { order: layout.order, hidden: others }, { user: true });
     notify();
     return true;
@@ -3197,8 +3663,13 @@ function createRuntime(ctx) {
     const items = [];
     for (const row of found.rows) {
       if (hiddenSet.has(row.id)) continue;
-      const rect = row.unit.getBoundingClientRect();
-      if (!rect.width && !rect.height) continue;
+      let rect = row.unit.getBoundingClientRect();
+      // A slot child rendered with display:contents has no box of its own even
+      // though the button inside it is plainly visible. Dropping such a row from
+      // the snapshot moved the gap between its neighbours onto the glyph itself,
+      // and the drop line painted across the icon being dragged.
+      if (!rect.width && !rect.height) rect = dragSourceBox(row.unit) || rect;
+      if (!rect || (!rect.width && !rect.height)) continue;
       items.push({ id: row.id, unit: row.unit, target: row.target, rect });
     }
     items.sort((a, b) => visualOrder(a, b, found.axis));
@@ -3493,26 +3964,116 @@ function createRuntime(ctx) {
       if (!anchor) return { index: 0, boundary: axis === "x" ? x : y };
       return { index: 0, boundary: axis === "x" ? anchor.left : anchor.top };
     }
+    const middle = (rect) => (axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2);
+    // Compare against a VISUALLY sorted list, never the array as handed in: a
+    // strip is re-laid-out with CSS order, so the items can arrive in DOM order
+    // while the rows are painted in another one. Scanning an unsorted list
+    // stopped advancing as soon as the pointer passed a row that sat later in
+    // the array, which pinned the drop line to an earlier gap (pointer far
+    // right, line still left of the search icon).
+    const sorted = items.slice().sort((a, b) => middle(a.rect) - middle(b.rect));
+    // The source row is removed from the list but still occupies its layout
+    // slot; the full list supplies the REAL neighbouring gap.
+    const all = (allItems && allItems.length ? allItems : items).slice().sort((a, b) => middle(a.rect) - middle(b.rect));
     const coordinate = axis === "x" ? x : y;
-    for (let index = 0; index < items.length; index += 1) {
-      const rect = items[index].rect;
-      const middle = axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
-      if (coordinate < middle) {
-        // The source row is removed from `items`, but it still occupies its
-        // layout slot. Use the full visual list to find the REAL gap, including
-        // the source and any hidden row. Otherwise dropping at the end anchors
-        // the line to the last remaining row's edge (visually inside the tab).
-        const all = allItems && allItems.length ? allItems : items;
-        const at = all.findIndex((item) => item.id === items[index].id);
-        const previous = at > 0 ? all[at - 1].rect : null;
-        return { index, boundary: gapBoundary(axis, previous, rect) };
-      }
+    const next = sorted.find((item) => coordinate < middle(item.rect)) || null;
+    if (next) {
+      // Match by reference, not by id: header slots may share an empty id, and a
+      // findIndex that fell back to 0 made the previous neighbour null, which
+      // collapsed the gap to the row's leading edge (the line sat ON the icon).
+      const at = all.indexOf(next);
+      const previous = at > 0 ? all[at - 1].rect : null;
+      return { index: items.indexOf(next), boundary: gapBoundary(axis, previous, next.rect) };
     }
-    const last = items[items.length - 1].rect;
-    const all = allItems && allItems.length ? allItems : items;
-    const at = all.findIndex((item) => item.id === items[items.length - 1].id);
-    const next = at >= 0 && at + 1 < all.length ? all[at + 1].rect : null;
-    return { index: items.length, boundary: gapBoundary(axis, last, next) };
+    const last = sorted[sorted.length - 1];
+    const atLast = all.indexOf(last);
+    const after = atLast >= 0 && atLast + 1 < all.length ? all[atLast + 1].rect : null;
+    return { index: items.length, boundary: gapBoundary(axis, last.rect, after) };
+  }
+
+  // Dropping a row back into the slot it already occupies changes nothing. When
+  // the source sits BETWEEN its two neighbours, the midpoint of the gap that
+  // contains it falls inside the still-rendered source box, so the drop line is
+  // painted straight through the dragged row (header icons: a blue bar across
+  // the glyph). A no-op slot is not worth a line; treat it as no target at all.
+  function sourceSlotBoundary(items, id, boundary, axis, element, container) {
+    const source = items.find((item) => item.id === id);
+    // The snapshot drops rows that measure 0x0 (a slot child rendered with
+    // display:contents wraps its button without a box of its own), so the source
+    // can be missing from `items`; the element it was dragged from still has a
+    // visible box somewhere inside. Only trust that inner box when the pressed
+    // element really belongs to the strip being sorted — a drag that pulls a row
+    // in from elsewhere (a shipped menu action onto the header) has a source box
+    // that has nothing to do with the gaps of the target strip.
+    let rect = source ? source.rect : null;
+    const sameStrip = !!(container && element && container.contains(element));
+    if ((!rect || (!rect.width && !rect.height)) && sameStrip) {
+      rect = dragSourceBox(element) || rect;
+    }
+    if (!rect) return false;
+    return axis === "x"
+      ? boundary > rect.left && boundary < rect.right
+      : boundary > rect.top && boundary < rect.bottom;
+  }
+
+  // No drop line may be painted THROUGH a row. Whatever the geometry math
+  // concluded, a boundary strictly inside a visible row box means the line would
+  // cross that row's glyph (the header "blue bar across the icon" case). Snap it
+  // to the nearer edge of every row box it falls inside; a boundary that sits on
+  // an edge is a real gap and is left alone.
+  // A drop past either end of a strip still means "that end": the pointer only
+  // has to stay in the strip's own row. Without this, dragging an icon to the far
+  // right (the natural way to say "put it last") fell outside the strip box, the
+  // target was dropped, and the release did nothing at all.
+  // The snapshot stores a measured rect for most strips, an element for others,
+  // so accept either: calling getBoundingClientRect on a rect object threw and
+  // silently killed the whole pointermove, which dropped every drop target
+  // outside the strip box.
+  function stripRect(container) {
+    if (!container) return null;
+    return typeof container.getBoundingClientRect === "function" ? container.getBoundingClientRect() : container;
+  }
+  function nearStrip(container, x, y, axis, pad) {
+    const rect = stripRect(container);
+    if (!rect) return false;
+    if (!rect.width && !rect.height) return false;
+    const slack = Math.max(40, (axis === "x" ? rect.width : rect.height) * 0.5);
+    if (axis === "x") {
+      return y >= rect.top - pad && y <= rect.bottom + pad && x >= rect.left - pad - slack && x <= rect.right + pad + slack;
+    }
+    return x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad - slack && y <= rect.bottom + pad + slack;
+  }
+  function boundaryClearOfRows(boundary, axis, rects) {
+    let at = boundary;
+    for (let pass = 0; pass < 4; pass += 1) {
+      let moved = false;
+      for (const rect of rects || []) {
+        if (!rect || (!rect.width && !rect.height)) continue;
+        const lo = axis === "x" ? rect.left : rect.top;
+        const hi = axis === "x" ? rect.right : rect.bottom;
+        if (hi - lo < 3) continue;
+        if (at > lo + 1 && at < hi - 1) {
+          at = at - lo <= hi - at ? lo : hi;
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    return at;
+  }
+  // The pressed unit can be a box-less wrapper. Walk into it to find the box the
+  // user actually sees, so "the drop line is inside the row I am dragging" keeps
+  // meaning the glyph under the pointer.
+  function dragSourceBox(element) {
+    if (!element || !element.getBoundingClientRect) return null;
+    const own = element.getBoundingClientRect();
+    if (own.width || own.height) return own;
+    if (!element.querySelectorAll) return null;
+    for (const child of element.querySelectorAll("*")) {
+      const rect = child.getBoundingClientRect();
+      if (rect.width || rect.height) return rect;
+    }
+    return null;
   }
 
   function showIndicator(gesture, axis, boundary, rect, crossRect) {
@@ -3562,6 +4123,36 @@ function createRuntime(ctx) {
     try {
 
     if (gesture.scope === ROW_MENU_SCOPE) {
+      // Pulling a 更多操作 entry out of its submenu: the submenu closes ~160ms
+      // after the pointer leaves it, so the drop target is the first-level pane
+      // rather than the (possibly already unmounted) submenu.
+      if (gesture.rowMenuMoreEntry) {
+        const firstPane = rowMenuFirstPane();
+        const firstInfo = firstPane ? rowMenuPaneInfo(firstPane) : null;
+        if (firstInfo && firstInfo.rows.length && pointIn(firstInfo.rect, x, y, 8)) {
+          const live = firstInfo.rows
+            .filter((row) => row.rect.width || row.rect.height)
+            .map((row) => ({ id: row.id, unit: row.item, target: row.item, rect: row.rect }))
+            .sort((a, b) => a.rect.top - b.rect.top);
+          const hit = indexAt(live, x, y, "y", live);
+          gesture.target = {
+            kind: "rm-promote",
+            beforeId: live[hit.index] ? live[hit.index].id : null,
+          };
+          showIndicator(gesture, "y", hit.boundary, firstInfo.rect, firstInfo.rect);
+          return;
+        }
+      }
+      // A promoted row dropped back on 更多操作 returns to the submenu.
+      if (gesture.rowMenuPromoted) {
+        const moreWrap = rowMenuMoreWrap();
+        const moreRect = moreWrap ? moreWrap.getBoundingClientRect() : null;
+        if (moreRect && moreRect.width && pointIn(moreRect, x, y, 0)) {
+          gesture.target = { kind: "rm-demote" };
+          showIndicator(gesture, "y", moreRect.bottom, moreRect, moreRect);
+          return;
+        }
+      }
       // Re-measure the pane on every move: opening a submenu, a hover
       // re-render or row-menu's own order can move the rows under the ghost.
       const pane = gesture.rowMenuPane;
@@ -3577,6 +4168,7 @@ function createRuntime(ctx) {
       const others = live.filter((item) => item.id !== gesture.id);
       if (!others.length) return;
       const hit = indexAt(others, x, y, "y", live);
+      if (sourceSlotBoundary(live, gesture.id, hit.boundary, "y", gesture.element, gesture.rowMenuPane)) return;
       gesture.target = {
         kind: "rowmenu",
         index: hit.index,
@@ -3663,11 +4255,19 @@ function createRuntime(ctx) {
       return;
     }
 
-    if (!pointIn(snapshot.container, x, y, 10)) return;
+    // Only horizontal strips get the extended band: a vertical list keeps its old
+    // "outside the box cancels" behaviour so dragging a row below the sidebar
+    // still means nothing instead of silently meaning "move to the end".
+    const outsideStrip = !pointIn(snapshot.container, x, y, 10)
+      && !(snapshot.axis === "x" && nearStrip(snapshot.container, x, y, snapshot.axis, 10));
+    if (outsideStrip) return;
     const others = snapshot.items.filter((item) => item.id !== gesture.id);
     const hit = indexAt(others, x, y, snapshot.axis, snapshot.items);
+    const strip = snapshot.found ? snapshot.found.container : null;
+    if (sourceSlotBoundary(snapshot.items, gesture.id, hit.boundary, snapshot.axis, gesture.element, strip)) return;
     gesture.target = { kind: "place", index: hit.index, beforeId: others[hit.index] ? others[hit.index].id : null };
-    showIndicator(gesture, snapshot.axis, hit.boundary, snapshot.container, snapshot.crossRect);
+    const boundary = boundaryClearOfRows(hit.boundary, snapshot.axis, snapshot.items.map((item) => item.rect));
+    showIndicator(gesture, snapshot.axis, boundary, snapshot.container, snapshot.crossRect);
     } finally {
       markDropMore(gesture, dropMore);
     }
@@ -3880,6 +4480,24 @@ function createRuntime(ctx) {
         endGesture(true);
         return;
       }
+      if (target.kind === "rm-promote") {
+        if (!promoteRowMenuEntry(gesture, target.beforeId)) {
+          shakeGhost(gesture);
+          return;
+        }
+        gesture.keepMenu = true;
+        endGesture(true);
+        return;
+      }
+      if (target.kind === "rm-demote") {
+        if (!demoteRowMenuEntry(gesture)) {
+          shakeGhost(gesture);
+          return;
+        }
+        gesture.keepMenu = true;
+        endGesture(true);
+        return;
+      }
       endGesture(true);
       return;
     }
@@ -3968,8 +4586,10 @@ function createRuntime(ctx) {
         endGesture(true);
         return;
       }
-      if (gesture.source === "menu") reveal(gesture.scope, gesture.id, target.index);
-      else reorder(gesture.scope, gesture.id, target.index);
+      const moved = gesture.source === "menu"
+        ? reveal(gesture.scope, gesture.id, target.index, target.beforeId)
+        : reorder(gesture.scope, gesture.id, target.index, target.beforeId);
+      if (moved === false) shakeGhost(gesture);
       endGesture(true);
     }
   }
@@ -3998,7 +4618,10 @@ function createRuntime(ctx) {
       if (rowMenuPaneElement(rowEl) !== rowMenuPane) return;
       const rowId = rowEl.getAttribute(ROW_MENU_ID_ATTR);
       if (!rowId) return;
-      startGesture(rowEl, ROW_MENU_SCOPE, rowId, "rowmenu", event, { pane: rowMenuPane });
+      startGesture(rowEl, ROW_MENU_SCOPE, rowId, "rowmenu", event, {
+        pane: rowMenuPane,
+        paneName: rowMenuPaneName(rowMenuPane),
+      });
       return;
     }
 
@@ -4061,6 +4684,9 @@ function createRuntime(ctx) {
       id,
       source,
       rowMenuPane: meta && meta.pane ? meta.pane : null,
+      rowMenuPaneName: meta && meta.paneName ? meta.paneName : "",
+      rowMenuMoreEntry: null,
+      rowMenuPromoted: false,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
@@ -4079,6 +4705,12 @@ function createRuntime(ctx) {
     };
     if (source === "row") {
       gesture.element = element;
+    }
+    if (scope === ROW_MENU_SCOPE) {
+      gesture.rowMenuPromoted = element.hasAttribute(ROW_MENU_PROMOTED_ATTR);
+      // A 更多操作 row can only be pulled out if row-menu's controller tells us
+      // which host action it runs; the menu closes before that action executes.
+      if (gesture.rowMenuPaneName === "more") gesture.rowMenuMoreEntry = rowMenuMoreEntryForRow(element);
     }
     state.gesture = gesture;
     gesture.timer = window.setTimeout(() => {
@@ -4499,6 +5131,12 @@ function createRuntime(ctx) {
       enabled: readContextMenuEnabled,
       setEnabled: setContextMenuEnabled,
       reset: resetContextMenus,
+      resetRowMenu,
+      rowMenu: {
+        takeover: readRowMenuTakeover,
+        promoted: readRowMenuPromoted,
+        dividers: readRowMenuDividers,
+      },
       read: readContextMenuLayout,
       // Diagnostics/support hook: write a layout and repaint the open menu.
       set: (kind, layout) => {

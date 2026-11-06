@@ -88,7 +88,12 @@ composer dock, session header, right sidebar, and settings navigation.
   workspace context menus shares the body menu's app order. The first level keeps following this
   plugin's session-header order until you actually drag one of its rows; after that it keeps your
   arrangement. "More actions" writes this plugin's header-menu order (the native session-header More
-  popover follows); "Open with" is stored separately. Reset restores the default linkage. No
+  popover follows); "Open with" is stored separately. Reset restores the default linkage. Since
+  0.9.7, once you edit this menu (toggle a divider, reorder a row, pull an entry out of "More
+  actions"), this plugin owns its order outright and later header-toolbar changes no longer reshuffle
+  it; right-clicking any first-level row toggles the divider underneath it, dragging a "More actions"
+  entry onto the first level creates a clickable row of the same name (drag it back to undo), and
+  "Restore session menu only" in the settings page returns it to the header order. No
   dsh.sidebar-row-menu.* storage key is ever written, and the "Context menus" switch still gates it.
 - **Settings page**: DSH Settings → "Layout organizer", or this plugin's detail
   page. Seven location cards let you drag rows, move up/down, tuck/restore, and
@@ -415,6 +420,7 @@ restoration).
 - [x] 0.9.4 — a long-press on a submenu no longer drags its parent row, tucked entries keep their icons, rows stay visible after being dragged back out of "More", the popup matches dsh-sidebar-row-menu, and dividers land in painted order
 - [x] 0.9.5 — dsh-sidebar-row-menu integration (conversation-body menu first level and its Open with / More actions submenus); fixes reordering inside the tucked "More" panel and the drag ghost's z-index
 - [x] 0.9.6 — stability and performance: layout updates are no longer dropped for good, cancelled gestures no longer write the layout, disabling cleans up timers and listeners; settings-page drag-drop and cross-window toggles fixed, dead code removed
+- [x] 0.9.7 — takes over row-menu's session context menu (right-click a row to toggle its divider, pull "More actions" entries onto the first level, the first edit makes this plugin own the order) with a "Restore session menu only" button; fixes header-strip drop targeting
 
 ## Notices
 
