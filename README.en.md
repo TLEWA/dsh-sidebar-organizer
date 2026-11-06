@@ -13,7 +13,10 @@ composer dock, session header, right sidebar, and settings navigation.
 > while the menu stays open, and customizations surviving a reload; 0.8.3 keeps an order
 > saved on first customization stable even when a plugin row mounts a beat late; 0.8.4 lets the menu footer and plugin-root buttons toggle dividers too; 0.9.0 tucks items
 > into a `··· More ›` submenu at the bottom of the menu; 0.9.1 pins that row to the very
-> end of the menu and lets the bottom action and plugin buttons drag and tuck too. For the full
+> end of the menu and lets the bottom action and plugin buttons drag and tuck too; 0.9.4 fixes a
+> long-press on a submenu dragging its parent row, missing icons in tucked entries, rows turning
+> invisible after being dragged back out of "More", and dividers landing one row low once the menu
+> had been reordered. For the full
 > version history and downloads see [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
 
 ## What it does
@@ -115,7 +118,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.9.0
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.8.4
 ```
 
 ### From npm
@@ -265,6 +268,18 @@ the page. Since 0.2.0 the mechanism is different:
   `data-dso-ctx-more-key` and long-press drags them back with the drag layer's
   `more` source, writing the order and removing the id from `hidden`. Hit-testing
   uses the menu's live rect, never a frozen snapshot.
+- Context-menu details (0.9.4): the host renders a submenu inside its row button (the panel is a
+  sibling of the button), so a press is first matched with `role=menuitem` against the row's own
+  button and anything inside the submenu is handed back to the host; the popup clones the whole
+  `[data-slot="contextMenu.icon"]` block (`img` and `svg` alike, 14×14, an equal-width
+  placeholder when a row has none); popup and rows reuse the host menu material
+  (`--dsw-menu-surface-fill` + `backdrop-filter`, radius 16, padding 4, rows at 34px /
+  6px 8px / gap 6 / 13px 20px), matching dsh-sidebar-row-menu. Dragging a row back out reads its
+  original `display` from `state.contextStyled`, never from the return value of
+  `rememberContextElement` (null for an already-remembered element, which used to write the
+  current `none` back). Divider gaps and the reorder baseline are both resolved from
+  `layout.order` (minus `hidden`) — i.e. visible indices in painted order; DOM order diverges
+  after any drag and put the divider one row low.
 - The price of flattening, and its fix (0.9.2 / 0.9.3): a `display: contents`
   element generates no box, so the open/close animations the host hangs on
   `_viewport_` / `_footer_` (pure opacity) paint nothing. The host publishes
@@ -374,6 +389,7 @@ restoration).
 - [x] 0.9.1 — "More" is pinned to the very end of the menu, and the footer action / plugin-root buttons drag and tuck like any other row
 - [x] 0.9.2 — the closing fade is back (replayed on the rows after flattening), and hovering "More" while dragging no longer shakes
 - [x] 0.9.3 — opening a menu no longer forces a style recalc (the mirror reads the host's CSS variables and follows `data-menu-phase`), the opening fade returns without flicker, and the "More" shrink feedback is back
+- [x] 0.9.4 — a long-press on a submenu no longer drags its parent row, tucked entries keep their icons, rows stay visible after being dragged back out of "More", the popup matches dsh-sidebar-row-menu, and dividers land in painted order
 
 ## Notices
 

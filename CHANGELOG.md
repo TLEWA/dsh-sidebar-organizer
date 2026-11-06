@@ -3,6 +3,56 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.9.4 — 2026-11-06
+
+- **长按二级菜单不会再拖动一级行**：宿主把 `打开方式` 这类子菜单渲染在行按钮**内部**（面板是
+  按钮的兄弟），按在子菜单上因此会被当成按在行上。现在按 `role=menuitem` 判断「按的是不是这一行
+  自己的按钮」，子菜单里的按压交还宿主；行按钮（含右侧箭头）照旧可拖。
+- **收纳项恢复了图标**：以前只克隆行里的第一个 `<svg>`，用 `<img>` 渲染图标的行（如
+  「用 Visual Studio Code 打开」）在面板里就是空的，有的行还会把箭头一并复制。现在整块复制
+  `[data-slot="contextMenu.icon"]`，`img` 与 `svg` 都保留在 14×14 的槽里；没有图标的行留同宽占位，
+  文字仍然对齐。
+- **从「更多」拖回的行不再隐形**：`applyContextLayout` 曾把 `rememberContextElement` 的返回值当
+  「原始 display」，而它对已记录的元素返回 null，于是当前值 `none` 被当成原始值写回——顺序回来了、
+  盒子却没了；把最后一项拖出去时「更多」也就空了。现在从 `state.contextStyled` 读记忆下来的值。
+- **二级菜单的观感与 dsh-sidebar-row-menu 一致**：面板改用宿主菜单材质（`--dsw-menu-surface-fill` +
+  `backdrop-filter`、圆角 16、padding 4、无阴影），行按宿主菜单项规格（34px、6px 8px、gap 6、
+  13px/20px），图标槽 14px；「更多」锚点同步到同一行高。
+- **分隔线落在右键点中的那一行下面**：gap 一直按「绘制顺序」解释，但 `toggleContextDivider` 拿 DOM
+  顺序算下标——拖过一次菜单后两者分叉，分隔线就会掉到下一行。现在 gap 由 `layout.order`（剔除
+  `hidden`）解析；`commitContextReorder` 也改以绘制序为基准，避免一次拖动抹掉整张自定义排序；
+  尾部悬空的分隔线按可见行数剪枝。
+- 离线用例 264 条（全绿）。
+
+### English
+
+- **Long-pressing a submenu no longer drags its parent row**: the host renders a
+  submenu (e.g. Open with) *inside* its row button — the panel is a sibling of the
+  button — so a press there looked like a press on the row. The press is now matched by
+  `role=menuitem` against the row's own button and handed back to the host; the row
+  button itself (chevron included) still drags.
+- **Tucked entries have their icons back**: only the first `<svg>` used to be cloned, so
+  rows whose icon is an `<img>` (e.g. "Open with Visual Studio Code") were blank in the
+  panel and some rows copied the chevron too. The whole
+  `[data-slot="contextMenu.icon"]` block is copied now, keeping `img` and `svg` in a
+  14×14 slot; rows without an icon get an equal-width placeholder so labels stay aligned.
+- **Rows dragged back out of "More" are visible again**: `applyContextLayout` used the
+  return value of `rememberContextElement` as the "original display", but that returns
+  null for an already-remembered element, so the current `none` was written back as the
+  original — the order returned, the box did not, and tucking the last item emptied
+  "More". The remembered value is read from `state.contextStyled` now.
+- **The submenu looks like dsh-sidebar-row-menu**: the panel uses the host menu
+  material (`--dsw-menu-surface-fill` + `backdrop-filter`, radius 16, padding 4, no
+  shadow); rows follow the host menu-item metrics (34px, 6px 8px, gap 6, 13px/20px),
+  icon slot 14px, and the "More" anchor matches that row height.
+- **A divider lands below the row the right-click hit**: gaps are interpreted in painted
+  order, but `toggleContextDivider` computed the index from DOM order — once a menu had
+  been dragged the two diverged and the divider slipped one row down. Gaps are resolved
+  from `layout.order` (minus `hidden`) now; `commitContextReorder` anchors on the
+  painted order too, so one drag can no longer wipe a custom sort; a trailing gap is
+  pruned against the visible row count.
+- 264 offline assertions (all green).
+
 ## 0.9.3 — 2026-11-06
 
 - **打开菜单的性能回归修掉了**：补开合动画时曾对菜单的每个子节点读 `getComputedStyle`，

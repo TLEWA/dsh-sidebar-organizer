@@ -207,7 +207,9 @@
       <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">重命名</span><span class="_shortcut_ctx">Ctrl+Alt+G</span></button></div>
       <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">分叉会话</span><span class="_shortcut_ctx">Ctrl+Shift+F</span></button></div>
       <div class="_separator_ctx" role="separator"></div>
-      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">复制 Session ID</span></button></div>
+      <!-- Real host rows carry an icon slot that may hold an <img> (apps opened
+           through a plugin) instead of an <svg>; the tucked popup has to clone it. -->
+      <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemIcon_ctx" aria-hidden="true"><span data-slot="contextMenu.icon" style="display: contents;"><img class="dsrm-app-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='%233b82f6'/%3E%3C/svg%3E" alt=""></span></span><span class="_itemLabel_ctx">复制 Session ID</span></button></div>
       <div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">在文件夹显示</span></button></div>
     </div>
     <div class="_footer_ctx"><div class="_separator_ctx" role="separator"></div><div class="_itemWrap_ctx"><button type="button" role="menuitem" class="ctx-row"><span class="_itemLabel_ctx">归档会话</span></button></div></div>
@@ -1896,6 +1898,55 @@
         ctxStore().menus.session.order.indexOf(rootId) !== -1 && ctxStore().menus.session.order.indexOf(footerId) !== -1,
         JSON.stringify(ctxStore().menus.session)
       );
+      // A custom layout paints style.order; the document order stays exactly as
+      // the host shipped it. Every stored gap is an index into the PAINTED
+      // sequence, so a toggle that counted the document order put the divider
+      // under a row the user never touched (the report was a divider landing one
+      // action too low on a menu whose rows had already been moved).
+      const domOrderIds = Array.from(sessionMenu.querySelectorAll("[data-dso-ctx-id]")).map(
+        (unit) => unit.dataset.dsoCtxId
+      );
+      api.contextMenu.set("session", {
+        order: domOrderIds.slice().reverse(),
+        dividers: [],
+        hidden: [],
+        customized: true,
+      });
+      sessionMenu.hidden = true;
+      await wait(70);
+      sessionMenu.hidden = false;
+      sessionRow.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 40 })
+      );
+      await wait(140);
+      const reversedLabels = ctxLabels(sessionMenu);
+      assert("a saved order paints top-down", reversedLabels[0] === "记忆参与", reversedLabels.join(","));
+      const paintedRows = ctxVisual(sessionMenu);
+      const hitLabel = ctxLabel(ctxMenuItem(paintedRows[2]));
+      await ctxToggle(sessionMenu, hitLabel);
+      const gapDivider = sessionMenu.querySelector("[data-dso-ctx-divider]");
+      const gapTop = gapDivider ? gapDivider.getBoundingClientRect().top : NaN;
+      assert(
+        "the divider lands under the row the right-click hit",
+        ctxStore().menus.session.dividers.join(",") === "3" &&
+          gapTop > paintedRows[2].getBoundingClientRect().bottom - 1 &&
+          gapTop < paintedRows[3].getBoundingClientRect().top + 1,
+        ctxStore().menus.session.dividers.join(",") +
+          " / " +
+          gapTop +
+          " vs " +
+          paintedRows[2].getBoundingClientRect().bottom +
+          "-" +
+          paintedRows[3].getBoundingClientRect().top
+      );
+      api.contextMenu.reset();
+      sessionMenu.hidden = true;
+      await wait(70);
+      sessionMenu.hidden = false;
+      sessionRow.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 40 })
+      );
+      await wait(140);
 
       // ---- More: tucking rows under the injected "···" anchor ----
       const moreAnchor = () => sessionMenu.querySelector("[data-dso-ctx-more]");
@@ -1959,6 +2010,29 @@
       );
       assert("the popup row carries the host label", panelRows.length === 1 && ctxLabel(panelRows[0]) === "复制 Session ID", panelRows.length ? ctxLabel(panelRows[0]) : "");
       assert(
+        "a tucked row keeps its host icon in the popup",
+        panelRows.length === 1 && !!panelRows[0].querySelector(".dso-ctx-panel-icon svg, .dso-ctx-panel-icon img"),
+        panelRows.length ? panelRows[0].querySelector(".dso-ctx-panel-icon")?.innerHTML : ""
+      );
+      // Parity with dsh-sidebar-row-menu's submenu, which mounts the host's own
+      // MenuSurface + MenuItemButton primitives. These are the host item metrics
+      // (._item_1p5el_105) and the host submenu body padding
+      // (._list_1p5el_7,._submenu_1p5el_8), so the two panels cannot drift apart.
+      const panelRowStyle = panelRows.length === 1 ? getComputedStyle(panelRows[0]) : null;
+      const panelStyle = panel ? getComputedStyle(panel) : null;
+      assert(
+        "the popup row uses the host menu-item metrics",
+        !!panelRowStyle &&
+          panelRowStyle.minHeight === "34px" &&
+          panelRowStyle.padding === "6px 8px" &&
+          panelRowStyle.gap === "6px" &&
+          panelRowStyle.fontSize === "13px" &&
+          panelStyle.padding === "4px",
+        panelRowStyle
+          ? [panelRowStyle.minHeight, panelRowStyle.padding, panelRowStyle.gap, panelRowStyle.fontSize, panelStyle.padding].join(" | ")
+          : ""
+      );
+      assert(
         "the popup opens beside the anchor",
         panel.getBoundingClientRect().left > sessionMenu.getBoundingClientRect().right - 2,
         panel.getBoundingClientRect().left + " vs " + sessionMenu.getBoundingClientRect().right
@@ -2002,6 +2076,12 @@
       );
       await wait(340);
       assert("dropping a tucked row back reveals it", ctxLabels(sessionMenu).indexOf("复制 Session ID") >= 0, ctxLabels(sessionMenu).join(","));
+      const revealedUnit = ctxUnit(sessionMenu, "复制 Session ID");
+      assert(
+        "a revealed row gets its box back",
+        !!revealedUnit && revealedUnit.getBoundingClientRect().height > 0,
+        revealedUnit ? "height=" + revealedUnit.getBoundingClientRect().height + " display=" + revealedUnit.style.display : "not tagged"
+      );
       assert(
         "a revealed row leaves the hidden list",
         (ctxStore().menus.session.hidden || []).length === 0,
@@ -2029,6 +2109,33 @@
         ctxLabels(workspaceMenu).length === 5 && ctxLabels(workspaceMenu).indexOf("打开方式") !== -1,
         ctxLabels(workspaceMenu).join(",")
       );
+      // The host renders a row's submenu inside that row's item, so a press in
+      // the panel also matches [data-dso-ctx-id]; it must stay the host's.
+      const submenuPanel = submenuUnit.querySelector('[class*="_submenuPanel_"]');
+      const submenuItem = submenuPanel.querySelector('[role="menuitem"]');
+      submenuPanel.hidden = false;
+      const subItemRect = submenuItem.getBoundingClientRect();
+      submenuItem.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, pointerId: 86, clientX: subItemRect.left + 6, clientY: subItemRect.top + subItemRect.height / 2 })
+      );
+      await wait(330);
+      assert(
+        "pressing inside a host submenu starts no drag",
+        !document.querySelector(".dso-ghost") && !document.body.classList.contains("dso-dragging"),
+        "ghost=" + !!document.querySelector(".dso-ghost")
+      );
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 86 }));
+      await wait(60);
+      submenuPanel.hidden = true;
+      const subHostRect = submenuUnit.getBoundingClientRect();
+      submenuUnit.querySelector('[role="menuitem"]').dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, pointerId: 87, clientX: subHostRect.left + 8, clientY: subHostRect.top + subHostRect.height / 2 })
+      );
+      await wait(330);
+      assert("the submenu row button still drags", !!document.querySelector(".dso-ghost"), "no ghost");
+      document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 87, clientX: 1000, clientY: 760 }));
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 87, clientX: 1000, clientY: 760 }));
+      await wait(240);
       await ctxToggle(workspaceMenu, "重命名工作区");
       assert(
         "the workspace menu keeps its own layout",

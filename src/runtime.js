@@ -1228,7 +1228,12 @@ function createRuntime(ctx) {
     merged.forEach((id) => {
       const row = model.ids.get(id);
       if (!row) return;
-      const entry = rememberContextElement(row.item);
+      // Read the remembered entry, never the live inline display: a row that is
+      // currently tucked reads "none", and using that as the "original" value is
+      // exactly what left a row invisible (order restored, box gone) after it was
+      // dragged back out of More.
+      rememberContextElement(row.item);
+      const entry = state.contextStyled.get(row.item);
       if (hiddenSet.has(id)) {
         if (row.item.style.display !== "none") row.item.style.display = "none";
         if (row.item.dataset.dsoCtxId) delete row.item.dataset.dsoCtxId;
@@ -1245,9 +1250,12 @@ function createRuntime(ctx) {
     // A divider below the last action (or past it) has nothing to divide and is
     // dropped, which is the rule the user asked for; write the pruned list back
     // so it does not reappear when a row is added later.
+    // Gap N sits above the Nth VISIBLE action, so a gap at or past the visible
+    // count has nothing below it. Counting tucked rows here kept a trailing
+    // divider alive (the rule is: a divider past the last action is dropped).
     const gaps = [];
     for (const gap of layout.dividers || []) {
-      if (gap >= 0 && gap < model.rows.length && gaps.indexOf(gap) === -1) gaps.push(gap);
+      if (gap >= 0 && gap < visible.length && gaps.indexOf(gap) === -1) gaps.push(gap);
     }
     // A divider past the end is dropped (the user's rule). The write-back waits
     // briefly: plugins register their entries a moment after the menu opens, and
@@ -1601,8 +1609,27 @@ function createRuntime(ctx) {
     return null;
   }
 
-  function sortedContextRows(model) {
-    return model.rows.slice();
+  // Every gap number the divider feature stores is an index into the sequence
+  // the menu PAINTS, not into its DOM: a custom layout writes style.order and
+  // leaves the document order untouched. Reading the index off the DOM order
+  // therefore lands the divider under a different action for every row the user
+  // moved (the "divider under the action below the one I right-clicked" report),
+  // and it can differ from one sync to the next because the model is rebuilt
+  // from measured rects. Resolve the painted sequence from the stored layout
+  // instead, exactly the way applyContextLayout hands out the order slots.
+  function contextPaintedRows(model, layout) {
+    if (!model) return [];
+    const rows = model.rows.slice();
+    const current = layout || readContextMenuLayout(state.contextKind);
+    const customized = Boolean(current && current.customized);
+    const ids = customized
+      ? mergeContextOrder(current.order, rows)
+      : rows.slice().sort((a, b) => a.dom - b.dom).map((row) => row.id);
+    const hidden = new Set(customized ? current.hidden || [] : []);
+    return ids
+      .filter((id) => !hidden.has(id))
+      .map((id) => model.ids.get(id))
+      .filter(Boolean);
   }
 
   // Right-clicking an action toggles the divider directly BELOW it. The last
@@ -1612,11 +1639,11 @@ function createRuntime(ctx) {
     const model = state.contextRows;
     const kind = state.contextKind;
     if (!model || !kind || !contextMenuEnabled()) return false;
-    const sorted = sortedContextRows(model);
-    const index = sorted.indexOf(row);
+    const painted = contextPaintedRows(model);
+    const index = painted.indexOf(row);
     if (index === -1) return false;
     const gap = index + 1;
-    if (gap >= sorted.length) return false;
+    if (gap >= painted.length) return false;
     const current = readContextMenuLayout(kind);
     const rows = model.rows.filter((item) => item.reorderable);
     const layout = {
@@ -1644,8 +1671,13 @@ function createRuntime(ctx) {
     const model = state.contextRows;
     const kind = state.contextKind;
     if (!model || !kind || !model.menu || !model.menu.isConnected) return false;
-    // Footer and root-level actions are not draggable: their slots stay put.
-    const ids = model.rows.filter((row) => row.reorderable).map((row) => row.id);
+    // Start from the sequence the menu paints, not from its DOM order: rebuilding
+    // the list from model.rows threw away the layout the user had already built
+    // as soon as one row was dragged on a customized menu.
+    const current = readContextMenuLayout(kind);
+    const ids = current.customized
+      ? mergeContextOrder(current.order, model.rows)
+      : model.rows.slice().sort((a, b) => a.dom - b.dom).map((row) => row.id);
     const from = ids.indexOf(id);
     if (from === -1) return false;
     ids.splice(from, 1);
@@ -1655,7 +1687,6 @@ function createRuntime(ctx) {
       if (target !== -1) at = target;
     }
     ids.splice(at, 0, id);
-    const current = readContextMenuLayout(kind);
     // Dividers are positional, so a drag never moves them: only the order of
     // the rows changes. The first drag materializes the host grouping, exactly
     // like the first divider toggle.
@@ -1779,18 +1810,40 @@ function createRuntime(ctx) {
     renderContextMorePanel(model, tucked);
   }
 
+  // The host paints a row's glyph in an icon slot that may hold an <svg>
+  // (a symbol sprite) or an <img> (an app icon), and the svg is not always the
+  // last thing in the row. Cloning the slot itself keeps whatever shape the host
+  // (or another plugin) put there, and keeps the host's own icon box so every
+  // entry lines up instead of inheriting whatever size the glyph happens to be.
+  function contextRowIcon(row) {
+    if (!row) return null;
+    const host = row.menuitem || row.item;
+    if (!host) return null;
+    return (
+      host.querySelector('[class*="itemIcon"]') ||
+      host.querySelector('[data-slot="contextMenu.icon"]') ||
+      host.querySelector("img") ||
+      host.querySelector("svg")
+    );
+  }
+
   function buildContextMoreRow(row) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "dso-ctx-panel-row";
     button.setAttribute("role", "menuitem");
     button.setAttribute("data-dso-ctx-more-key", row.id);
-    const icon = row.menuitem ? row.menuitem.querySelector("svg") : null;
+    const icon = contextRowIcon(row);
     if (icon) {
       const wrapper = document.createElement("span");
       wrapper.className = "dso-ctx-panel-icon";
       wrapper.appendChild(icon.cloneNode(true));
       button.appendChild(wrapper);
+    } else {
+      // No glyph of its own: keep the label on the same x as the rows above.
+      const spacer = document.createElement("span");
+      spacer.className = "dso-ctx-panel-icon dso-ctx-panel-icon-empty";
+      button.appendChild(spacer);
     }
     const label = document.createElement("span");
     label.className = "dso-ctx-panel-label";
@@ -3512,6 +3565,17 @@ function createRuntime(ctx) {
 
     const contextItem = target.closest("[data-dso-ctx-id]");
     if (contextItem) {
+      // The host opens a row's submenu INSIDE that row: the panel is a sibling
+      // of the row's own button, so a press on one of its entries still resolves
+      // to the row through closest(). Dragging there moved the parent action
+      // under the pointer, which reads as "the submenu drags the main menu".
+      // A press inside a popup nested in the row belongs to the host; the
+      // row's own button (and its chevron) still drags as before.
+      const pressedItem = target.closest('[role="menuitem"]');
+      const ownItem = contextItem.matches('[role="menuitem"]')
+        ? contextItem
+        : contextItem.querySelector('[role="menuitem"]');
+      if (pressedItem && ownItem && pressedItem !== ownItem && !ownItem.contains(pressedItem)) return;
       const contextModel = state.contextRows;
       if (!contextModel || !contextMenuEnabled()) return;
       const contextRow = contextRowAt(contextModel, contextItem);

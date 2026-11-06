@@ -568,22 +568,27 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
    target out from under the pointer: the class also toggles at most once per
    gesture (markDropMore is idempotent), so the scale transition never restarts
    on pointermove. */
+/* Row geometry is copied from the host's own menu item
+   (._item_1p5el_105: min-height 34, padding 6px 8px, gap 6, radius md,
+   13px/20px), so the anchor sits in the list with the same rhythm as the rows
+   the host paints itself. */
 .dso-ctx-more-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 1 1 auto;
-  min-height: 32px;
+  width: 100%;
+  min-height: 34px;
   padding: 6px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-md, 6px);
   background: transparent;
   color: var(--dsw-alias-label-primary, #ebebf5);
   font-family: inherit;
   font-size: 13px;
-  line-height: 18px;
+  line-height: 20px;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -592,13 +597,17 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
 }
 .dso-ctx-more-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
-  width: 16px;
-  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+  width: 14px;
+  height: 14px;
+  color: var(--dsw-alias-menu-icon, var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62)));
   font-size: 13px;
-  line-height: 18px;
+  line-height: 14px;
   text-align: center;
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
 }
 .dso-ctx-more-label { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .dso-ctx-more-chevron {
@@ -608,55 +617,82 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   font-size: 15px;
   line-height: 16px;
 }
+/* Same surface recipe as the host menu and as dsh-sidebar-row-menu's submenu,
+   which mounts the host's MenuSurface + MenuItemButton primitives:
+     ._list_1p5el_7,._submenu_1p5el_8 { padding:4px; display:flex; column;
+       gap:0; border:0; box-shadow: var(--dsw-elevation-prominent);
+       --dsw-elevation-stroke-color: var(--dsw-alias-border-l1) }
+     ._material_1w4el_21 { background: var(--dsw-menu-surface-fill);
+       backdrop-filter: var(--dsw-menu-backdrop-filter) }
+   The host splits the fill into an absolutely positioned backing layer; a single
+   fixed panel only needs the same two properties on itself. */
 .dso-ctx-panel {
   position: fixed;
   z-index: 2147482601;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
+  gap: 0;
   min-width: 180px;
   max-width: 300px;
   max-height: min(380px, 64vh);
   overflow-x: hidden;
   overflow-y: auto;
   padding: 4px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
-  border-radius: 10px;
-  background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, #202024));
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  border: 0;
+  border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-menu-surface-fill, var(--dsw-specific-sidebar-fill, #202024));
+  -webkit-backdrop-filter: var(--dsw-menu-backdrop-filter, none);
+  backdrop-filter: var(--dsw-menu-backdrop-filter, none);
+  /* dsh-sidebar-row-menu's panel (MenuSurface + 'dsrm-submenu', no '_list_'
+     class) measures box-shadow: none — the translucent fill alone carries the
+     edge. Matching it keeps the two submenus indistinguishable. */
+  box-shadow: none;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
+/* 1:1 with the host's menu item (._item_1p5el_105). */
 .dso-ctx-panel-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: none;
-  min-height: 32px;
+  width: 100%;
+  min-height: 34px;
   padding: 6px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-md, 6px);
   background: transparent;
   color: var(--dsw-alias-label-primary, #ebebf5);
   font-family: inherit;
   font-size: 13px;
-  line-height: 18px;
+  line-height: 20px;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
 }
-.dso-ctx-panel-row:hover {
+.dso-ctx-panel-row:hover:not(:disabled),
+.dso-ctx-panel-row:focus-visible {
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+  outline: none;
 }
+/* Host icon slot (._itemIcon_1p5el_165): 14x14, menu-icon colour. */
 .dso-ctx-panel-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 16px;
-  height: 16px;
-  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+  width: 14px;
+  height: 14px;
+  color: var(--dsw-alias-menu-icon, var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62)));
 }
-.dso-ctx-panel-icon svg { width: 16px; height: 16px; }
+.dso-ctx-panel-icon svg { width: 14px; height: 14px; }
+/* The cloned host icon box keeps its own size; do not let it squash the glyph. */
+.dso-ctx-panel-icon > svg,
+.dso-ctx-panel-icon > img,
+.dso-ctx-panel-icon > span { flex: none; max-width: 14px; max-height: 14px; }
+.dso-ctx-panel-icon-empty { visibility: hidden; }
 .dso-ctx-panel-label { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* The host fades its menu when the menu mounts or unmounts, but only on its own
    direct children (._surface[data-menu-phase] > *). A customized menu flattens
