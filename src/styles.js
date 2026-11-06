@@ -100,7 +100,8 @@ body.dso-dragging * { cursor: grabbing !important; }
 /* While a drag is in flight the rows under the pointer must not react at all:
    no :hover highlight, no tooltip. Hit-testing is done from rects, not events. */
 body.dso-dragging [data-dso-key],
-body.dso-dragging [data-dso-more-key] { pointer-events: none !important; }
+body.dso-dragging [data-dso-more-key],
+body.dso-dragging [data-dso-ctx-more-key] { pointer-events: none !important; }
 body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
 
 /* rows appended to the shipped "More" menu */
@@ -547,4 +548,108 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   background: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
   pointer-events: none;
 }
+/* ---------------------------------------------------------- context More --
+   A right-click menu has no host-owned "More" row, so the anchor is a flex
+   item appended to the menu viewport with a late order. The popup that lists
+   the tucked rows hangs off the same menu element instead of <body>, so the
+   host's outside-click closer still reads a click in it as "inside the menu".
+   Margins stay 0: the host viewport already spaces its rows, and any extra
+   padding here showed up as a gap under the last real row. */
+.dso-ctx-more {
+  display: flex;
+  flex: none;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+.dso-ctx-more-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #ebebf5);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.dso-ctx-more-trigger:hover,
+.dso-ctx-more-trigger[aria-expanded="true"] {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+}
+.dso-ctx-more-dots {
+  flex: none;
+  width: 16px;
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+.dso-ctx-more-label { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dso-ctx-more-chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--dsw-alias-label-caption, rgba(235, 235, 245, 0.4));
+  font-size: 15px;
+  line-height: 16px;
+}
+.dso-ctx-panel {
+  position: fixed;
+  z-index: 2147482601;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 180px;
+  max-width: 300px;
+  max-height: min(380px, 64vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, #202024));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+.dso-ctx-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #ebebf5);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.dso-ctx-panel-row:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+}
+.dso-ctx-panel-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--dsw-alias-label-secondary, rgba(235, 235, 245, 0.62));
+}
+.dso-ctx-panel-icon svg { width: 16px; height: 16px; }
+.dso-ctx-panel-label { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 `;

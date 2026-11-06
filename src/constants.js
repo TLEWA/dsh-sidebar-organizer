@@ -150,8 +150,10 @@ const STRINGS = {
     hotkeyToggleOff: "开关模式已关闭",
     hotkeyNeedKey: "先绑定一个热键",
     contextMenu: "右键菜单",
-    contextMenuOn: "会话与工作区右键菜单可拖动、可加分隔线",
+    contextMenuOn: "会话与工作区右键菜单可拖动、可加分隔线，拖到底部收进「更多」",
     contextMenuOff: "右键菜单整理已关闭",
+    contextMenuMore: "已收纳的菜单项",
+    contextMenuMoreEmpty: "把菜单项拖到「更多」即可收纳",
     scopeNames: {
       sidebar: "左侧边栏",
       footer: "侧栏底部",
@@ -202,8 +204,10 @@ const STRINGS = {
     hotkeyToggleOff: "Toggle mode is off",
     hotkeyNeedKey: "Bind a hotkey first",
     contextMenu: "Context menus",
-    contextMenuOn: "Session and workspace menus can be reordered and divided",
+    contextMenuOn: "Session and workspace menus can be reordered, divided, and tucked into More",
     contextMenuOff: "Context menu organizing is off",
+    contextMenuMore: "Hidden menu items",
+    contextMenuMoreEmpty: "Drag a menu item onto More to tuck it away",
     scopeNames: {
       sidebar: "Sidebar",
       footer: "Sidebar footer",

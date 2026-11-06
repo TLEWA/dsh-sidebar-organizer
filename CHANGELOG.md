@@ -3,6 +3,45 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.9.0 — 2026-11-06
+
+- **右键菜单的「更多」收纳**：菜单打开时长按拖动条目，拖到列表最底部会出现
+  `··· 更多 ›` 这一行（只在拖动期间出现），松手在这里就把条目从菜单里收走，
+  放进它自己的二级菜单。
+- **二级菜单**：悬停（或点击）`··· 更多 ›` 展开已收纳条目，位置优先在菜单右侧，
+  右边放不下且左侧更宽时翻到左侧，纵向限制在视口内；点击其中一条等同点击原来那条
+  菜单项，动作用图标和文字照着宿主的样子重排，不再需要拉开菜单找。
+- **拖回原位**：长按二级菜单里的条目拖回菜单，落到某条上方就插回那个位置，拖到菜单
+  底部则排到末尾；菜单里只剩一个可见条目时不再允许收纳，避免整张菜单变成只剩
+  「更多」。
+- 收纳列表按菜单（会话 / 工作区）分别保存在原来那条记录里（新增 `hidden` 数组，
+  旧存档自动补空），与顺序、分隔线互不干扰。
+- 拖动命中按**菜单当前实时位置**判断：宿主或别的插件在菜单打开后追加条目时，落点
+  不会整体偏移一行。
+- 离线用例 246 条（全绿），新增 12 条：锚点只在拖动时出现、锚点不参与行标记、
+  拖入即隐藏、二级菜单的内容与展开方向、点击转发到宿主菜单项、从二级菜单拖回菜单。
+
+### English
+
+- **"More" tucking for context menus**: while a menu is open, drag an item toward the
+  bottom of the list and a `··· More ›` row appears (only during a drag); release on it
+  and the item leaves the menu and moves into its own submenu.
+- **Submenu**: hovering (or clicking) `··· More ›` lists the tucked items, placed to the
+  right of the menu when there is room, flipped to the left when that side is wider, and
+  clamped vertically to the viewport. Clicking one of them clicks the original host menu
+  item, with the icon and label laid out the way the host does it.
+- **Drag back**: long-press a tucked item and drag it into the menu to insert it above a
+  row, or onto the bottom to append it. Tucking is refused when only one visible item is
+  left, so a menu can never collapse into nothing but "More".
+- The tucked list is stored per menu (session / workspace) inside the existing record as
+  a new `hidden` array; older saves get an empty one, and order and dividers stay
+  untouched.
+- Hit-testing uses the menu's **live geometry**, so a row appended by the host or another
+  plugin after the menu opened no longer shifts the drop targets by a row.
+- Offline assertions grew to 246 (all green) with 12 new ones: the anchor appears only
+  while dragging, it never carries a row tag, dropping tucks, submenu contents and
+  direction, click forwarding, and dragging back out.
+
 ## 0.8.4 — 2026-11-06
 
 - 右键菜单最下面那几个动作也能增删分隔线了：菜单底部（`归档会话`）与插件直接挂在

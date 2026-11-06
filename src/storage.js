@@ -385,7 +385,7 @@ function writeHostMenuOrder(labels) {
 // publishes it to the other windows, which this file must not do for a menu-only
 // change (it would push the registered default order over a custom layout).
 function emptyContextMenuLayout() {
-  return { order: [], dividers: [], customized: false };
+  return { order: [], dividers: [], hidden: [], customized: false };
 }
 
 function normalizeContextMenuLayout(value) {
@@ -400,7 +400,10 @@ function normalizeContextMenuLayout(value) {
     }
   }
   dividers.sort((a, b) => a - b);
-  return { order, dividers, customized: raw.customized === true };
+  // 'hidden' is the tuck list behind the menu's More anchor. Older layouts
+  // have no such key, so a missing or invalid value is simply an empty list.
+  const hidden = normalizeStringList(raw.hidden);
+  return { order, dividers, hidden, customized: raw.customized === true };
 }
 
 function readContextMenuStore() {
@@ -454,7 +457,16 @@ function writeContextMenuLayout(kind, layout) {
   if (CONTEXT_MENU_KINDS.indexOf(kind) === -1) return emptyContextMenuLayout();
   const store = readContextMenuStore();
   const menus = Object.assign({}, store.menus);
-  menus[kind] = normalizeContextMenuLayout(layout);
+  const before = store.menus[kind] ? normalizeContextMenuLayout(store.menus[kind]) : emptyContextMenuLayout();
+  // Merge onto the stored layout: the reorder/toggle call sites predate the
+  // tuck list, and a write that only carries order+dividers must not wipe the
+  // rows currently filed under More.
+  menus[kind] = normalizeContextMenuLayout({
+    order: layout && layout.order !== undefined ? layout.order : before.order,
+    dividers: layout && layout.dividers !== undefined ? layout.dividers : before.dividers,
+    customized: layout && layout.customized !== undefined ? layout.customized : before.customized,
+    hidden: layout && layout.hidden !== undefined ? layout.hidden : before.hidden,
+  });
   writeContextMenuStore({ version: store.version, enabled: store.enabled, menus });
   return menus[kind];
 }

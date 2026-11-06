@@ -11,7 +11,8 @@ composer dock, session header, right sidebar, and settings navigation.
 > and since 0.8.1 you can also reorder the session / workspace right-click menus and
 > add or remove their dividers (DSH 0.2.2+); 0.8.2 fixes divider toggling and drift
 > while the menu stays open, and customizations surviving a reload; 0.8.3 keeps an order
-> saved on first customization stable even when a plugin row mounts a beat late; 0.8.4 lets the menu footer and plugin-root buttons toggle dividers too. For the full
+> saved on first customization stable even when a plugin row mounts a beat late; 0.8.4 lets the menu footer and plugin-root buttons toggle dividers too; 0.9.0 tucks items
+> into a `··· More ›` submenu at the bottom of the menu. For the full
 > version history and downloads see [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
 
 ## What it does
@@ -63,7 +64,11 @@ composer dock, session header, right sidebar, and settings navigation.
   workspace context menu to reorder it; while the menu is open, right-click a
   non-bottom item to add or remove a divider below it (right-click again to
   undo). Dividers are stored by position, so they stay put when items move, and
-  one that ends up below the last item is dropped. A dedicated "Context menus"
+  one that ends up below the last item is dropped. Drag an item toward the bottom
+  of the list and a `··· More ›` row appears; release there and it moves into that
+  row's submenu (hover to open; clicking an entry clicks the original menu item).
+  Long-press a tucked entry to drag it back anywhere in the menu. Tucking is
+  refused once only one visible item is left. A dedicated "Context menus"
   switch lives on the settings page; on 0.2.1 the feature turns itself off and
   the card is not shown.
 - **Settings page**: DSH Settings → "Layout organizer", or this plugin's detail
@@ -107,7 +112,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.8.4
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.9.0
 ```
 
 ### From npm
@@ -231,10 +236,24 @@ the page. Since 0.2.0 the mechanism is different:
   `order = 2g - 1` so the two interleave without colliding, and a
   `MutationObserver` re-syncs after re-renders or a close. The layout lives in
   `dsh.sidebar-organizer.context-menu.v1` (`{ version, enabled, menus: { session,
-  workspace } }`, each menu with its own `order` / `dividers` / `customized`) and
-  is independent of the seven-scope layout, drag switches, and cross-window sync.
-  Dividers store gap indices only, so they stay in place while items move and a
-  trailing gap (`gap >= row count`) is pruned before it is written back.
+  workspace } }`, each menu with its own `order` / `dividers` / `hidden` /
+  `customized`) and is independent of the seven-scope layout, drag switches, and
+  cross-window sync. Dividers store gap indices only, so they stay in place while
+  items move and a trailing gap (`gap >= row count`) is pruned before it is
+  written back.
+- Context-menu tucking (0.9.0): during a drag an anchor row is appended to the
+  `_viewport_` (`div[data-dso-ctx-more]` holding one `role=menuitem` button; it is
+  kept out of `model.rows`, never gets `data-dso-ctx-id`, and takes an `order`
+  after every item). Tucked ids live in `hidden`; their rows get
+  `display:none`, visible rows are numbered by their visible index, so divider
+  gaps still point at rows you can see. Dropping on the anchor tucks (refused
+  when only one visible item is left); hovering it expands a body-level
+  `div[data-dso-ctx-panel]` placed to the right of the menu (+6px), flipped left
+  when the right side lacks room and the left is wider, clamped vertically; a
+  click calls the original menu item's `click()`. Panel rows carry
+  `data-dso-ctx-more-key` and long-press drags them back with the drag layer's
+  `more` source, writing the order and removing the id from `hidden`. Hit-testing
+  uses the menu's live rect, never a frozen snapshot.
 - The settings page uses native HTML5 drag and drop (`draggable` plus
   `dragstart/dragover/drop`) and adds no interaction library. Buttons only move
   up/down, tuck, or restore, so they cannot conflict with the long-press gesture.
@@ -323,6 +342,7 @@ restoration).
 - [x] 0.8.2 — fixed divider add/remove and drift while the menu stays open, row labels stolen by submenus, and customizations not persisting after a reload
 - [x] 0.8.3 — first customization saves document order (a plugin row measured at 0px can no longer corrupt it), and pruning waits for the menu to finish mounting
 - [x] 0.8.4 — the menu footer and plugin-root buttons take part in divider gap numbering (only the last action is a no-op)
+- [x] 0.9.0 — right-click menu tucking: drop at the bottom to move an item into a `··· More ›` submenu, long-press to drag it back
 
 ## Notices
 

@@ -1759,6 +1759,118 @@
         JSON.stringify(ctxStore().menus.session)
       );
 
+      // ---- More: tucking rows under the injected "···" anchor ----
+      const moreAnchor = () => sessionMenu.querySelector("[data-dso-ctx-more]");
+      const moreTrigger = () => {
+        const anchor = moreAnchor();
+        return anchor ? anchor.querySelector(".dso-ctx-more-trigger") : null;
+      };
+      const openMorePanel = async () => {
+        const anchor = moreAnchor();
+        if (!anchor) return null;
+        anchor.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false, pointerId: 7 }));
+        await wait(200);
+        return document.querySelector("[data-dso-ctx-panel]");
+      };
+      assert("an untouched menu shows no More anchor", !moreAnchor(), "anchor present");
+      const tuckUnit = ctxUnit(sessionMenu, "复制 Session ID");
+      const tuckId = tuckUnit.dataset.dsoCtxId;
+      const tuckRect = tuckUnit.getBoundingClientRect();
+      tuckUnit.querySelector('[role="menuitem"]').dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId: 82,
+          clientX: tuckRect.left + 12,
+          clientY: tuckRect.top + tuckRect.height / 2,
+        })
+      );
+      await wait(330);
+      assert("a menu drag reveals the More anchor", !!moreAnchor(), "no anchor");
+      assert("the More anchor is never a draggable row", !!moreAnchor() && !moreAnchor().hasAttribute("data-dso-ctx-id"), "tagged");
+      const anchorRect = moreTrigger().getBoundingClientRect();
+      document.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 82, clientX: anchorRect.left + 20, clientY: anchorRect.top + anchorRect.height / 2 })
+      );
+      assert("dropping on the anchor arms the ring", moreTrigger().classList.contains("dso-drop-more"), moreTrigger().className);
+      document.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 82, clientX: anchorRect.left + 20, clientY: anchorRect.top + anchorRect.height / 2 })
+      );
+      await wait(340);
+      assert("the tucked row leaves the menu", ctxLabels(sessionMenu).indexOf("复制 Session ID") === -1, ctxLabels(sessionMenu).join(","));
+      const tuckedStore = ctxStore().menus.session;
+      assert("the tucked row is persisted as hidden", tuckedStore.hidden.join(",") === tuckId, JSON.stringify(tuckedStore));
+      assert("the tucked row keeps its slot in the saved order", tuckedStore.order.indexOf(tuckId) !== -1, tuckedStore.order.join(","));
+      assert("the More anchor stays while a row is tucked", !!moreAnchor(), "anchor gone");
+      const lastTagged = ctxVisual(sessionMenu).slice(-1)[0];
+      assert(
+        "the More anchor sits under the last row",
+        moreAnchor().getBoundingClientRect().top >= lastTagged.getBoundingClientRect().bottom - 1,
+        moreAnchor().getBoundingClientRect().top + " vs " + lastTagged.getBoundingClientRect().bottom
+      );
+      assert("tucking keeps the menu open", sessionMenu.hidden === false);
+
+      const panel = await openMorePanel();
+      assert("hovering the anchor opens the tucked popup", !!panel, "no panel");
+      const panelRows = panel ? Array.from(panel.querySelectorAll("[data-dso-ctx-more-key]")) : [];
+      assert(
+        "the popup lists the tucked row",
+        panelRows.length === 1 && panelRows[0].getAttribute("data-dso-ctx-more-key") === tuckId,
+        String(panelRows.length)
+      );
+      assert("the popup row carries the host label", panelRows.length === 1 && ctxLabel(panelRows[0]) === "复制 Session ID", panelRows.length ? ctxLabel(panelRows[0]) : "");
+      assert(
+        "the popup opens beside the anchor",
+        panel.getBoundingClientRect().left > sessionMenu.getBoundingClientRect().right - 2,
+        panel.getBoundingClientRect().left + " vs " + sessionMenu.getBoundingClientRect().right
+      );
+      let invoked = 0;
+      const hostTuckedRow = ctxRowByLabel(sessionMenu, "复制 Session ID");
+      hostTuckedRow.addEventListener("click", () => {
+        invoked += 1;
+      });
+      // The drop guard swallows clicks for 500ms after a drag ends; a real
+      // user gets there later, so let it lapse before clicking the popup row.
+      await wait(600);
+      panelRows[0].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      await wait(160);
+      assert("clicking a tucked row runs the host action", invoked === 1, "invoked=" + invoked);
+      assert("choosing a tucked row closes the popup", !document.querySelector("[data-dso-ctx-panel]"), "panel still open");
+
+      const panel2 = await openMorePanel();
+      assert("the popup reopens after a choice", !!panel2, "no panel");
+      const revealRow = panel2.querySelector("[data-dso-ctx-more-key]");
+      const revealRect = revealRow.getBoundingClientRect();
+      revealRow.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId: 83,
+          clientX: revealRect.left + 10,
+          clientY: revealRect.top + revealRect.height / 2,
+        })
+      );
+      await wait(330);
+      assert("dragging out of the popup lifts a ghost", !!document.querySelector(".dso-ghost"), "no ghost");
+      const dropRow = ctxVisual(sessionMenu)[1];
+      const dropRect = dropRow.getBoundingClientRect();
+      document.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 83, clientX: dropRect.left + 12, clientY: dropRect.top + 2 })
+      );
+      document.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 83, clientX: dropRect.left + 12, clientY: dropRect.top + 2 })
+      );
+      await wait(340);
+      assert("dropping a tucked row back reveals it", ctxLabels(sessionMenu).indexOf("复制 Session ID") >= 0, ctxLabels(sessionMenu).join(","));
+      assert(
+        "a revealed row leaves the hidden list",
+        (ctxStore().menus.session.hidden || []).length === 0,
+        JSON.stringify(ctxStore().menus.session)
+      );
+      assert("the empty More anchor disappears again", !moreAnchor(), "anchor still present");
+
       sessionMenu.hidden = true;
       workspaceMenu.hidden = false;
       workspaceRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 60 }));

@@ -40,6 +40,14 @@ function createRuntime(ctx) {
     contextPendingAt: 0,
     contextOpenedAt: 0,
     contextPendingToggle: null,
+    // The injected More anchor and its popup. Both live inside the open menu
+    // (never on <body>), so the host's own outside-click closer keeps the menu
+    // open while the popup is being used and tears them down with the portal.
+    ctxMoreAnchor: null,
+    ctxMorePanel: null,
+    ctxMoreOpen: false,
+    ctxMoreDragActive: false,
+    ctxMoreTimer: 0,
   };
 
   let observer = null;
@@ -736,6 +744,12 @@ function createRuntime(ctx) {
   function onHeaderMenuClick(event) {
     const target = event.target;
     if (!target || target.nodeType !== 1) return;
+    // The host's menu portal stops propagation, so the capture phase is the only
+    // place to notice that the user moved on to another action: any click in the
+    // menu that is neither a popup row nor the anchor closes the popup.
+    if (state.ctxMorePanel && !state.ctxMorePanel.contains(target) && !target.closest("[data-dso-ctx-more]")) {
+      closeContextMorePanel();
+    }
     const item = target.closest(".dso-header-tucked-item");
     if (!item) return;
     event.preventDefault();
@@ -767,6 +781,9 @@ function createRuntime(ctx) {
     }
     if (state.settingsMenu && !state.settingsMenu.contains(target)) {
       closeSettingsMoreMenu();
+    }
+    if (state.ctxMorePanel && !state.ctxMorePanel.contains(target)) {
+      closeContextMorePanel();
     }
     const anchor = headerAnchor();
     if (anchor && (target === anchor || anchor.contains(target))) {
@@ -942,6 +959,9 @@ function createRuntime(ctx) {
     // the user picked a different submenu entry.
     const byItem = new Map();
     for (const menuitem of menu.querySelectorAll('[role="menuitem"]')) {
+      // Our own More anchor and its popup also expose role=menuitem; they are
+      // injected nodes, not host rows, and must never get a drag id.
+      if (menuitem.closest("[data-dso-ctx-more],[data-dso-ctx-panel]")) continue;
       const part = contextRowPart(menuitem, menu);
       if (!part || !part.item) continue;
       let depth = 0;
@@ -1162,15 +1182,38 @@ function createRuntime(ctx) {
         if (row.item.dataset.dsoCtxId !== row.id) row.item.dataset.dsoCtxId = row.id;
       }
       removeContextDividers();
+      ensureContextMoreAnchor(model, kind, []);
       return model.rows.map((row) => row.id);
     }
     const rows = model.rows.filter((row) => row.reorderable);
     const merged = mergeContextOrder(layout.order, rows);
-    merged.forEach((id, index) => {
+    // Rows filed under the More anchor. Only ids still present in this menu are
+    // kept, so a host action that disappears for good leaves no ghost entry in
+    // the tucked list; the pruned list is written back below.
+    const tucked = [];
+    for (const id of layout.hidden || []) {
+      if (merged.indexOf(id) === -1) continue;
+      if (tucked.indexOf(id) === -1) tucked.push(id);
+    }
+    const hiddenSet = new Set(tucked);
+    // Order slots are handed out to the VISIBLE rows only: a tucked row leaves
+    // the flex flow with display:none, and numbering it anyway would leave a
+    // blank slot (the menu grew a gap) between two live rows.
+    const visible = merged.filter((id) => !hiddenSet.has(id));
+    merged.forEach((id) => {
       const row = model.ids.get(id);
       if (!row) return;
-      rememberContextElement(row.item);
-      const order = String(index * 2);
+      const entry = rememberContextElement(row.item);
+      if (hiddenSet.has(id)) {
+        if (row.item.style.display !== "none") row.item.style.display = "none";
+        if (row.item.dataset.dsoCtxId) delete row.item.dataset.dsoCtxId;
+        return;
+      }
+      // Restore whatever inline display the host row shipped with (a slot can
+      // be display:contents) instead of forcing it back to an empty string.
+      const display = entry ? entry.display : row.item.style.display;
+      if (row.item.style.display !== display) row.item.style.display = display;
+      const order = String(visible.indexOf(id) * 2);
       if (row.item.style.order !== order) row.item.style.order = order;
       if (row.item.dataset.dsoCtxId !== id) row.item.dataset.dsoCtxId = id;
     });
@@ -1198,15 +1241,36 @@ function createRuntime(ctx) {
     // briefly: plugins register their entries a moment after the menu opens, and
     // pruning a still-growing row list would delete a divider the user saved.
     const settled = force || !state.contextOpenedAt || Date.now() - state.contextOpenedAt > 500;
-    if (gaps.length !== (layout.dividers || []).length && settled) {
-      writeContextMenuLayout(kind, { order: merged, dividers: gaps, customized: true });
+    const hiddenChanged = tucked.length !== (layout.hidden || []).length;
+    if ((gaps.length !== (layout.dividers || []).length || hiddenChanged) && settled) {
+      writeContextMenuLayout(kind, { order: merged, dividers: gaps, customized: true, hidden: tucked });
     }
-    renderContextDividers(model, gaps);
+    // Gaps are indexes into the VISIBLE sequence, but the model still holds the
+    // display:none rows; hand the divider painter a visible-only row list so a
+    // gap before the fifth visible action lands under the fifth, not the ninth.
+    const visibleModel = {
+      menu: model.menu,
+      viewport: model.viewport,
+      footer: model.footer,
+      rows: model.rows.filter((row) => !hiddenSet.has(row.id)),
+      ids: model.ids,
+      nativeDividers: model.nativeDividers,
+    };
+    renderContextDividers(visibleModel, gaps);
+    ensureContextMoreAnchor(model, kind, tucked);
     return merged;
   }
 
   function clearContextMenu() {
     removeContextDividers();
+    // The anchor and popup are injected nodes; the host portal may already be
+    // unmounted, in which case removing them is a no-op.
+    closeContextMorePanel();
+    if (state.ctxMoreAnchor && state.ctxMoreAnchor.parentNode) {
+      state.ctxMoreAnchor.parentNode.removeChild(state.ctxMoreAnchor);
+    }
+    state.ctxMoreAnchor = null;
+    state.ctxMoreDragActive = false;
     for (const [element, entry] of state.contextStyled) {
       try {
         element.style.order = entry.order;
@@ -1299,22 +1363,71 @@ function createRuntime(ctx) {
   // A snapshot in the shape the generic drag pipeline expects. `found` is null
   // on purpose: every `found` consumer is null-guarded, and the menu's own rect
   // replaces the container/cross rects.
-  function buildContextSnapshot() {
-    const model = state.contextRows;
-    if (!model || !model.menu || !model.menu.isConnected) return null;
+  function contextVisibleItems(model) {
+    const hidden = new Set(readContextMenuLayout(state.contextKind).hidden);
     const items = [];
     for (const row of model.rows) {
       if (!row.reorderable) continue;
+      if (hidden.has(row.id)) continue;
       if (!row.item.isConnected) continue;
       const rect = row.item.getBoundingClientRect();
       if (!rect.width && !rect.height) continue;
       items.push({ id: row.id, unit: row.item, target: row.item, rect });
     }
-    if (!items.length) return null;
     items.sort((a, b) => a.rect.top - b.rect.top);
+    return items;
+  }
+
+  function contextMoreElement() {
+    const anchor = contextMoreAnchor();
+    return anchor ? anchor.querySelector(".dso-ctx-more-trigger") : null;
+  }
+
+  function contextMoreRect() {
+    const element = contextMoreElement();
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return rect.width || rect.height ? rect : null;
+  }
+
+  function buildContextSnapshot(gesture) {
+    const model = state.contextRows;
+    if (!model || !model.menu || !model.menu.isConnected) return null;
     // The whole menu is the drop area: dragging into the footer block must not
     // end the gesture, and the last insertion point is the end of the list.
     const menuRect = model.menu.getBoundingClientRect();
+    if (gesture && gesture.source === "more") {
+      // Dragging a row OUT of the More popup: the rows to reorder are the popup
+      // entries, the insertion points are the visible menu rows, and the menu
+      // rect is the drop container that turns the gesture into a reveal.
+      const panel = state.ctxMorePanel;
+      if (!panel || !panel.isConnected) return null;
+      const panelItems = [];
+      for (const node of panel.querySelectorAll("[data-dso-ctx-more-key]")) {
+        if (!node.isConnected) continue;
+        const rect = node.getBoundingClientRect();
+        if (!rect.width && !rect.height) continue;
+        panelItems.push({ id: node.getAttribute("data-dso-ctx-more-key"), unit: node, target: node, rect });
+      }
+      if (!panelItems.length) return null;
+      panelItems.sort((a, b) => a.rect.top - b.rect.top);
+      const visibleItems = contextVisibleItems(model);
+      if (!visibleItems.length) return null;
+      return {
+        found: null,
+        axis: "y",
+        container: menuRect,
+        crossRect: menuRect,
+        items: panelItems,
+        menuItems: visibleItems,
+        menuTargets: visibleItems,
+        menuRect,
+        moreRect: contextMoreRect(),
+        moreElement: contextMoreElement(),
+      };
+    }
+    const items = contextVisibleItems(model);
+    if (!items.length) return null;
     return {
       found: null,
       axis: "y",
@@ -1324,7 +1437,8 @@ function createRuntime(ctx) {
       menuItems: items,
       menuTargets: items,
       menuRect,
-      moreRect: null,
+      moreRect: contextMoreRect(),
+      moreElement: contextMoreElement(),
     };
   }
 
@@ -1408,6 +1522,318 @@ function createRuntime(ctx) {
     return true;
   }
 
+  // ---------------------------------------------------------- context More --
+  // A right-click menu ships no "More" row, so one is injected: a flex item
+  // appended to the menu viewport with a late order (always last), plus a popup
+  // listing the tucked actions. Both are children of the OPEN MENU, not of
+  // <body>: the host closes its portal on any outside mousedown, so a popup
+  // living outside the menu would close the menu on the first click. The host
+  // also removes its portal wholesale, which takes the injected nodes with it,
+  // so every path below tolerates an anchor that was pulled out from under us.
+
+  const CONTEXT_MORE_OPEN_DELAY = 120;
+  const CONTEXT_MORE_CLOSE_DELAY = 200;
+
+  function contextTuckedRows(model, hiddenIds) {
+    if (!model) return [];
+    const hidden = new Set(hiddenIds || []);
+    if (!hidden.size) return [];
+    const out = [];
+    for (const row of model.rows) {
+      if (!row.reorderable) continue;
+      if (!hidden.has(row.id)) continue;
+      out.push(row);
+    }
+    return out;
+  }
+
+  function contextMoreAnchor() {
+    const anchor = state.ctxMoreAnchor;
+    return anchor && anchor.isConnected ? anchor : null;
+  }
+
+  function buildContextMoreAnchor() {
+    const text = strings();
+    const wrap = document.createElement("div");
+    wrap.className = "dso-ctx-more";
+    wrap.setAttribute("data-dso-ctx-more", "1");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "dso-ctx-more-trigger";
+    button.setAttribute("role", "menuitem");
+    button.setAttribute("aria-haspopup", "menu");
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-label", text.contextMenuMore);
+    const dots = document.createElement("span");
+    dots.className = "dso-ctx-more-dots";
+    dots.textContent = "···";
+    const label = document.createElement("span");
+    label.className = "dso-ctx-more-label";
+    label.textContent = text.more;
+    const chevron = document.createElement("span");
+    chevron.className = "dso-ctx-more-chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.textContent = "›";
+    button.appendChild(dots);
+    button.appendChild(label);
+    button.appendChild(chevron);
+    wrap.appendChild(button);
+    wrap.addEventListener("pointerenter", () => openContextMoreSoon());
+    wrap.addEventListener("pointerleave", () => closeContextMoreSoon());
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.ctxMoreOpen) closeContextMorePanel();
+      else openContextMorePanel();
+    });
+    return wrap;
+  }
+
+  function setContextMoreExpanded(open) {
+    const anchor = state.ctxMoreAnchor;
+    const button = anchor ? anchor.querySelector(".dso-ctx-more-trigger") : null;
+    if (!button) return;
+    const value = open ? "true" : "false";
+    if (button.getAttribute("aria-expanded") !== value) button.setAttribute("aria-expanded", value);
+  }
+
+  function ensureContextMoreAnchor(model, kind, hiddenIds) {
+    if (!model || !model.viewport) return;
+    const tucked = contextTuckedRows(model, hiddenIds || (kind ? readContextMenuLayout(kind).hidden : []));
+    // The anchor only exists once something is tucked away, or while a menu row
+    // is actually being dragged: that drag is the affordance for the first one,
+    // and leaving an empty "More" row in a menu nobody customized would just
+    // add a dead action.
+    const wanted = tucked.length > 0 || state.ctxMoreDragActive;
+    if (!wanted) {
+      if (state.ctxMoreAnchor && state.ctxMoreAnchor.parentNode) {
+        state.ctxMoreAnchor.parentNode.removeChild(state.ctxMoreAnchor);
+      }
+      state.ctxMoreAnchor = null;
+      closeContextMorePanel();
+      return;
+    }
+    if (!state.ctxMoreAnchor) state.ctxMoreAnchor = buildContextMoreAnchor();
+    const anchor = state.ctxMoreAnchor;
+    if (anchor.parentNode !== model.viewport) model.viewport.appendChild(anchor);
+    // Visible rows own 0,2,4...; dividers take the odd slots. Placing the anchor
+    // well past both keeps it under the last row and under any divider.
+    const reorderable = model.rows.filter((row) => row.reorderable).length;
+    const order = String(reorderable * 2 + 4);
+    if (anchor.style.order !== order) anchor.style.order = order;
+    if (!state.ctxMoreOpen) return;
+    if (!tucked.length) {
+      closeContextMorePanel();
+      return;
+    }
+    renderContextMorePanel(model, tucked);
+  }
+
+  function buildContextMoreRow(row) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "dso-ctx-panel-row";
+    button.setAttribute("role", "menuitem");
+    button.setAttribute("data-dso-ctx-more-key", row.id);
+    const icon = row.menuitem ? row.menuitem.querySelector("svg") : null;
+    if (icon) {
+      const wrapper = document.createElement("span");
+      wrapper.className = "dso-ctx-panel-icon";
+      wrapper.appendChild(icon.cloneNode(true));
+      button.appendChild(wrapper);
+    }
+    const label = document.createElement("span");
+    label.className = "dso-ctx-panel-label";
+    label.textContent = row.label;
+    button.appendChild(label);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      invokeContextMoreRow(row.id);
+    });
+    return button;
+  }
+
+  function renderContextMorePanel(model, tucked) {
+    const signature = tucked.map((row) => row.id).join("|");
+    let panel = state.ctxMorePanel;
+    if (!panel || !panel.isConnected) {
+      panel = document.createElement("div");
+      panel.className = "dso-ctx-panel";
+      panel.setAttribute("data-dso-ctx-panel", "1");
+      panel.setAttribute("role", "group");
+      panel.setAttribute("aria-label", strings().contextMenuMore);
+      panel.addEventListener("pointerenter", () => cancelContextMoreTimer());
+      panel.addEventListener("pointerleave", () => closeContextMoreSoon());
+      state.ctxMorePanel = panel;
+    }
+    if (panel.parentNode !== model.menu) model.menu.appendChild(panel);
+    // The menu is re-synced on every DOM mutation, including the mutations this
+    // very function causes. Rebuilding the list unconditionally would therefore
+    // feed the observer forever; the signature short-circuits unchanged lists.
+    if (panel.dataset.dsoCtxSig !== signature) {
+      while (panel.firstChild) panel.removeChild(panel.firstChild);
+      for (const row of tucked) panel.appendChild(buildContextMoreRow(row));
+      panel.dataset.dsoCtxSig = signature;
+    }
+    positionContextMorePanel(panel);
+  }
+
+  // Same placement rule as the submenu in dsh-sidebar-row-menu: open to the
+  // right of the anchor, flip left when the right edge is short and the left
+  // side has more room, clamp both axes to the viewport, and never let the list
+  // grow past the viewport (it scrolls instead).
+  function positionContextMorePanel(panel) {
+    const anchor = contextMoreAnchor();
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    if (!rect.width && !rect.height) {
+      closeContextMorePanel();
+      return;
+    }
+    const margin = 12;
+    const gap = 6;
+    const vw = window.innerWidth || 1024;
+    const vh = window.innerHeight || 768;
+    panel.style.visibility = "hidden";
+    const width = Math.max(160, panel.offsetWidth || 180);
+    const height = panel.offsetHeight || 0;
+    const rightRoom = vw - margin - (rect.right + gap);
+    const leftRoom = rect.left - gap - margin;
+    let left = rect.right + gap;
+    if (rightRoom < width && leftRoom > rightRoom) left = rect.left - gap - width;
+    left = Math.max(margin, Math.min(left, vw - width - margin));
+    const top = Math.max(margin, Math.min(rect.top, vh - height - margin));
+    const nextLeft = Math.round(left) + "px";
+    const nextTop = Math.round(top) + "px";
+    if (panel.style.left !== nextLeft) panel.style.left = nextLeft;
+    if (panel.style.top !== nextTop) panel.style.top = nextTop;
+    panel.style.visibility = "";
+  }
+
+  function cancelContextMoreTimer() {
+    if (state.ctxMoreTimer) {
+      window.clearTimeout(state.ctxMoreTimer);
+      state.ctxMoreTimer = 0;
+    }
+  }
+
+  function openContextMoreSoon() {
+    cancelContextMoreTimer();
+    state.ctxMoreTimer = window.setTimeout(() => {
+      state.ctxMoreTimer = 0;
+      openContextMorePanel();
+    }, CONTEXT_MORE_OPEN_DELAY);
+  }
+
+  function closeContextMoreSoon() {
+    cancelContextMoreTimer();
+    state.ctxMoreTimer = window.setTimeout(() => {
+      state.ctxMoreTimer = 0;
+      // A row being dragged out of the popup keeps it mounted: the gesture is
+      // still reading its rows as drop targets (and its own ghost needs a home).
+      if (state.gesture && state.gesture.started && state.gesture.source === "more") return;
+      closeContextMorePanel();
+    }, CONTEXT_MORE_CLOSE_DELAY);
+  }
+
+  function openContextMorePanel() {
+    cancelContextMoreTimer();
+    const model = state.contextRows;
+    const kind = state.contextKind;
+    if (!model || !kind || !model.menu || !model.menu.isConnected) return false;
+    if (!contextMoreAnchor()) return false;
+    const tucked = contextTuckedRows(model, readContextMenuLayout(kind).hidden);
+    if (!tucked.length) return false;
+    state.ctxMoreOpen = true;
+    renderContextMorePanel(model, tucked);
+    setContextMoreExpanded(true);
+    return true;
+  }
+
+  function closeContextMorePanel() {
+    cancelContextMoreTimer();
+    state.ctxMoreOpen = false;
+    const panel = state.ctxMorePanel;
+    if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
+    state.ctxMorePanel = null;
+    setContextMoreExpanded(false);
+  }
+
+  function invokeContextMoreRow(id) {
+    const model = state.contextRows;
+    const row = model ? model.ids.get(id) : null;
+    closeContextMorePanel();
+    if (!row || !row.menuitem || !row.menuitem.isConnected) return false;
+    // The host action stays in the DOM with display:none, so a synthetic click
+    // still runs its own handler and the host closes the menu exactly as if the
+    // row had been clicked in the menu body.
+    try {
+      row.menuitem.click();
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function hideContextRow(id) {
+    const model = state.contextRows;
+    const kind = state.contextKind;
+    if (!model || !kind || !model.menu || !model.menu.isConnected) return false;
+    const current = readContextMenuLayout(kind);
+    if (current.hidden.indexOf(id) !== -1) return false;
+    const rows = model.rows.filter((row) => row.reorderable);
+    const visible = rows.filter((row) => current.hidden.indexOf(row.id) === -1);
+    // Never tuck the last remaining action: the menu would be left with a bare
+    // More row and the tucked action could not be reached again from a menu
+    // whose only entry is the popup trigger.
+    if (visible.length <= 1) return false;
+    const order = current.customized
+      ? mergeContextOrder(current.order, rows)
+      : rows.slice().sort((a, b) => a.dom - b.dom).map((row) => row.id);
+    writeContextMenuLayout(kind, {
+      order,
+      dividers: current.customized ? current.dividers : model.nativeDividers,
+      customized: true,
+      hidden: current.hidden.concat([id]),
+    });
+    const next = contextMenuModel(model.menu) || model;
+    state.contextRows = next;
+    applyContextLayout(next, kind, readContextMenuLayout(kind));
+    return true;
+  }
+
+  function revealContextRow(id, beforeId) {
+    const model = state.contextRows;
+    const kind = state.contextKind;
+    if (!model || !kind || !model.menu || !model.menu.isConnected) return false;
+    const current = readContextMenuLayout(kind);
+    if (current.hidden.indexOf(id) === -1) return false;
+    const rows = model.rows.filter((row) => row.reorderable);
+    const ids = mergeContextOrder(
+      current.customized ? current.order : rows.slice().sort((a, b) => a.dom - b.dom).map((row) => row.id),
+      rows
+    );
+    const from = ids.indexOf(id);
+    if (from === -1) return false;
+    ids.splice(from, 1);
+    let at = ids.length;
+    if (beforeId) {
+      const target = ids.indexOf(beforeId);
+      if (target !== -1) at = target;
+    }
+    ids.splice(at, 0, id);
+    writeContextMenuLayout(kind, {
+      order: ids,
+      dividers: current.customized ? current.dividers : model.nativeDividers,
+      customized: true,
+      hidden: current.hidden.filter((item) => item !== id),
+    });
+    const next = contextMenuModel(model.menu) || model;
+    state.contextRows = next;
+    applyContextLayout(next, kind, readContextMenuLayout(kind));
+    return true;
+  }
   // A right-click inside an already open menu belongs to us (toggle a divider)
   // and must not also open the browser's own menu. Everywhere else the event is
   // only observed: the host still opens its menu, and the next frame syncs it.
@@ -2214,7 +2640,7 @@ function createRuntime(ctx) {
   }
 
   function buildSnapshot(gesture) {
-    if (gesture && gesture.scope === CONTEXT_SCOPE) return buildContextSnapshot();
+    if (gesture && gesture.scope === CONTEXT_SCOPE) return buildContextSnapshot(gesture);
     let found = null;
     try {
       found = discoverScope(ctx, gesture.scope);
@@ -2449,12 +2875,15 @@ function createRuntime(ctx) {
         /* the element may already be detached */
       }
     }
-    if (gesture.snapshot && gesture.snapshot.found) {
-      const more = gesture.snapshot.found.moreTarget || gesture.snapshot.found.more;
-      // Leave `dso-drop-receive` on the anchor: it is a one-shot 260 ms pulse
-      // owned by pulseClass(), not by the drag session.
-      if (more) more.classList.remove("dso-drop-more");
-    }
+    // The context menus carry their anchor on the snapshot itself (they have no
+    // `found` record), so both shapes are unwound here.
+    const snapshot = gesture.snapshot;
+    const more = snapshot
+      ? (snapshot.found ? snapshot.found.moreTarget || snapshot.found.more : null) || snapshot.moreElement
+      : null;
+    // Leave `dso-drop-receive` on the anchor: it is a one-shot 260 ms pulse owned
+    // by pulseClass(), not by the drag session.
+    if (more && more.classList) more.classList.remove("dso-drop-more");
     gesture.ghost = null;
     gesture.indicator = null;
     gesture.moreElement = null;
@@ -2464,11 +2893,15 @@ function createRuntime(ctx) {
     if (gesture && gesture.ghost) {
       gesture.ghost.classList.toggle("dso-ghost-armed", Boolean(active));
     }
-    if (!gesture || !gesture.snapshot || !gesture.snapshot.found) return;
+    if (!gesture || !gesture.snapshot) return;
+    const snapshot = gesture.snapshot;
     // `found.more` may be the flex wrapper (needed for style.order), while the
     // rounded surface belongs to the actual button. Put the drop ring there so
-    // its outline follows the button's border-radius.
-    const element = gesture.snapshot.found.moreTarget || gesture.snapshot.found.more;
+    // its outline follows the button's border-radius. The context menu has no
+    // `found` record; its anchor travels on the snapshot instead.
+    const element = snapshot.found
+      ? snapshot.found.moreTarget || snapshot.found.more
+      : snapshot.moreElement;
     if (!element) return;
     if (active) {
       // Hover only arms the anchor. The receive bounce is a one-shot pulse on
@@ -2562,12 +2995,39 @@ function createRuntime(ctx) {
     markDropMore(gesture, false);
 
     if (gesture.scope === CONTEXT_SCOPE) {
-      if (!snapshot.menuRect || !pointIn(snapshot.menuRect, x, y, 8)) return;
-      const targets = snapshot.menuTargets;
-      const others = targets.filter((item) => item.id !== gesture.id);
-      const hit = indexAt(others, x, y, "y", targets);
-      gesture.target = { kind: "ctx", index: hit.index, beforeId: others[hit.index] ? others[hit.index].id : null };
-      showIndicator(gesture, "y", hit.boundary, snapshot.menuRect, snapshot.menuRect);
+      // Live geometry: the host (and other plugins) append menu entries a beat
+      // after the menu opens, and our own More anchor moves when that happens.
+      // The frozen snapshot would then aim the drop at a stale row or a stale
+      // anchor slot, so every hit test here re-measures instead.
+      const model = state.contextRows;
+      const liveMenu = model && model.menu && model.menu.isConnected ? model.menu.getBoundingClientRect() : null;
+      const menuRect = liveMenu || snapshot.menuRect;
+      const moreRect = contextMoreRect() || snapshot.moreRect;
+      // The More anchor sits under the last row, so it is hit-tested first: the
+      // row scan would otherwise read a drop on it as "insert at the end".
+      // No padding here on purpose: the anchor sits directly under the last
+      // row, and a padded hit rect would swallow drops that mean "insert at the
+      // end" (the row above it). Only the anchor's own box tucks.
+      if (moreRect && pointIn(moreRect, x, y, 0)) {
+        gesture.target = gesture.source === "more"
+          ? { kind: "ctx-reveal", beforeId: null }
+          : { kind: "ctx-hide" };
+        // A row from the popup dropped on the anchor only goes to the end of the
+        // menu; there is nothing to absorb, so no armed ring.
+        markDropMore(gesture, gesture.source !== "more");
+        return;
+      }
+      if (!menuRect || !pointIn(menuRect, x, y, 8)) return;
+      const targets = model ? contextVisibleItems(model) : null;
+      const list = targets && targets.length ? targets : snapshot.menuTargets;
+      const others = list.filter((item) => item.id !== gesture.id);
+      const hit = indexAt(others, x, y, "y", list);
+      gesture.target = {
+        kind: gesture.source === "more" ? "ctx-reveal" : "ctx",
+        index: hit.index,
+        beforeId: others[hit.index] ? others[hit.index].id : null,
+      };
+      showIndicator(gesture, "y", hit.boundary, menuRect, menuRect);
       return;
     }
 
@@ -2609,6 +3069,12 @@ function createRuntime(ctx) {
     // this, a drag started in the same frame as a previous drop can snapshot
     // the pre-order positions and make the ghost and indicator jump.
     if (gesture.source === "row") pass(true);
+    // A context menu ships no host More row, so one is injected for the duration
+    // of the drag: without it the first tuck would have nothing to aim at.
+    if (gesture.scope === CONTEXT_SCOPE && gesture.source !== "more" && state.contextRows) {
+      state.ctxMoreDragActive = true;
+      ensureContextMoreAnchor(state.contextRows, state.contextKind);
+    }
     let element = gesture.source === "row" ? findRowElement(gesture.scope, gesture.id) : gesture.element;
     if (!element && gesture.source === "row") element = gesture.element;
     const snapshot = buildSnapshot(gesture);
@@ -2667,6 +3133,12 @@ function createRuntime(ctx) {
     // Do this before arming the click guard, because the close is a synthetic
     // click on the anchor and the guard would otherwise swallow it.
     if (dragged && gesture.scope === "header" && gesture.source === "menu" && !gesture.keepMenu) dismissHeaderMenu();
+    // The anchor injected for this drag is only permanent once a row is tucked;
+    // re-sync so an empty one is removed again.
+    if (dragged && gesture.scope === CONTEXT_SCOPE && state.ctxMoreDragActive) {
+      state.ctxMoreDragActive = false;
+      scheduleContextSync();
+    }
     document.body.classList.remove("dso-dragging");
     if (guard) state.guardUntil = Date.now() + CLICK_GUARD_MS;
     if (state.passDeferred) {
@@ -2704,8 +3176,10 @@ function createRuntime(ctx) {
   // one-shot receive pulse. The generalized CSS-transition version snapped the
   // transform in one step and dropped the receive bounce, which read as ugly.
   function absorbGhost(gesture, after) {
-    const found = gesture && gesture.snapshot && gesture.snapshot.found;
-    const more = found ? found.moreTarget || found.more : null;
+    const snapshot = gesture && gesture.snapshot;
+    const found = snapshot && snapshot.found;
+    // Context menus carry their anchor on the snapshot (they have no `found`).
+    const more = (found ? found.moreTarget || found.more : null) || (snapshot ? snapshot.moreElement : null);
     const ghost = gesture && gesture.ghost;
     if (!ghost || !ghost.isConnected || !more || reduceMotion()) {
       if (more) pulseClass(more, "dso-drop-receive", 260);
@@ -2779,6 +3253,34 @@ function createRuntime(ctx) {
         // Reordering inside a popup is not leaving it: keep the menu open so the
         // new order (and the dividers that stayed put) can be checked at once.
         gesture.keepMenu = true;
+        endGesture(true);
+        return;
+      }
+      if (target.kind === "ctx-hide") {
+        const model = state.contextRows;
+        const hidden = model ? readContextMenuLayout(state.contextKind).hidden : [];
+        const visible = model
+          ? model.rows.filter((row) => row.reorderable && hidden.indexOf(row.id) === -1).length
+          : 0;
+        if (visible <= 1) {
+          // Tucking the last visible action would leave a menu whose only entry
+          // is the popup trigger: refuse it and say so with the reject shake.
+          shakeGhost(gesture);
+          return;
+        }
+        // Same flight as every other More drop: the ghost flies into the anchor
+        // and the row is hidden once it lands.
+        absorbGhost(gesture, () => hideContextRow(gesture.id));
+        return;
+      }
+      if (target.kind === "ctx-reveal") {
+        // A popup row dropped back into the menu body comes out of the tuck
+        // list and takes the slot the indicator showed.
+        revealContextRow(gesture.id, target.beforeId);
+        closeContextMorePanel();
+        gesture.keepMenu = true;
+        endGesture(true);
+        return;
       }
       endGesture(true);
       return;
@@ -2843,6 +3345,16 @@ function createRuntime(ctx) {
       const contextRow = contextRowAt(contextModel, contextItem);
       if (!contextRow) return;
       startGesture(contextRow.item, CONTEXT_SCOPE, contextRow.id, "ctx", event);
+      return;
+    }
+
+    const moreRow = target.closest("[data-dso-ctx-more-key]");
+    if (moreRow) {
+      // A row listed under More drags back out into the menu (source "more").
+      // A plain click never gets here as a commit: the click is handled by the
+      // row's own listener once the pointer is released without a drag.
+      if (!contextMenuEnabled()) return;
+      startGesture(moreRow, CONTEXT_SCOPE, moreRow.getAttribute("data-dso-ctx-more-key"), "more", event);
       return;
     }
 
@@ -2958,6 +3470,13 @@ function createRuntime(ctx) {
         cancelGesture();
         return;
       }
+      // The popup is one layer above the menu: Escape closes it first and
+      // leaves the menu itself open.
+      if (state.ctxMoreOpen) {
+        event.preventDefault();
+        closeContextMorePanel();
+        return;
+      }
       if (state.settingsMenu) {
         event.preventDefault();
         closeSettingsMoreMenu();
@@ -3005,6 +3524,14 @@ function createRuntime(ctx) {
   }
 
   function onScroll(event) {
+    // A scrolling ancestor moves the anchor under a fixed-position popup; close
+    // it unless the scroll happened inside the popup itself (its own list).
+    if (state.ctxMoreOpen && !state.gesture) {
+      const scrolled = event && event.target;
+      const insidePanel =
+        scrolled && scrolled.nodeType === 1 && state.ctxMorePanel && state.ctxMorePanel.contains(scrolled);
+      if (!insidePanel) closeContextMorePanel();
+    }
     if (state.settingsMenu && !state.gesture) {
       const target = event && event.target;
       const inside =
@@ -3031,6 +3558,14 @@ function createRuntime(ctx) {
   }
 
   function onResize() {
+    // The popup is placed from viewport coordinates, so a resize invalidates it;
+    // re-place it rather than leaving it floating away from its anchor.
+    if (state.ctxMoreOpen && !state.gesture) {
+      const model = state.contextRows;
+      const kind = state.contextKind;
+      if (model && kind) renderContextMorePanel(model, contextTuckedRows(model, readContextMenuLayout(kind).hidden));
+      else closeContextMorePanel();
+    }
     if (state.settingsMenu && !state.gesture) {
       if (state.settingsMenuAnchor && state.settingsMenuAnchor.isConnected) {
         positionSettingsMoreMenu(state.settingsMenu, state.settingsMenuAnchor);
