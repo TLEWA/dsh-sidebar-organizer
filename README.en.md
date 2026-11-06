@@ -265,14 +265,23 @@ the page. Since 0.2.0 the mechanism is different:
   `data-dso-ctx-more-key` and long-press drags them back with the drag layer's
   `more` source, writing the order and removing the id from `hidden`. Hit-testing
   uses the menu's live rect, never a frozen snapshot.
-- The price of flattening, and its fix (0.9.2): a `display: contents` element
-  generates no box, so the close animation the host hangs on `_viewport_` /
-  `_footer_` (`_dsh-context-menu-out`, pure opacity) paints nothing. On
-  `animationstart` the plugin reads that run's duration and easing, stores them as
-  CSS variables on the menu, and replays `dso-ctx-fade-out` with the same numbers
-  on every row, divider, and the anchor (`dso-ctx-fade-in` does the same for the
-  opening fade). An uncustomized menu is left alone, so the host's own animation
-  still runs untouched.
+- The price of flattening, and its fix (0.9.2 / 0.9.3): a `display: contents`
+  element generates no box, so the open/close animations the host hangs on
+  `_viewport_` / `_footer_` (pure opacity) paint nothing. The host publishes
+  `--dsh-menu-enter: 40ms` / `--dsh-menu-dismiss: 80ms` on the menu surface,
+  flips `data-menu-phase` (enter / dismiss / replace), and animates only the
+  surface's **direct children**. The plugin watches that same attribute with a
+  MutationObserver (`attributeFilter`), and in the frame the phase flips copies
+  the published duration to `--dso-ctx-out-duration` / `--dso-ctx-in-duration`,
+  tagging the flattened rows / dividers / anchor / panel with
+  `dso-ctx-mirror-out` / `dso-ctx-mirror-in` to run equivalent opacity keyframes
+  (host-matching curves: ease-in out, ease-out in). Children the host still
+  animates are skipped, so its in-animation is never overridden and the
+  "class removed → host animation restarts → class re-requested" 260ms flicker
+  loop cannot form. Nothing reads `getComputedStyle`: reading computed styles
+  for every child of a just-mounted menu forces a page-wide recalc, measured at
+  1.7ms → 12.3ms per sync (0.9.3 reads the CSS variables instead: 1.7ms total,
+  mirror segment 10.7ms → 0.2ms).
 - The settings page uses native HTML5 drag and drop (`draggable` plus
   `dragstart/dragover/drop`) and adds no interaction library. Buttons only move
   up/down, tuck, or restore, so they cannot conflict with the long-press gesture.
@@ -364,6 +373,7 @@ restoration).
 - [x] 0.9.0 — right-click menu tucking: drop at the bottom to move an item into a `··· More ›` submenu, long-press to drag it back
 - [x] 0.9.1 — "More" is pinned to the very end of the menu, and the footer action / plugin-root buttons drag and tuck like any other row
 - [x] 0.9.2 — the closing fade is back (replayed on the rows after flattening), and hovering "More" while dragging no longer shakes
+- [x] 0.9.3 — opening a menu no longer forces a style recalc (the mirror reads the host's CSS variables and follows `data-menu-phase`), the opening fade returns without flicker, and the "More" shrink feedback is back
 
 ## Notices
 

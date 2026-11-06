@@ -182,11 +182,17 @@ plugin_manager  action: install_bundle  target: <仓库的绝对路径>
   则翻左；纵向夹在视口内」，条目点击直接调用原菜单项的 `click()`。二级菜单里的行带
   `data-dso-ctx-more-key`，长按即用拖拽层的 `more` 源把行拖回菜单（落点写回顺序并从
   `hidden` 移除）。拖拽命中用菜单的实时矩形，不依赖打开时冻结的快照。
-- 扁平化的代价与补偿（0.9.2）：`display: contents` 的元素不生成盒，宿主挂在 `_viewport_` /
-  `_footer_` 上的关闭动画（`_dsh-context-menu-out`，纯 opacity）因此不绘制。插件在
-  `animationstart` 里读出宿主这次的时长与缓动，写到菜单的 CSS 变量上，再用同样的值在
-  每一行 / 分隔线 / 锚点上重播 `dso-ctx-fade-out`（入场同理由 `dso-ctx-fade-in` 补），
-  菜单开合看起来仍是一整块在淡；未定制（没有扁平化）时不做任何事，宿主动画照旧。
+- 扁平化的代价与补偿（0.9.2 / 0.9.3）：`display: contents` 的元素不生成盒，宿主挂在
+  `_viewport_` / `_footer_` 上的开合动画（纯 opacity）因此不绘制。宿主的做法是：把
+  `--dsh-menu-enter: 40ms` / `--dsh-menu-dismiss: 80ms` 写在菜单 surface 上，用
+  `data-menu-phase`（enter / dismiss / replace）切换阶段，动画只作用在 surface 的**直接子节点**。
+  插件因此也只看这个属性：MutationObserver（`attributeFilter`）在阶段翻转的同一帧里，把宿主
+  发布的时长抄到菜单的 `--dso-ctx-out-duration` / `--dso-ctx-in-duration`，并给被扁平化的
+  行 / 分隔线 / 锚点 / 二级面板打上 `dso-ctx-mirror-out` / `dso-ctx-mirror-in`，跑等价的
+  opacity 关键帧（缓动与宿主一致：出 ease-in、入 ease-out）。宿主仍在动画的直接子节点会跳过，
+  避免压掉它的入场动画、也避免「类一移除宿主动画重播 → 再请求重加类」的 260ms 闪烁环。
+  全程不读 `getComputedStyle`：菜单刚挂载时逐个读计算样式会触发整页强制样式重算，实测把
+  一次同步从 1.7ms 拖到 12.3ms（0.9.3 改读 CSS 变量后回到 1.7ms，其中镜像段 10.7ms → 0.2ms）。
 - 配置页用原生 HTML5 拖拽（`draggable` + `dragstart/dragover/drop`），不引入额外交互库；
   按钮只做上移/下移/收起/恢复，避免和页面长按手势冲突。
 
@@ -271,7 +277,8 @@ npm run check   # 语法检查
 - [x] 0.8.4 — 菜单底部动作与插件直挂按钮参与分隔线间隙计算（只有最后一个动作是空操作）
 - [x] 0.9.0 — 右键菜单「更多」收纳：拖到底部收进 `··· 更多 ›` 二级菜单，长按可拖回原位
 - [x] 0.9.1 — 「更多」固定在整张菜单最末端，菜单底部动作与插件直挂按钮也能拖动排序、收进「更多」
-- [x] 0.9.2 — 恢复菜单关闭的整张淡出（扁平化后按宿主动画在行上重播），拖动时「更多」不再缩放抽搐
+- [x] 0.9.2 — 恢复菜单关闭的整张淡出（扁平化后在行上重播宿主的淡出），拖动时「更多」不再缩放抽搐
+- [x] 0.9.3 — 打开菜单不再强制样式重算（镜像改读宿主 CSS 变量、按 `data-menu-phase` 驱动），入场淡入恢复不闪，「更多」缩小反馈恢复
 
 ## 声明与引用
 

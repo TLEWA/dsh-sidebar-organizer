@@ -3,6 +3,40 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.9.3 — 2026-11-06
+
+- **打开菜单的性能回归修掉了**：补开合动画时曾对菜单的每个子节点读 `getComputedStyle`，
+  菜单刚挂载时这会触发整页强制样式重算——一次同步从 1.7ms 涨到 12.3ms，体感就是右键变慢。
+  现在只读宿主自己写在 surface 上的 `--dsh-menu-enter` / `--dsh-menu-dismiss`，镜像段
+  10.7ms → 0.2ms，开菜单耗时与禁用插件时同量级。镜像也改由 `data-menu-phase` 驱动
+  （MutationObserver + `attributeFilter`，与宿主同一帧），不再靠 `animationstart` 追一帧。
+- **入场淡入回来了，且不再闪**：镜像只打在宿主已经不动画的节点上（跳过菜单的直接子节点），
+  宿主的入场动画不会被我们压掉，「移除类 → 宿主动画重播 → 再请求加类」的 260ms 循环不成立；
+  出 ease-in 80ms、入 ease-out 40ms，与宿主的曲线一致。
+- **「更多」的缩小反馈恢复**：0.9.2 为了消除抽搐把锚点的 `scale(0.94)` 与呼吸动画整块删掉了，
+  这是删功能不是修 bug。现在命中区改测不缩放的 wrapper、`markDropMore` 幂等，缩放和呼吸
+  只随手势切换一次，晃手不再反复放大缩小。
+- 离线用例 257 条（全绿）。
+
+### English
+
+- **The opening slowdown is gone**: mirroring the open/close fade used to read
+  `getComputedStyle` for every child of the menu, which forces a page-wide style recalc
+  while the menu is still mounting — 1.7ms → 12.3ms per sync, felt as a slow right-click.
+  The plugin now reads only `--dsh-menu-enter` / `--dsh-menu-dismiss` as published by the
+  host: the mirror segment drops 10.7ms → 0.2ms and opening costs the same as with the
+  plugin disabled. The mirror is driven by `data-menu-phase` (MutationObserver +
+  `attributeFilter`, same frame as the host) instead of chasing `animationstart`.
+- **The opening fade is back, without the flicker**: mirrors only touch nodes the host no
+  longer animates (menu direct children are skipped), so the host's in-animation is never
+  overridden and the "remove class → host restarts → class requested again" 260ms loop
+  cannot form; ease-in 80ms out, ease-out 40ms in, matching the host's curves.
+- **The "More" shrink feedback is restored**: 0.9.2 removed the anchor's `scale(0.94)` and
+  breathing animation to stop the shaking — that deleted the effect instead of fixing it.
+  Hit-testing now measures the unscaled wrapper and `markDropMore` is idempotent, so the
+  scale flips once per gesture and hovering no longer pumps.
+- 257 offline assertions (all green).
+
 ## 0.9.2 — 2026-11-06
 
 - **菜单关闭时的整张淡出回来了**：0.9.1 为了跨块排序把宿主的 `_viewport_` / `_footer_`

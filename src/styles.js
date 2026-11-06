@@ -562,15 +562,12 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   padding: 0;
   margin: 0;
 }
-/* The anchor sits directly under the pointer while a drag hovers it: shrinking
-   it (the generic .dso-drop-more scale) would move its own hit box, so the
-   pointer would fall out, the ring would clear, the anchor would grow back and
-   the pointer would land inside again — a visible pump. Keep the geometry
-   fixed here and let the outline/background carry the "release here" signal. */
-.dso-ctx-more.dso-drop-more {
-  transform: none;
-  transition: none;
-}
+/* The armed anchor keeps the full "drop here" feedback — it shrinks to 0.94 and
+   breathes, as the sidebar targets do. Hit-testing measures the wrapper
+   ([data-dso-ctx-more]), which never scales, so the shrink cannot move the drop
+   target out from under the pointer: the class also toggles at most once per
+   gesture (markDropMore is idempotent), so the scale transition never restarts
+   on pointermove. */
 .dso-ctx-more-trigger {
   display: flex;
   align-items: center;
@@ -661,11 +658,16 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
 }
 .dso-ctx-panel-icon svg { width: 16px; height: 16px; }
 .dso-ctx-panel-label { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-/* The host fades its menu containers out (opacity 1 -> 0) when the menu
-   closes. A customized menu flattens those containers with display:contents,
-   which generates no box, so their opacity animation paints nothing and the
-   rows vanished while only the backdrop faded. Re-run the same fade on the
-   rows themselves so the closing animation still reads as one menu. */
+/* The host fades its menu when the menu mounts or unmounts, but only on its own
+   direct children (._surface[data-menu-phase] > *). A customized menu flattens
+   the viewport/footer blocks with display:contents, so the rows they hold no
+   longer inherit that fade. Those rows get the fade back through these two
+   classes, applied per element by the runtime — never as a class on the menu,
+   which would also hit the host's still-animated direct children and restart
+   their animation every time the class came off (the 0.9.2 flicker loop).
+   The variables carry the host's OWN animation name and timing, read off an
+   animated sibling when the phase flips, so the rows run the host's keyframes
+   rather than a look-alike; the keyframes below only serve as a fallback. */
 @keyframes dso-ctx-fade-out {
   from { opacity: 1; }
   to { opacity: 0; }
@@ -674,19 +676,10 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   from { opacity: 0; }
   to { opacity: 1; }
 }
-.dso-ctx-closing [data-dso-ctx-id],
-.dso-ctx-closing [data-dso-ctx-divider],
-.dso-ctx-closing [data-dso-ctx-more],
-.dso-ctx-closing [data-dso-ctx-panel] {
-  animation: dso-ctx-fade-out var(--dso-ctx-out-duration, 120ms) var(--dso-ctx-out-ease, linear) forwards;
+.dso-ctx-mirror-out {
+  animation: dso-ctx-fade-out var(--dso-ctx-out-duration, 80ms) ease-in both;
 }
-/* Same story for the opening fade, so a customized menu fades in as a whole
-   instead of the rows snapping in over a fading backdrop. The class is removed
-   once the host animation is over, so a row that registers later does not
-   replay it. */
-.dso-ctx-opening [data-dso-ctx-id],
-.dso-ctx-opening [data-dso-ctx-divider],
-.dso-ctx-opening [data-dso-ctx-more] {
-  animation: dso-ctx-fade-in var(--dso-ctx-in-duration, 120ms) var(--dso-ctx-in-ease, ease-out) both;
+.dso-ctx-mirror-in {
+  animation: dso-ctx-fade-in var(--dso-ctx-in-duration, 40ms) ease-out;
 }
 `;

@@ -53,6 +53,11 @@ function createRuntime(ctx) {
     ctxMoreOpen: false,
     ctxMoreDragActive: false,
     ctxMoreTimer: 0,
+    // Which host phase the flattened rows were last mirrored for ("enter" /
+    // "replace" / "dismiss" / ""). The phase attribute is watched, and the rows
+    // take the host's own animation so their fade matches it exactly.
+    contextMirrorPhase: "",
+    contextPhaseObserver: null,
   };
 
   let observer = null;
@@ -1270,37 +1275,102 @@ function createRuntime(ctx) {
 
   // A customized menu hands its ordering job to the rows (viewport/footer are
   // display:contents), which also strips their box — and with it the opacity
-  // animation the host runs when the menu closes. Mirror that fade on the rows
-  // so closing still fades as a whole instead of blinking out.
-  function onHostMenuAnimation(event) {
-    const name = String(event.animationName || "");
-    const closing = name.indexOf("context-menu-out") !== -1;
-    const opening = name.indexOf("context-menu-in") !== -1;
-    if (!closing && !opening) return;
-    const menu = state.contextMenu;
-    if (!menu || !menu.isConnected) return;
-    if (!state.contextShell.size) return;
-    const source = event.target && event.target.nodeType === 1 ? event.target : menu;
-    let duration = "";
-    let easing = "";
+  // animation the host runs on them when the menu opens or closes. Mirror that
+  // fade on the elements the host can no longer animate.
+  //
+  // The host only animates its own direct children (._surface[data-menu-phase] > *),
+  // so only descendants of the flattened containers have lost their fade. Direct
+  // children still animate natively and must be left alone: a mirror class on them
+  // overrides the host's animation-name, and removing it later makes the host
+  // animation start over, which fires animationstart and asks for the mirror again
+  // — the 260 ms feedback loop that made the whole menu flicker. Filtering by
+  // "is it a direct child of the menu" removes the loop by construction instead of
+  // disabling one of the two directions.
+  function contextMirrorTargets(menu) {
+    const nodes = menu.querySelectorAll(
+      "[data-dso-ctx-id],[data-dso-ctx-divider],[data-dso-ctx-more],[data-dso-ctx-panel]"
+    );
+    const out = [];
+    for (const node of nodes) {
+      // Direct children still carry the host's own animation (see below).
+      if (node.parentElement === menu) continue;
+      out.push(node);
+    }
+    return out;
+  }
+
+  // The host drives its open/close fade with a CSS animation it puts on the
+  // menu's direct children, selected by the data-menu-phase attribute
+  // (._surface[data-menu-phase] > *): 40 ms ease-out in, 80 ms ease-in
+  // both out, keyframes that only touch opacity. Flattening the stacked
+  // blocks to display:contents removes their box, so the rows inside them never
+  // receive that animation.
+  //
+  // The rows therefore run the same fade: same phase attribute, same frame, the
+  // host's own durations (it publishes them as --dsh-menu-enter /
+  // --dsh-menu-dismiss, read straight off the element) and the host's own easing
+  // and fill. Reading a computed animation name here instead cost a full style
+  // recalc on the frame the menu mounts (measured ~10 ms), which made opening
+  // the menu feel slow; the keyframes below are byte-for-byte the opacity ramp
+  // the host uses, so nothing about the fade changes.
+  function contextPhaseTiming(menu, phase) {
+    const closing = phase === "dismiss";
+    let duration = closing ? "80ms" : "40ms";
+    const raw = String(
+      menu.style.getPropertyValue(closing ? "--dsh-menu-dismiss" : "--dsh-menu-enter") || ""
+    ).trim();
+    if (/^[0-9.]+m?s$/.test(raw)) duration = raw;
+    let reduced = false;
     try {
-      const style = window.getComputedStyle(source);
-      duration = style.animationDuration;
-      easing = style.animationTimingFunction;
+      reduced = Boolean(
+        window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      );
     } catch (err) {
-      /* keep the CSS defaults */
+      reduced = false;
     }
-    const prefix = closing ? "--dso-ctx-out-" : "--dso-ctx-in-";
-    if (duration && duration !== "0s") menu.style.setProperty(prefix + "duration", duration);
-    if (easing) menu.style.setProperty(prefix + "ease", easing);
-    if (closing) {
-      menu.classList.add("dso-ctx-closing");
-      return;
+    if (reduced) duration = "0ms";
+    return { closing, duration };
+  }
+
+  function syncContextMirror(menu, force) {
+    if (!menu || !menu.isConnected) return;
+    // Only a flattened menu has lost the host's fade; leave a pristine menu be.
+    if (!state.contextShell.size) return;
+    const phase = String(menu.getAttribute("data-menu-phase") || "");
+    if (!force && phase === state.contextMirrorPhase) return;
+    state.contextMirrorPhase = phase;
+    const closing = phase === "dismiss";
+    const animated = phase !== "";
+    const targets = contextMirrorTargets(menu);
+    if (animated) {
+      const timing = contextPhaseTiming(menu, phase);
+      const name = timing.closing ? "--dso-ctx-out-duration" : "--dso-ctx-in-duration";
+      if (menu.style.getPropertyValue(name) !== timing.duration) {
+        menu.style.setProperty(name, timing.duration);
+      }
     }
-    menu.classList.add("dso-ctx-opening");
-    window.setTimeout(() => {
-      if (!state.stopped) menu.classList.remove("dso-ctx-opening");
-    }, 260);
+    for (const node of targets) {
+      node.classList.toggle("dso-ctx-mirror-out", closing);
+      node.classList.toggle("dso-ctx-mirror-in", animated && !closing);
+    }
+  }
+
+  // The phase flip lands as an attribute mutation, and a MutationObserver
+  // callback runs before the frame paints - the mirror therefore starts on the
+  // same frame as the host animation instead of one frame later.
+  function watchContextPhase(menu) {
+    if (state.contextPhaseObserver) state.contextPhaseObserver.disconnect();
+    state.contextPhaseObserver = null;
+    if (!menu || typeof window.MutationObserver !== "function") return;
+    const observer = new window.MutationObserver((records) => {
+      for (const record of records) {
+        if (record.target !== state.contextMenu) continue;
+        if (record.attributeName !== "data-menu-phase") continue;
+        syncContextMirror(state.contextMenu);
+      }
+    });
+    observer.observe(menu, { attributes: true, attributeFilter: ["data-menu-phase"] });
+    state.contextPhaseObserver = observer;
   }
 
   function clearContextMenu() {
@@ -1331,11 +1401,23 @@ function createRuntime(ctx) {
       }
     }
     state.contextShell.clear();
-    if (state.contextMenu && state.contextMenu.classList) {
-      state.contextMenu.classList.remove("dso-ctx-closing");
-      state.contextMenu.classList.remove("dso-ctx-opening");
-      state.contextMenu.style.removeProperty("--dso-ctx-out-duration");
-      state.contextMenu.style.removeProperty("--dso-ctx-out-ease");
+    if (state.contextPhaseObserver) {
+      state.contextPhaseObserver.disconnect();
+      state.contextPhaseObserver = null;
+    }
+    state.contextMirrorPhase = "";
+    if (state.contextMenu) {
+      const menu = state.contextMenu;
+      try {
+        for (const node of menu.querySelectorAll(".dso-ctx-mirror-out,.dso-ctx-mirror-in")) {
+          node.classList.remove("dso-ctx-mirror-out", "dso-ctx-mirror-in");
+        }
+        for (const name of ["--dso-ctx-out-duration", "--dso-ctx-in-duration"]) {
+          menu.style.removeProperty(name);
+        }
+      } catch (err) {
+        /* the menu may already be gone */
+      }
     }
     state.contextTemplate = null;
     state.contextMenu = null;
@@ -1370,11 +1452,16 @@ function createRuntime(ctx) {
       clearContextMenu();
       return;
     }
-    if (state.contextMenu !== menu) state.contextOpenedAt = Date.now();
+    const menuChanged = state.contextMenu !== menu;
+    if (menuChanged) state.contextOpenedAt = Date.now();
     state.contextMenu = menu;
     state.contextKind = kind;
     state.contextRows = model;
+    if (menuChanged || !state.contextPhaseObserver) watchContextPhase(menu);
     applyContextLayout(model, kind, readContextMenuLayout(kind));
+    // A freshly opened menu is already in its "enter" phase: mirror it now,
+    // before this frame paints, so the rows fade in with the host's own fade.
+    syncContextMirror(menu);
     consumePendingToggle(menu);
   }
 
@@ -1440,7 +1527,12 @@ function createRuntime(ctx) {
   }
 
   function contextMoreRect() {
-    const element = contextMoreElement();
+    // Measure the anchor box, not the button inside it: the button shrinks to
+    // .94 while it is armed, and hit-testing a shrinking rect made the target
+    // flick off under a pointer that sat near its edge (the shake the 0.9.2
+    // release started with).
+    const anchor = contextMoreAnchor();
+    const element = anchor || contextMoreElement();
     if (!element) return null;
     const rect = element.getBoundingClientRect();
     return rect.width || rect.height ? rect : null;
@@ -2948,10 +3040,16 @@ function createRuntime(ctx) {
   }
 
   function markDropMore(gesture, active) {
-    if (gesture && gesture.ghost) {
-      gesture.ghost.classList.toggle("dso-ghost-armed", Boolean(active));
-    }
-    if (!gesture || !gesture.snapshot) return;
+    if (!gesture) return;
+    const wanted = Boolean(active);
+    // Idempotent on purpose: the caller runs once per pointer move, and touching
+    // the class when nothing changed would restart the anchor's transition (and
+    // the armed ring's animation), i.e. the anchor would pump while the pointer
+    // merely moves over it.
+    if (gesture.dropMoreArmed === wanted) return;
+    gesture.dropMoreArmed = wanted;
+    if (gesture.ghost) gesture.ghost.classList.toggle("dso-ghost-armed", wanted);
+    if (!gesture.snapshot) return;
     const snapshot = gesture.snapshot;
     // `found.more` may be the flex wrapper (needed for style.order), while the
     // rounded surface belongs to the actual button. Put the drop ring there so
@@ -2961,7 +3059,7 @@ function createRuntime(ctx) {
       ? snapshot.found.moreTarget || snapshot.found.more
       : snapshot.moreElement;
     if (!element) return;
-    if (active) {
+    if (wanted) {
       // Hover only arms the anchor. The receive bounce is a one-shot pulse on
       // release; playing it on hover made the 0.4.x hover feel completely
       // different (and made the anchor look like it was bouncing constantly).
@@ -3058,7 +3156,12 @@ function createRuntime(ctx) {
         || (gesture.target.kind === "ctx-reveal" && gesture.target.beforeId == null));
     gesture.target = null;
     hideIndicator(gesture);
-    markDropMore(gesture, false);
+    // Decide the anchor state once per pointer move and apply it on the way out.
+    // Arming and disarming inside one call restarts the anchor's transition (the
+    // hit test in between forces a layout flush), which reads as the anchor
+    // growing and shrinking on every mouse move.
+    let dropMore = false;
+    try {
 
     if (gesture.scope === CONTEXT_SCOPE) {
       // Live geometry: the host (and other plugins) append menu entries a beat
@@ -3080,7 +3183,7 @@ function createRuntime(ctx) {
           : { kind: "ctx-hide" };
         // A row from the popup dropped on the anchor only goes to the end of the
         // menu; there is nothing to absorb, so no armed ring.
-        markDropMore(gesture, gesture.source !== "more");
+        dropMore = gesture.source !== "more";
         return;
       }
       if (!menuRect || !pointIn(menuRect, x, y, 8)) return;
@@ -3108,7 +3211,7 @@ function createRuntime(ctx) {
 
     if (snapshot.moreRect && pointIn(snapshot.moreRect, x, y, 2)) {
       gesture.target = { kind: "hide" };
-      markDropMore(gesture, true);
+      dropMore = true;
       return;
     }
 
@@ -3117,6 +3220,9 @@ function createRuntime(ctx) {
     const hit = indexAt(others, x, y, snapshot.axis, snapshot.items);
     gesture.target = { kind: "place", index: hit.index, beforeId: others[hit.index] ? others[hit.index].id : null };
     showIndicator(gesture, snapshot.axis, hit.boundary, snapshot.container, snapshot.crossRect);
+    } finally {
+      markDropMore(gesture, dropMore);
+    }
   }
 
   function positionGhost(gesture) {
@@ -3465,6 +3571,7 @@ function createRuntime(ctx) {
       offsetY: 0,
       timer: 0,
       moreElement: null,
+      dropMoreArmed: false,
     };
     if (source === "row") {
       gesture.element = element;
@@ -3688,7 +3795,6 @@ function createRuntime(ctx) {
     addListener(document, "click", onHeaderMenuClick, true);
     addListener(document, "click", onDocumentClick);
     addListener(document, "contextmenu", onContextMenuCapture, true);
-    addListener(document, "animationstart", onHostMenuAnimation, true);
     addListener(document, "keydown", onKeyDown, true);
     addListener(document, "keyup", onKeyUp, true);
     addListener(window, "keydown", onHotkeyCaptureKey, true);

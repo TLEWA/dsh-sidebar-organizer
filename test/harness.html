@@ -1783,29 +1783,78 @@
         "blocks not flattened"
       );
       // display:contents leaves the flattened blocks with no box, so the host's
-      // own opacity animation on them paints nothing. The plugin re-runs that
-      // fade on the rows; drive the host's animationstart by hand and check it.
-      sessionMenu.dispatchEvent(
-        new AnimationEvent("animationstart", { bubbles: true, animationName: "_dsh-context-menu-out_ctx" })
-      );
+      // own opacity animation on them paints nothing. The host drives that fade
+      // off data-menu-phase (enter 40ms ease-out, dismiss 80ms ease-in, published
+      // on the surface as --dsh-menu-enter / --dsh-menu-dismiss), and only its
+      // direct children get the animation. The plugin watches that same attribute
+      // and copies the published duration onto the rows the flattened blocks
+      // hold, running equivalent opacity keyframes — no per-node style reads, so
+      // opening a menu costs no forced recalc.
       const fadeRow = ctxVisual(sessionMenu)[0];
+      const hostRow = [...sessionMenu.querySelectorAll("[data-dso-ctx-id]")].find(
+        (node) => node.parentElement === sessionMenu
+      );
+      sessionMenu.style.setProperty("--dsh-menu-enter", "40ms");
+      sessionMenu.style.setProperty("--dsh-menu-dismiss", "80ms");
+      const phaseFlip = async (phase) => {
+        sessionMenu.setAttribute("data-menu-phase", phase);
+        await wait(40);
+      };
+      await phaseFlip("dismiss");
       assert(
         "a flattened menu still fades its rows out",
-        sessionMenu.classList.contains("dso-ctx-closing") &&
-          getComputedStyle(fadeRow).animationName === "dso-ctx-fade-out",
-        sessionMenu.className + " / " + getComputedStyle(fadeRow).animationName
-      );
-      sessionMenu.classList.remove("dso-ctx-closing");
-      sessionMenu.dispatchEvent(
-        new AnimationEvent("animationstart", { bubbles: true, animationName: "_dsh-context-menu-in_ctx" })
+        fadeRow.classList.contains("dso-ctx-mirror-out") &&
+          getComputedStyle(fadeRow).animationName === "dso-ctx-fade-out" &&
+          getComputedStyle(fadeRow).animationDuration === "0.08s",
+        fadeRow.className + " / " + getComputedStyle(fadeRow).animationName
       );
       assert(
-        "a flattened menu fades its rows in",
-        sessionMenu.classList.contains("dso-ctx-opening") &&
-          getComputedStyle(fadeRow).animationName === "dso-ctx-fade-in",
-        sessionMenu.className + " / " + getComputedStyle(fadeRow).animationName
+        "the closing mirror leaves host-animated children alone",
+        !!hostRow && !hostRow.classList.contains("dso-ctx-mirror-out"),
+        hostRow ? hostRow.className : "no direct-child row"
       );
-      sessionMenu.classList.remove("dso-ctx-opening");
+      assert(
+        "the closing mirror takes the host's own timing",
+        sessionMenu.style.getPropertyValue("--dso-ctx-out-duration") === "80ms",
+        sessionMenu.style.getPropertyValue("--dso-ctx-out-duration") || "no var"
+      );
+      for (const node of sessionMenu.querySelectorAll(".dso-ctx-mirror-out")) {
+        node.classList.remove("dso-ctx-mirror-out");
+      }
+      // The published variables are the source of truth: change the host's
+      // dismiss timing and the rows must follow it on the next phase flip.
+      sessionMenu.style.setProperty("--dsh-menu-dismiss", "55ms");
+      await phaseFlip("enter");
+      await phaseFlip("dismiss");
+      assert(
+        "a changed host timing reaches the rows",
+        sessionMenu.style.getPropertyValue("--dso-ctx-out-duration") === "55ms" &&
+          getComputedStyle(fadeRow).animationDuration === "0.055s",
+        sessionMenu.style.getPropertyValue("--dso-ctx-out-duration") + " / " + getComputedStyle(fadeRow).animationDuration
+      );
+      for (const node of sessionMenu.querySelectorAll(".dso-ctx-mirror-out")) {
+        node.classList.remove("dso-ctx-mirror-out");
+      }
+      sessionMenu.style.setProperty("--dsh-menu-dismiss", "80ms");
+      await phaseFlip("enter");
+      assert(
+        "a flattened menu fades its rows in",
+        fadeRow.classList.contains("dso-ctx-mirror-in") &&
+          getComputedStyle(fadeRow).animationName === "dso-ctx-fade-in" &&
+          getComputedStyle(fadeRow).animationDuration === "0.04s",
+        fadeRow.className + " / " + getComputedStyle(fadeRow).animationName
+      );
+      assert(
+        "the opening mirror leaves host-animated children alone",
+        !!hostRow && !hostRow.classList.contains("dso-ctx-mirror-in"),
+        hostRow ? hostRow.className : "no direct-child row"
+      );
+      for (const node of sessionMenu.querySelectorAll(".dso-ctx-mirror-in")) {
+        node.classList.remove("dso-ctx-mirror-in");
+      }
+      sessionMenu.removeAttribute("data-menu-phase");
+      sessionMenu.style.removeProperty("--dsh-menu-enter");
+      sessionMenu.style.removeProperty("--dsh-menu-dismiss");
       const crossDrag = async (unit, pointerId, targetUnit, mode) => {
         const rect = unit.getBoundingClientRect();
         ctxMenuItem(unit).dispatchEvent(
