@@ -3,6 +3,32 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.9.2 — 2026-11-06
+
+- **菜单关闭时的整张淡出回来了**：0.9.1 为了跨块排序把宿主的 `_viewport_` / `_footer_`
+  改成 `display: contents`，而这两个块正是宿主挂关闭动画（`_dsh-context-menu-out`，
+  opacity 1 → 0）的地方；没有盒子的元素不绘制 opacity，于是行瞬间消失、只剩底板在淡出。
+  现在监听宿主的动画起点，按它自己的时长与缓动在每一行（以及分隔线、`··· 更多`）上重播
+  同一段淡出；入场淡入同样补齐，菜单开合重新是「一张菜单」在淡。
+- **拖动时「更多」不再抽搐**：通用高亮类带的 `scale(0.94)` 会让指针停在锚点边缘时
+  「命中 → 缩小 → 出框 → 复原 → 再命中」反复抖动。锚点现在不再缩放，进入后另有 6px
+  粘滞余量，晃手也不会掉出收纳状态。
+- 离线用例 253 条（全绿），新增两条：扁平化菜单的淡出 / 淡入会被重播到行上。
+
+### English
+
+- **The whole menu fades out again**: 0.9.1 flattens the host's `_viewport_` / `_footer_`
+  to `display: contents` for cross-block ordering — and those are exactly the blocks the
+  host animates on close (`_dsh-context-menu-out`, opacity 1 → 0). A box-less element
+  paints no opacity, so the rows vanished and only the backdrop faded. The plugin now
+  listens for the host animation, copies its duration and easing, and replays the same
+  fade on every row (plus dividers and `··· More`); the opening fade is mirrored too.
+- **No more shaking when hovering "More"**: the shared highlight class carried
+  `scale(0.94)`, so a pointer resting on the anchor's edge looped through
+  hit → shrink → out of bounds → restore → hit. The anchor no longer scales and keeps a
+  6px sticky margin once entered.
+- 253 offline assertions (all green), two new ones for the replayed fade out / fade in.
+
 ## 0.9.1 — 2026-11-06
 
 - **「更多」落到整张菜单的最末端**：0.9.0 把锚点塞在 `_viewport_` 末尾，而宿主的

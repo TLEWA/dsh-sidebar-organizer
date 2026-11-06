@@ -265,6 +265,14 @@ the page. Since 0.2.0 the mechanism is different:
   `data-dso-ctx-more-key` and long-press drags them back with the drag layer's
   `more` source, writing the order and removing the id from `hidden`. Hit-testing
   uses the menu's live rect, never a frozen snapshot.
+- The price of flattening, and its fix (0.9.2): a `display: contents` element
+  generates no box, so the close animation the host hangs on `_viewport_` /
+  `_footer_` (`_dsh-context-menu-out`, pure opacity) paints nothing. On
+  `animationstart` the plugin reads that run's duration and easing, stores them as
+  CSS variables on the menu, and replays `dso-ctx-fade-out` with the same numbers
+  on every row, divider, and the anchor (`dso-ctx-fade-in` does the same for the
+  opening fade). An uncustomized menu is left alone, so the host's own animation
+  still runs untouched.
 - The settings page uses native HTML5 drag and drop (`draggable` plus
   `dragstart/dragover/drop`) and adds no interaction library. Buttons only move
   up/down, tuck, or restore, so they cannot conflict with the long-press gesture.
@@ -355,6 +363,7 @@ restoration).
 - [x] 0.8.4 — the menu footer and plugin-root buttons take part in divider gap numbering (only the last action is a no-op)
 - [x] 0.9.0 — right-click menu tucking: drop at the bottom to move an item into a `··· More ›` submenu, long-press to drag it back
 - [x] 0.9.1 — "More" is pinned to the very end of the menu, and the footer action / plugin-root buttons drag and tuck like any other row
+- [x] 0.9.2 — the closing fade is back (replayed on the rows after flattening), and hovering "More" while dragging no longer shakes
 
 ## Notices
 

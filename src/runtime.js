@@ -1268,6 +1268,41 @@ function createRuntime(ctx) {
     return merged;
   }
 
+  // A customized menu hands its ordering job to the rows (viewport/footer are
+  // display:contents), which also strips their box — and with it the opacity
+  // animation the host runs when the menu closes. Mirror that fade on the rows
+  // so closing still fades as a whole instead of blinking out.
+  function onHostMenuAnimation(event) {
+    const name = String(event.animationName || "");
+    const closing = name.indexOf("context-menu-out") !== -1;
+    const opening = name.indexOf("context-menu-in") !== -1;
+    if (!closing && !opening) return;
+    const menu = state.contextMenu;
+    if (!menu || !menu.isConnected) return;
+    if (!state.contextShell.size) return;
+    const source = event.target && event.target.nodeType === 1 ? event.target : menu;
+    let duration = "";
+    let easing = "";
+    try {
+      const style = window.getComputedStyle(source);
+      duration = style.animationDuration;
+      easing = style.animationTimingFunction;
+    } catch (err) {
+      /* keep the CSS defaults */
+    }
+    const prefix = closing ? "--dso-ctx-out-" : "--dso-ctx-in-";
+    if (duration && duration !== "0s") menu.style.setProperty(prefix + "duration", duration);
+    if (easing) menu.style.setProperty(prefix + "ease", easing);
+    if (closing) {
+      menu.classList.add("dso-ctx-closing");
+      return;
+    }
+    menu.classList.add("dso-ctx-opening");
+    window.setTimeout(() => {
+      if (!state.stopped) menu.classList.remove("dso-ctx-opening");
+    }, 260);
+  }
+
   function clearContextMenu() {
     removeContextDividers();
     // The anchor and popup are injected nodes; the host portal may already be
@@ -1296,6 +1331,12 @@ function createRuntime(ctx) {
       }
     }
     state.contextShell.clear();
+    if (state.contextMenu && state.contextMenu.classList) {
+      state.contextMenu.classList.remove("dso-ctx-closing");
+      state.contextMenu.classList.remove("dso-ctx-opening");
+      state.contextMenu.style.removeProperty("--dso-ctx-out-duration");
+      state.contextMenu.style.removeProperty("--dso-ctx-out-ease");
+    }
     state.contextTemplate = null;
     state.contextMenu = null;
     state.contextKind = "";
@@ -3007,6 +3048,14 @@ function createRuntime(ctx) {
   function updateDragTarget(gesture, x, y) {
     const snapshot = gesture.snapshot;
     if (!snapshot) return;
+    // Sticky view of "the pointer is already on the More anchor". The anchor's
+    // own box is the hit area, so re-entering it from a hair outside on every
+    // move is fine — but leaving it the instant the pointer sits 1px outside
+    // makes the state flicker while the hand jitters. Keep the target while the
+    // pointer stays within a small margin.
+    const stickyMore = gesture.scope === CONTEXT_SCOPE && Boolean(gesture.target)
+      && (gesture.target.kind === "ctx-hide"
+        || (gesture.target.kind === "ctx-reveal" && gesture.target.beforeId == null));
     gesture.target = null;
     hideIndicator(gesture);
     markDropMore(gesture, false);
@@ -3025,7 +3074,7 @@ function createRuntime(ctx) {
       // No padding here on purpose: the anchor sits directly under the last
       // row, and a padded hit rect would swallow drops that mean "insert at the
       // end" (the row above it). Only the anchor's own box tucks.
-      if (moreRect && pointIn(moreRect, x, y, 0)) {
+      if (moreRect && pointIn(moreRect, x, y, stickyMore ? 6 : 0)) {
         gesture.target = gesture.source === "more"
           ? { kind: "ctx-reveal", beforeId: null }
           : { kind: "ctx-hide" };
@@ -3639,6 +3688,7 @@ function createRuntime(ctx) {
     addListener(document, "click", onHeaderMenuClick, true);
     addListener(document, "click", onDocumentClick);
     addListener(document, "contextmenu", onContextMenuCapture, true);
+    addListener(document, "animationstart", onHostMenuAnimation, true);
     addListener(document, "keydown", onKeyDown, true);
     addListener(document, "keyup", onKeyUp, true);
     addListener(window, "keydown", onHotkeyCaptureKey, true);

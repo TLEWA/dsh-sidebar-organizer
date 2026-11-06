@@ -1782,6 +1782,30 @@
           sessionMenu.querySelector("._footer_ctx").style.display === "contents",
         "blocks not flattened"
       );
+      // display:contents leaves the flattened blocks with no box, so the host's
+      // own opacity animation on them paints nothing. The plugin re-runs that
+      // fade on the rows; drive the host's animationstart by hand and check it.
+      sessionMenu.dispatchEvent(
+        new AnimationEvent("animationstart", { bubbles: true, animationName: "_dsh-context-menu-out_ctx" })
+      );
+      const fadeRow = ctxVisual(sessionMenu)[0];
+      assert(
+        "a flattened menu still fades its rows out",
+        sessionMenu.classList.contains("dso-ctx-closing") &&
+          getComputedStyle(fadeRow).animationName === "dso-ctx-fade-out",
+        sessionMenu.className + " / " + getComputedStyle(fadeRow).animationName
+      );
+      sessionMenu.classList.remove("dso-ctx-closing");
+      sessionMenu.dispatchEvent(
+        new AnimationEvent("animationstart", { bubbles: true, animationName: "_dsh-context-menu-in_ctx" })
+      );
+      assert(
+        "a flattened menu fades its rows in",
+        sessionMenu.classList.contains("dso-ctx-opening") &&
+          getComputedStyle(fadeRow).animationName === "dso-ctx-fade-in",
+        sessionMenu.className + " / " + getComputedStyle(fadeRow).animationName
+      );
+      sessionMenu.classList.remove("dso-ctx-opening");
       const crossDrag = async (unit, pointerId, targetUnit, mode) => {
         const rect = unit.getBoundingClientRect();
         ctxMenuItem(unit).dispatchEvent(

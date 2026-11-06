@@ -562,6 +562,15 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   padding: 0;
   margin: 0;
 }
+/* The anchor sits directly under the pointer while a drag hovers it: shrinking
+   it (the generic .dso-drop-more scale) would move its own hit box, so the
+   pointer would fall out, the ring would clear, the anchor would grow back and
+   the pointer would land inside again — a visible pump. Keep the geometry
+   fixed here and let the outline/background carry the "release here" signal. */
+.dso-ctx-more.dso-drop-more {
+  transform: none;
+  transition: none;
+}
 .dso-ctx-more-trigger {
   display: flex;
   align-items: center;
@@ -652,4 +661,32 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
 }
 .dso-ctx-panel-icon svg { width: 16px; height: 16px; }
 .dso-ctx-panel-label { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* The host fades its menu containers out (opacity 1 -> 0) when the menu
+   closes. A customized menu flattens those containers with display:contents,
+   which generates no box, so their opacity animation paints nothing and the
+   rows vanished while only the backdrop faded. Re-run the same fade on the
+   rows themselves so the closing animation still reads as one menu. */
+@keyframes dso-ctx-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes dso-ctx-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.dso-ctx-closing [data-dso-ctx-id],
+.dso-ctx-closing [data-dso-ctx-divider],
+.dso-ctx-closing [data-dso-ctx-more],
+.dso-ctx-closing [data-dso-ctx-panel] {
+  animation: dso-ctx-fade-out var(--dso-ctx-out-duration, 120ms) var(--dso-ctx-out-ease, linear) forwards;
+}
+/* Same story for the opening fade, so a customized menu fades in as a whole
+   instead of the rows snapping in over a fading backdrop. The class is removed
+   once the host animation is over, so a row that registers later does not
+   replay it. */
+.dso-ctx-opening [data-dso-ctx-id],
+.dso-ctx-opening [data-dso-ctx-divider],
+.dso-ctx-opening [data-dso-ctx-more] {
+  animation: dso-ctx-fade-in var(--dso-ctx-in-duration, 120ms) var(--dso-ctx-in-ease, ease-out) both;
+}
 `;
