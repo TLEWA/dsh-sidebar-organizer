@@ -118,7 +118,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.8.4
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.9.4
 ```
 
 ### From npm
