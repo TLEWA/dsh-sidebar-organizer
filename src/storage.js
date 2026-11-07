@@ -1,6 +1,10 @@
 /* Persistent per-scope layout state (v3). */
 
-const STATE_VERSION = 3;
+// v4 adds per-scope id aliases: a row whose label carries a live count or
+// status ("IP 防护：0 个黑洞") keeps the id it was first saved under instead of
+// becoming an orphan every time the number changes.
+const STATE_VERSION = 4;
+const PREVIOUS_STATE_VERSION = 3;
 const EXPORT_FORMAT = "dsh-sidebar-organizer";
 const EXPORT_FILENAME = "dsh-sidebar-organizer.json";
 // 0.4.x shares STORAGE_KEY but only understands the flat sidebar layout: loading
@@ -22,7 +26,7 @@ function emptyScopeLayout() {
 }
 
 function emptyLayoutState() {
-  return { version: STATE_VERSION, scopes: {} };
+  return { version: STATE_VERSION, scopes: {}, aliases: {} };
 }
 
 function normalizeStringList(value) {
@@ -31,6 +35,20 @@ function normalizeStringList(value) {
   for (const item of value) {
     if (typeof item !== "string" || !item) continue;
     if (out.indexOf(item) === -1) out.push(item);
+  }
+  return out;
+}
+
+// Aliases bind a label fingerprint to the id a row was saved under, so the
+// saved order survives a host rename/count change. Corrupt values are dropped
+// rather than trusted: a non-string id here would silently disable hiding.
+function normalizeAliases(value) {
+  const out = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const key of Object.keys(value)) {
+    const id = value[key];
+    if (!key || typeof id !== "string" || !id) continue;
+    out[key] = id;
   }
   return out;
 }
@@ -52,6 +70,7 @@ function normalizeLayoutState(value) {
       const next = normalizeScopeLayout(value.scopes[scope]);
       if (next.order.length || next.hidden.length) state.scopes[scope] = next;
     }
+    state.aliases = normalizeAliases(value.aliases);
     return state;
   }
 
@@ -120,6 +139,10 @@ function cloneState(state) {
     if (!raw) continue;
     next.scopes[scope] = { order: raw.order.slice(), hidden: raw.hidden.slice() };
   }
+  const aliases = state.aliases && typeof state.aliases === "object" ? state.aliases : {};
+  for (const scope of Object.keys(aliases)) {
+    next.aliases[scope] = normalizeAliases(aliases[scope]);
+  }
   return next;
 }
 
@@ -141,7 +164,7 @@ function stateSnapshot() {
   const dragState = readDragState();
   const drag = {};
   for (const scope of SCOPE_KEYS) drag[scope] = dragState[scope] !== false;
-  return { version: STATE_VERSION, scopes: state.scopes, drag };
+  return { version: STATE_VERSION, scopes: state.scopes, aliases: state.aliases, drag };
 }
 
 function hasLayoutContent(value) {
@@ -161,11 +184,32 @@ function readScope(scope) {
   return raw ? { order: raw.order.slice(), hidden: raw.hidden.slice() } : emptyScopeLayout();
 }
 
+function readAliases(scope) {
+  const state = readState();
+  const raw = state.aliases && state.aliases[scope];
+  return raw ? { ...raw } : {};
+}
+
+function writeAliases(scope, aliases) {
+  const state = cloneState(readState());
+  const next = normalizeAliases(aliases);
+  if (Object.keys(next).length) state.aliases[scope] = next;
+  else delete state.aliases[scope];
+  writeState(state);
+}
+
 function writeScope(scope, layout, options) {
   const state = cloneState(readState());
   const next = normalizeScopeLayout(layout);
   if (next.order.length || next.hidden.length) state.scopes[scope] = next;
   else delete state.scopes[scope];
+  // Callers that reorder/hide rows pass only order+hidden; the alias table is
+  // bookkeeping they know nothing about, so it survives unless explicitly set.
+  if (layout && layout.aliases) {
+    const aliases = normalizeAliases(layout.aliases);
+    if (Object.keys(aliases).length) state.aliases[scope] = aliases;
+    else delete state.aliases[scope];
+  }
   writeState(state);
   // A layout the user arranged by hand is never "repaired" again: the one-shot
   // 0.5.4 fix recognises an appended row by its shape, and a deliberate move to
@@ -804,6 +848,7 @@ function exportConfigSnapshot() {
     version: STATE_VERSION,
     exportedAt: new Date().toISOString(),
     scopes: state.scopes,
+    aliases: state.aliases,
     drag,
   };
 }
@@ -823,7 +868,8 @@ function importConfigSnapshot(value) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, reason: "json" };
   }
-  if (raw.version !== STATE_VERSION) {
+  // v3 files carry no alias table; the runtime derives and backfills it.
+  if (raw.version !== STATE_VERSION && raw.version !== PREVIOUS_STATE_VERSION) {
     return { ok: false, reason: "version" };
   }
   if (!raw.scopes || typeof raw.scopes !== "object" || Array.isArray(raw.scopes)) {

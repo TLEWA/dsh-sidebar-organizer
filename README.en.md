@@ -21,7 +21,13 @@ composer dock, session header, right sidebar, and settings navigation.
 > panel plus the drag ghost being covered by row-menu's menu; 0.9.6 is a stability and performance
 > release that stops layout updates from being dropped for good, cancelled gestures from writing
 > the layout, and timers/listeners from surviving a disable or reload, fixes several settings-page
-> and context-menu mix-ups, and removes dead code. For the full
+> and context-menu mix-ups, and removes dead code; 0.9.7 takes over row-menu's session context
+> menu (right-click to toggle a divider, pull "More actions" entries onto the first level) and fixes
+> header-strip drop targeting; 0.10.0 decouples a row's identity from its label — live counts, status
+> suffixes and renames no longer invalidate a saved order, older layouts are adopted automatically,
+> the drop line only trusts boxes the host actually paints (it never cuts through a control the
+> plugin cannot move and keeps following the hand at the far end), and `audit()` / `identity()`
+> can be checked from the console. For the full
 > version history and downloads see [Releases](https://github.com/TLEWA/dsh-sidebar-organizer/releases).
 
 ## What it does
@@ -136,7 +142,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.9.7
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.10.0
 ```
 
 ### From npm
@@ -222,17 +228,24 @@ the page. Since 0.2.0 the mechanism is different:
     `[data-shortcut-modal="settings"] nav`.
 - A missing container or empty row list only skips that scope; other scopes keep
   working.
-- Persisted layout (v3):
+- Persisted layout (v4):
 
   ```json
   {
-    "version": 3,
+    "version": 4,
     "scopes": {
       "sidebar": { "order": ["plugins", "…"], "hidden": ["tasks"] },
       "footer": { "order": ["feedback"], "hidden": [] }
-    }
+    },
+    "aliases": { "sidebar": { "ip-guard-n-black-holes": "ip-guard-0-black-holes" } }
   }
   ```
+
+  A v4 id prefers the element's own stable attributes and otherwise falls back to a
+  canonical label fingerprint (the status segment after a colon is dropped, digits
+  collapse to `n`); `aliases` remembers "label fingerprint → the id this row was
+  saved under", so a layout written by an older build is adopted in place at load
+  and a row that changes its count, status or wording is still the same row.
 
   The v2 `{version:2, order, hidden}` shape and the older
   `dsh.modmenu.layout.v1` key migrate into the `sidebar` scope; other scopes
@@ -242,9 +255,9 @@ the page. Since 0.2.0 the mechanism is different:
 - Per-section drag switches live in a separate
   `dsh.sidebar-organizer.drag.v1` key (`{"sidebar": true, "footer": false, …}`),
   so layout resets do not change them.
-- The exported file is a `{ format, version, exportedAt, scopes, drag }` snapshot.
-  Import only accepts `version === 3` with a `scopes` object, normalizes it through
-  the same path as local storage, and marks all seven scopes as already repaired so
+- The exported file is a `{ format, version, exportedAt, scopes, aliases, drag }` snapshot.
+  Import accepts `version` 4 (current) or 3 (older) with a `scopes` object, re-derives
+  aliases for a v3 file, and normalizes it through the same path as local storage, and marks all seven scopes as already repaired so
   the legacy trailing-row fix cannot rewrite the imported order.
 - Drag layer: document-capture `pointerdown` → 260 ms long-press timer (cancelled
   by >8 px movement) → ghost clone plus indicator; drop index from row midpoints
@@ -335,7 +348,7 @@ the page. Since 0.2.0 the mechanism is different:
 src/                 sources (concatenated in dependency order at build time)
   constants.js       constants, strings, shared handles
   styles.js          injected styles (drag + settings page)
-  storage.js         localStorage persistence and v2/v3 migration
+  storage.js         localStorage persistence and v2/v3→v4 migration
   icons.js           SVG serialization and id prefixing
   slot.js            read-only slot projection access
   scopes.js          seven-scope discovery, id mapping, axes
@@ -362,10 +375,10 @@ npm run check   # syntax check
 ```
 
 Open `test/harness.html` in a browser for the self-checking regression run
-(seven-scope discovery, ordering, persistence, v2→v3 migration, `resetScope()`,
-tuck/restore, per-region menu lists, pinned settings row, in-menu drag, DOM
-churn during drag, config export/import with version rejection, and `dispose()`
-restoration).
+(seven-scope discovery, ordering, persistence, v2→v3→v4 migration and legacy-id
+adoption, `resetScope()`, tuck/restore, per-region menu lists, pinned settings row,
+in-menu drag, DOM churn during drag, structure audit, config export/import with
+version rejection, and `dispose()` restoration).
 
 ## Compatibility
 
@@ -421,6 +434,7 @@ restoration).
 - [x] 0.9.5 — dsh-sidebar-row-menu integration (conversation-body menu first level and its Open with / More actions submenus); fixes reordering inside the tucked "More" panel and the drag ghost's z-index
 - [x] 0.9.6 — stability and performance: layout updates are no longer dropped for good, cancelled gestures no longer write the layout, disabling cleans up timers and listeners; settings-page drag-drop and cross-window toggles fixed, dead code removed
 - [x] 0.9.7 — takes over row-menu's session context menu (right-click a row to toggle its divider, pull "More actions" entries onto the first level, the first edit makes this plugin own the order) with a "Restore session menu only" button; fixes header-strip drop targeting
+- [x] 0.10.0 — row ids decoupled from label text (stable attributes first, canonical label fingerprints otherwise; counts, status changes and renames no longer invalidate a layout, older layouts are adopted at load, storage moves to v4 with an alias table); the drop line only trusts boxes the host actually paints (it goes around controls the plugin cannot move and follows the hand at the far end); `audit()` / `identity()` diagnostics; build fix for the unsubstituted version constant
 
 ## Notices
 

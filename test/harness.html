@@ -265,6 +265,85 @@
     note(name + (condition ? "" : " — " + (extra === undefined ? "" : String(extra))), !!condition);
   }
   function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+  // The menu line is a 2px bar that belongs in a gap. This mirrors the plugin's
+  // own paintedMenuBoxes: skip the transient layers it draws, keep every painted
+  // child (unwrapping display:contents wrappers that have no box of their own).
+  function menuPaintedRects(menu) {
+    const rects = [];
+    const paints = (element) => {
+      if (!element) return false;
+      const cls = element.classList;
+      if (cls && (cls.contains("dso-ghost") || cls.contains("dso-indicator") || cls.contains("dso-ctx-mirror-out"))) return false;
+      if (element.hasAttribute("hidden") || element.getAttribute("data-dso-hidden") === "1") return false;
+      const style = getComputedStyle(element);
+      return style.display !== "none" && style.visibility !== "hidden";
+    };
+    const add = (element) => {
+      if (!paints(element)) return;
+      const rect = element.getBoundingClientRect();
+      const children = Array.from(element.children).filter(paints);
+      let stacked = children.length >= 2;
+      let prevBottom = -Infinity;
+      for (const child of children) {
+        const childRect = child.getBoundingClientRect();
+        if (childRect.top < prevBottom - 1) {
+          stacked = false;
+          break;
+        }
+        prevBottom = childRect.bottom;
+      }
+      if (stacked) {
+        for (const child of children) add(child);
+        return;
+      }
+      if (rect.width > 0 || rect.height > 0) {
+        rects.push(rect);
+        return;
+      }
+      for (const child of children) add(child);
+    };
+    for (const child of menu.children) add(child);
+    rects.sort((a, b) => a.top - b.top);
+    return rects;
+  }
+  // Walk the pointer down a menu and check that every line it paints sits in a
+  // gap: never over a row (1px separators are sub-3px like lineCrossesBox skips),
+  // and the line does not blink out of existence while the hand is inside.
+  function sweepMenu(menu, pointerId, x, fromY, toY, step) {
+    const rects = menuPaintedRects(menu);
+    let shown = 0;
+    let total = 0;
+    const hits = [];
+    const samples = [];
+    for (let y = fromY; y <= toY; y += step) {
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, cancelable: true, pointerId, clientX: x, clientY: y,
+      }));
+      total += 1;
+      const node = document.querySelector(".dso-indicator");
+      samples.push({ y, vis: node ? node.dataset.visible : "-", top: node ? node.style.top : null, cls: node ? node.className : null });
+      if (!node || node.dataset.visible !== "1") continue;
+      shown += 1;
+      const top = parseFloat(node.style.top);
+      const left = parseFloat(node.style.left);
+      const width = parseFloat(node.style.width);
+      const height = parseFloat(node.style.height) || 2;
+      for (const rect of rects) {
+        if (rect.width < 3 || rect.height < 3) continue;
+        const overlapsX = left < rect.right - 1 && left + width > rect.left + 1;
+        if (!overlapsX) continue;
+        // A menu row is stacked on its neighbour with no gap, so a seam line
+        // legitimately covers one pixel of each side. More than that means the
+        // line is running through the row's text.
+        const depth = Math.min(top + height, rect.bottom) - Math.max(top, rect.top);
+        if (depth > 1.5) {
+          hits.push({ y, top: Math.round(top), depth: Math.round(depth * 10) / 10, box: [Math.round(rect.top), Math.round(rect.bottom)] });
+          break;
+        }
+      }
+    }
+    return { shown, total, hits, samples };
+  }
   function orderOf(scope) {
     return Array.from(document.querySelectorAll('[data-dso-scope="' + scope + '"]'))
       .filter((node) => !node.dataset.dsoHidden)
@@ -468,7 +547,7 @@
       );
 
       const stored = JSON.parse(localStorage.getItem("dsh.sidebar-organizer.layout.v1"));
-      assert("storage upgraded to v3", stored && stored.version === 3, JSON.stringify(stored));
+      assert("storage upgraded to v4", stored && stored.version === 4, JSON.stringify(stored));
       assert("sidebar preset order preserved", stored.scopes.sidebar.order[0] === "terminal", JSON.stringify(stored.scopes.sidebar));
       assert("sidebar preset hidden preserved", stored.scopes.sidebar.hidden.indexOf("tasks") !== -1);
       assert("first visible row is terminal", orderOf("sidebar")[0] === "terminal", orderOf("sidebar").join(","));
@@ -1319,6 +1398,28 @@
       );
       await wait(520);
 
+      // ---- identity rules: the fingerprint must ignore live status text ----
+      const identity = api.identity();
+      assert("identity helpers are exposed", !!identity && typeof identity.fingerprintOf === "function");
+      assert(
+        "status text is not part of the id",
+        identity.canonicalLabel("IP 防护：0 个黑洞") === identity.canonicalLabel("IP 防护：待探测"),
+        identity.canonicalLabel("IP 防护：0 个黑洞")
+      );
+      assert(
+        "counts normalise away",
+        identity.fingerprintOf("第 3 个会话") === identity.fingerprintOf("第 42 个会话"),
+        identity.fingerprintOf("第 3 个会话")
+      );
+      assert(
+        "legacy label ids fold onto the fingerprint",
+        identity.idFingerprint("IP 防护：0 个黑洞") === identity.fingerprintOf("IP 防护"),
+        identity.idFingerprint("IP 防护：0 个黑洞")
+      );
+      assert("distinct labels keep distinct fingerprints", identity.fingerprintOf("提醒") !== identity.fingerprintOf("查找"));
+      assert("affinity pairs a status tail", identity.fingerprintAffinity("ip-防护-n-个黑洞", "ip-防护") === true);
+      assert("affinity never pairs a shared prefix word", identity.fingerprintAffinity("更多", "更多操作") === false);
+
       // ---- regression: legacy positional ids migrate to content-stable ids ----
       // 0.2.2 inserted "复制会话为 Markdown" before download. A stored shortcut
       // that still carries dso-host-0 must follow its label, not its old slot.
@@ -1353,6 +1454,15 @@
         migratedHeader.order.indexOf(migratedId) !== -1 && migratedHeader.order.indexOf(legacyId) === -1,
         migratedHeader.order.join(",")
       );
+      const aliasValues = Object.values(api.exportConfig().aliases.header || {});
+      assert("migrated shortcut keeps an alias", aliasValues.indexOf(migratedId) !== -1, JSON.stringify(api.exportConfig().aliases.header));
+      assert("no alias still points at the legacy id", aliasValues.indexOf(legacyId) === -1, JSON.stringify(api.exportConfig().aliases.header));
+      assert(
+        "migration leaves no orphan in the header",
+        api.status().scopes.header.ids.orphaned.length === 0,
+        JSON.stringify(api.status().scopes.header.ids)
+      );
+
       const downloadsBefore = hostClicks.download;
       if (migratedShortcut) migratedShortcut.click();
       await wait(100);
@@ -1405,6 +1515,16 @@
         bubbles: true, cancelable: true, pointerId: 73,
         clientX: rowDownloadRect.left + 20, clientY: rowDownloadRect.top + 3,
       }));
+      {
+        const surfaceRect = headerHostMenu.getBoundingClientRect();
+        const sweep = sweepMenu(headerHostMenu, 73, rowDownloadRect.left + 20, surfaceRect.top + 1, surfaceRect.bottom - 1, 2);
+        assert("a shipped menu never lets the line cross a row", sweep.hits.length === 0, JSON.stringify(sweep.hits.slice(0, 4)));
+        assert("the shipped-menu line spans the whole list", sweep.shown / sweep.total > 0.75, sweep.shown + "/" + sweep.total);
+        document.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true, cancelable: true, pointerId: 73,
+          clientX: rowDownloadRect.left + 20, clientY: rowDownloadRect.top + 3,
+        }));
+      }
       document.dispatchEvent(new PointerEvent("pointerup", {
         bubbles: true, cancelable: true, pointerId: 73,
         clientX: rowDownloadRect.left + 20, clientY: rowDownloadRect.top + 3,
@@ -1619,7 +1739,7 @@
       api.setDragEnabled("right", false);
       const exported = api.exportConfig();
       assert("export carries a format marker", exported.format === "dsh-sidebar-organizer", exported.format);
-      assert("export carries the state version", exported.version === 3, exported.version);
+      assert("export carries the state version", exported.version === 4, exported.version);
       assert(
         "export carries the current layout",
         exported.scopes.footer.order[0] === "footer-feedback" && exported.scopes.tabs.hidden.indexOf("diff") !== -1,
@@ -1819,6 +1939,19 @@
         document.querySelector(".dso-indicator") !== null,
         "no indicator"
       );
+      {
+        const surfaceRect = sessionMenu.getBoundingClientRect();
+        const sweep = sweepMenu(sessionMenu, 81, targetRect.left + 12, surfaceRect.top + 1, surfaceRect.bottom - 1, 2);
+        assert("every line in an open menu sits in a gap", sweep.hits.length === 0, JSON.stringify(sweep.hits.slice(0, 4)));
+        assert("the menu line follows the whole menu", sweep.shown / sweep.total > 0.75, sweep.shown + "/" + sweep.total);
+        document.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 81,
+          clientX: targetRect.left + 12,
+          clientY: targetRect.bottom - 1,
+        }));
+      }
       document.dispatchEvent(
         new PointerEvent("pointerup", {
           bubbles: true,
@@ -2364,7 +2497,6 @@
         rmLabels(subPane).join(",") === "复制会话为 Markdown,反馈,下载 Session 日志",
         rmLabels(subPane).join(",")
       );
-
       // Pull 反馈 out of 更多操作 by dragging it onto the first level. row-menu
       // keeps its controller (items/onSelect) on the React fiber; the harness
       // stands in for it with the same internal property name.
@@ -2405,6 +2537,13 @@
       const promoteX = promoteRect.left + 12;
       const promoteY = promoteRect.top + 2;
       document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 91, clientX: promoteX, clientY: promoteY }));
+      {
+        const surfaceRect = firstPane.getBoundingClientRect();
+        const sweep = sweepMenu(firstPane, 91, promoteX, surfaceRect.top + 1, surfaceRect.bottom - 1, 2);
+        assert("pulling an entry out never crosses a first-level row", sweep.hits.length === 0, JSON.stringify(sweep.hits.slice(0, 4)));
+        assert("the pull-out line spans the first level", sweep.shown / sweep.total > 0.6, sweep.shown + "/" + sweep.total);
+        document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 91, clientX: promoteX, clientY: promoteY }));
+      }
       document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 91, clientX: promoteX, clientY: promoteY }));
       await wait(260);
       const promoted = firstPane.querySelector('[data-dso-rm-promoted="反馈"]');
@@ -2491,6 +2630,302 @@
       api.contextMenu.resetRowMenu();
       api.contextMenu.refresh();
       await wait(80);
+
+      // ---- regression: a drop line never lands on a painted control ----
+      // The strip paints more than the plugin can move: the explorer split
+      // control (two buttons in one wrapper), host chrome, and units whose
+      // wrapper has no box at all. Because a 28px icon sits between two gaps,
+      // "midpoint of the two neighbouring rows" is exactly its centre — that is
+      // how the line ended up drawn through the icon. Scan the strip one pixel
+      // at a time and compare every painted line with every painted box instead
+      // of with the model.
+      const stripY = () => {
+        const rect = headerStrip.getBoundingClientRect();
+        return rect.top + rect.height / 2;
+      };
+      const headerBoxes = () => {
+        const centreY = stripY();
+        const boxes = [];
+        const walk = (node, depth) => {
+          for (const child of Array.from(node.children)) {
+            if (child.classList.contains("dso-ghost") || child.classList.contains("dso-indicator")) continue;
+            if (!child.getBoundingClientRect) continue;
+            const rect = child.getBoundingClientRect();
+            if (!rect.width && !rect.height) {
+              if (depth < 3) walk(child, depth + 1);
+              continue;
+            }
+            if (!rect.width || !rect.height) continue;
+            if (Math.abs(rect.top + rect.height / 2 - centreY) > Math.max(4, rect.height / 2)) continue;
+            boxes.push({
+              left: rect.left,
+              right: rect.right,
+              name: child.getAttribute("data-testid") || child.getAttribute("aria-label") || child.tagName,
+            });
+            walk(child, depth + 1);
+          }
+        };
+        walk(headerStrip, 0);
+        return boxes;
+      };
+      const sweepHeaderStrip = async (testId, pointerId) => {
+        const dragged = document.querySelector('[data-testid="' + testId + '"]');
+        const draggedRect = dragged.getBoundingClientRect();
+        const strip = headerStrip.getBoundingClientRect();
+        const y = strip.top + strip.height / 2;
+        dragged.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true, cancelable: true, button: 0, pointerId: pointerId,
+          clientX: draggedRect.left + draggedRect.width / 2, clientY: y,
+        }));
+        await wait(330);
+        const hits = [];
+        let visible = 0;
+        let lastX = strip.left + 4;
+        for (let x = Math.ceil(strip.left); x <= Math.floor(strip.right); x += 1) {
+          document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: pointerId, clientX: x, clientY: y }));
+          const indicator = document.querySelector(".dso-indicator");
+          if (!indicator || indicator.dataset.visible !== "1") continue;
+          visible += 1;
+          lastX = x;
+          const line = parseFloat(indicator.style.left) + 1;
+          const box = headerBoxes().find((candidate) => line + 1 > candidate.left + 0.5 && line - 1 < candidate.right - 0.5);
+          if (box) hits.push(x + "->" + line + "@" + box.name);
+        }
+        document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: pointerId, clientX: lastX, clientY: y }));
+        await wait(150);
+        return { hits: hits, visible: visible };
+      };
+
+      api.resetScope("header");
+      await wait(100);
+      const paintedBoxes = headerBoxes();
+      assert("the header paints more boxes than it can move", paintedBoxes.length >= 9, paintedBoxes.map((box) => box.name).join(","));
+      const plainSweep = await sweepHeaderStrip("header-lag", 201);
+      assert("the sweep actually shows drop lines", plainSweep.visible > 60, String(plainSweep.visible));
+      assert("the drop line never crosses a painted header control", plainSweep.hits.length === 0, plainSweep.hits.slice(0, 6).join(" | "));
+      await wait(520);
+      api.resetScope("header");
+      await wait(100);
+
+      // The rightmost row is also the last painted box. Its own slot sits right
+      // after the last remaining row, so "insert last" used to measure the gap up
+      // to that slot and park the line a few pixels left of the pointer for the
+      // whole drag — the preview looked frozen while the hand moved right.
+      const endSweep = await (async () => {
+        const dragged = document.querySelector('[data-testid="header-find"]');
+        const draggedRect = dragged.getBoundingClientRect();
+        const strip = headerStrip.getBoundingClientRect();
+        const y = strip.top + strip.height / 2;
+        const painted = headerBoxes();
+        const paintedEnd = Math.max.apply(null, painted.map((box) => box.right));
+        dragged.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true, cancelable: true, button: 0, pointerId: 206,
+          clientX: draggedRect.left + draggedRect.width / 2, clientY: y,
+        }));
+        await wait(330);
+        let visible = 0;
+        let atEnd = 0;
+        let hits = [];
+        const seen = [];
+        for (let x = Math.floor(strip.right) - 8; x <= Math.floor(strip.right) + 120; x += 2) {
+          document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 206, clientX: x, clientY: y }));
+          const indicator = document.querySelector(".dso-indicator");
+          if (!indicator || indicator.dataset.visible !== "1") continue;
+          visible += 1;
+          const line = parseFloat(indicator.style.left) + 1;
+          seen.push(Math.round(line));
+          if (line >= paintedEnd - 1.5) atEnd += 1;
+          if (headerBoxes().some((box) => line + 1 > box.left + 0.5 && line - 1 < box.right - 0.5)) hits.push(x + "->" + line);
+        }
+        document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 206, clientX: Math.floor(strip.right) + 120, clientY: y }));
+        await wait(200);
+        return { visible: visible, atEnd: atEnd, hits: hits, paintedEnd: paintedEnd, lines: Array.from(new Set(seen)) };
+      })();
+      assert("dragging the rightmost row keeps a line visible", endSweep.visible >= 6, JSON.stringify(endSweep.lines));
+      assert(
+        "the line follows the hand to the end of the strip",
+        endSweep.visible > 0 && endSweep.atEnd === endSweep.visible,
+        JSON.stringify({ atEnd: endSweep.atEnd, visible: endSweep.visible, paintedEnd: endSweep.paintedEnd, lines: endSweep.lines })
+      );
+      assert("the end line never crosses a painted control", endSweep.hits.length === 0, endSweep.hits.slice(0, 4).join(" | "));
+      assert(
+        "dragging the last row to the end does not reorder anything",
+        headerOrderOf().join(",") === "header-reminder,header-panel,header-context,header-lag,header-find",
+        headerOrderOf().join(",")
+      );
+      await wait(520);
+      api.resetScope("header");
+      await wait(100);
+
+      // A hole the model cannot see, parked in the middle of the strip: two
+      // buttons in one wrapper are a host widget, so the plugin drops the whole
+      // group. Its centre is exactly the midpoint between the two neighbours the
+      // model does know, which used to put the line on it.
+      const holeMid = document.createElement("span");
+      holeMid.className = "header-unit";
+      holeMid.id = "header-hole-mid";
+      holeMid.innerHTML = '<button aria-label="宿主控件 A"><span>A</span></button><button aria-label="宿主控件 B"><span>B</span></button>';
+      const contextButton = document.querySelector('[data-testid="header-context"]');
+      contextButton.parentElement.insertBefore(holeMid, contextButton);
+      api.refresh();
+      await wait(120);
+      // The plugin sorts rows with style.order, so a plain DOM insert would park
+      // the hole at the very start. Pin it between the two rows it sits between.
+      const panelOrder = Number(document.querySelector('[data-testid="header-panel"]').style.order);
+      const contextOrder = Number(contextButton.style.order);
+      holeMid.style.order = String((panelOrder + contextOrder) / 2);
+      await wait(80);
+      const panelBeforeHole = document.querySelector('[data-testid="header-panel"]').getBoundingClientRect();
+      const holeRect = holeMid.getBoundingClientRect();
+      const contextRect = contextButton.getBoundingClientRect();
+      assert(
+        "the hole is parked between two movable rows",
+        holeRect.left >= panelBeforeHole.right && holeRect.right <= contextRect.left + 0.5,
+        JSON.stringify({ panel: panelBeforeHole.right, hole: [holeRect.left, holeRect.right], context: contextRect.left })
+      );
+      assert(
+        "the trap geometry is reproduced",
+        Math.abs((panelBeforeHole.right + contextRect.left) / 2 - (holeRect.left + holeRect.right) / 2) < 0.6,
+        String((panelBeforeHole.right + contextRect.left) / 2) + " vs " + String((holeRect.left + holeRect.right) / 2)
+      );
+      assert(
+        "the hole is not one of the model's rows",
+        api.status().scopes.header.rows.every((row) => String(row.id).indexOf("宿主控件") !== 0),
+        api.status().scopes.header.rows.map((row) => row.id).join(",")
+      );
+      const holeSweep = await sweepHeaderStrip("header-find", 202);
+      assert("the sweep still shows lines around the hole", holeSweep.visible > 60, String(holeSweep.visible));
+      assert("the drop line never crosses a hole the model cannot move", holeSweep.hits.length === 0, holeSweep.hits.slice(0, 6).join(" | "));
+      await wait(520);
+      api.resetScope("header");
+      await wait(100);
+
+      // Dropping onto the hole must still land where the line pointed: the line
+      // is pushed out of the hole, and the insert index has to agree with it.
+      const lagBeforeDrop = document.querySelector('[data-testid="header-lag"]');
+      const lagBeforeDropRect = lagBeforeDrop.getBoundingClientRect();
+      const holeCentreX = (holeRect.left + holeRect.right) / 2;
+      lagBeforeDrop.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, button: 0, pointerId: 203,
+        clientX: lagBeforeDropRect.left + lagBeforeDropRect.width / 2, clientY: stripY(),
+      }));
+      await wait(330);
+      document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 203, clientX: holeCentreX, clientY: stripY() }));
+      const holeDropIndicator = document.querySelector(".dso-indicator");
+      assert("dropping on a hole still shows a line", !!holeDropIndicator && holeDropIndicator.dataset.visible === "1");
+      const holeDropLine = holeDropIndicator ? parseFloat(holeDropIndicator.style.left) + 1 : NaN;
+      assert(
+        "the line waits in the gap beside the hole",
+        holeDropLine >= holeRect.right - 1.5 && holeDropLine <= contextRect.left + 1.5,
+        String(holeDropLine) + " in [" + String(holeRect.right) + "," + String(contextRect.left) + "]"
+      );
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 203, clientX: holeCentreX, clientY: stripY() }));
+      await wait(200);
+      assert(
+        "the drop lands where the line pointed",
+        headerOrderOf().join(",") === "header-reminder,header-panel,header-lag,header-context,header-find",
+        headerOrderOf().join(",")
+      );
+      await wait(520);
+      holeMid.remove();
+      api.refresh();
+      await wait(120);
+      api.resetScope("header");
+      await wait(100);
+
+      // A unit whose wrapper has no box at all (display:contents) is painted by
+      // its child, which the model skips. Wrap a live row and sweep again.
+      const contentsWrap = document.createElement("div");
+      contentsWrap.style.display = "contents";
+      const contentsFindButton = document.querySelector('[data-testid="header-find"]');
+      const headerSlotNode = document.getElementById("header-slot");
+      headerSlotNode.appendChild(contentsWrap);
+      contentsWrap.appendChild(contentsFindButton);
+      api.refresh();
+      await wait(120);
+      assert(
+        "a display:contents wrapper keeps the row painted",
+        contentsFindButton.getBoundingClientRect().width > 0 && headerBoxes().some((box) => box.name === "header-find")
+      );
+      const contentsSweep = await sweepHeaderStrip("header-context", 204);
+      assert("the sweep still covers a contents-wrapped strip", contentsSweep.visible > 60, String(contentsSweep.visible));
+      assert("the drop line never crosses a contents-wrapped row", contentsSweep.hits.length === 0, contentsSweep.hits.slice(0, 6).join(" | "));
+      await wait(520);
+      headerSlotNode.insertBefore(contentsFindButton, contentsWrap);
+      contentsWrap.remove();
+      api.refresh();
+      await wait(120);
+      api.resetScope("header");
+      await wait(100);
+
+      // ---- structure audit: the model and the paint have to agree ----
+      // Every regression so far was a silent disagreement between "what the
+      // plugin thinks it can move" and "what the host paints". audit() exposes
+      // that disagreement as a value so it can be asserted instead of reported.
+      const auditAll = api.audit();
+      const auditKeys = Object.keys(auditAll.scopes);
+      assert(
+        "audit covers every scope",
+        ["sidebar", "footer", "tabs", "composer", "header", "right", "settings"].every((key) => auditKeys.indexOf(key) >= 0),
+        auditKeys.join(",")
+      );
+      const unhealthy = auditKeys
+        .filter((key) => auditAll.scopes[key].found && !auditAll.scopes[key].clean)
+        .map((key) => key + ":" + JSON.stringify(auditAll.scopes[key]));
+      assert("every rendered scope passes its own structure audit", unhealthy.length === 0, unhealthy.join(" | "));
+      const headerAudit = auditAll.scopes.header;
+      assert("audit reports where the header container came from", headerAudit.containerVia === "outlet-parent", String(headerAudit.containerVia));
+      assert("audit counts what the header paints", headerAudit.painted >= 6 && headerAudit.rows >= 4, JSON.stringify({ painted: headerAudit.painted, rows: headerAudit.rows }));
+      assert(
+        "the host's segmented control is reported as a widget, not a broken row",
+        headerAudit.unmatched.every((entry) => entry.reason === "split-widget" || entry.reason === "host-chrome" || entry.reason === "own-anchor"),
+        headerAudit.unmatched.map((entry) => entry.name + ":" + entry.reason).join(",")
+      );
+      // A row the host stops painting is the state that produced a line through
+      // an icon: the model still measures it, the paint does not show it.
+      const wanedRow = document.querySelector('[data-testid="header-context"]');
+      const wanedWrap = wanedRow.parentElement;
+      wanedWrap.style.display = "none";
+      await wait(60);
+      const wanedAudit = api.audit("header");
+      assert(
+        "audit reports a row that is no longer painted",
+        wanedAudit.hollow.some((entry) => entry.id === "header-context" && entry.reason === "no-box"),
+        JSON.stringify(wanedAudit.hollow)
+      );
+      assert("audit marks a drifted scope unclean", wanedAudit.clean === false);
+      wanedWrap.style.display = "";
+      await wait(60);
+      assert("audit is clean again once the row paints", api.audit("header").clean === true, JSON.stringify(api.audit("header").hollow));
+      await wait(120);
+
+      // The strip can vanish mid-drag (a host route change unmounts the slot).
+      // A missing container must hide the line, not throw out of the handler.
+      const removableSlot = document.getElementById("header-slot");
+      const removableBtn = document.querySelector('[data-testid="header-reminder"]');
+      const removableRect = removableBtn.getBoundingClientRect();
+      let detachError = null;
+      try {
+        removableBtn.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true, cancelable: true, button: 0, pointerId: 205,
+          clientX: removableRect.left + 10, clientY: stripY(),
+        }));
+        await wait(330);
+        removableSlot.remove();
+        document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 205, clientX: removableRect.left + 10, clientY: stripY() }));
+        document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 205, clientX: removableRect.left + 10, clientY: stripY() }));
+        await wait(100);
+      } catch (error) {
+        detachError = error;
+      }
+      headerStrip.appendChild(removableSlot);
+      api.refresh();
+      await wait(150);
+      assert("a strip that unmounts mid-drag does not throw", detachError === null, detachError && String(detachError.stack || detachError));
+      assert("the restored strip is discovered again", api.status().scopes.header.rows.length > 0, JSON.stringify(api.status().scopes.header.rows.map((row) => row.id)));
+      await wait(520);
+      api.resetScope("header");
+      await wait(100);
 
       // Leave drag switches and layout in their default state for dispose.
       api.setDragEnabled("right", true);

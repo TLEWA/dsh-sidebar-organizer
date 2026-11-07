@@ -85,16 +85,65 @@ function labelOf(target, fallback) {
   return fallback || "";
 }
 
+// A label that carries live state ("IP 防护：0 个黑洞", "3 个会话") is not an
+// identifier: the id changed with the count and the saved order/hidden list lost
+// its owner without any warning. Bind ids to the stable part of the label and
+// keep the raw text out of the id entirely.
+function canonicalLabel(value) {
+  let text = cleanLabel(value);
+  if (!text) return "";
+  const colon = Math.max(text.lastIndexOf("："), text.lastIndexOf(":"));
+  if (colon > 0 && text.slice(colon + 1).trim()) text = text.slice(0, colon);
+  // Numbers are counts/statuses just as often as they are names. Replacing them
+  // with a letter keeps the surrounding words (and their separators) intact, so
+  // "第 3 个" and "第 4 个" still fingerprint alike.
+  return text.replace(/\d+/g, "n");
+}
+
+function fingerprintOf(label) {
+  return slug(canonicalLabel(label));
+}
+
+// Fingerprints of ids written by older builds: aria-label text was stored
+// verbatim, and the label fallback stored "text:<slug>". Both have to be
+// recognised so a one-shot migration can hand the saved order to the new id.
+function idFingerprint(id) {
+  let raw = String(id || "");
+  if (raw.indexOf("text:") === 0) raw = raw.slice(5);
+  else if (raw.indexOf("host:") === 0) raw = raw.slice(5);
+  return fingerprintOf(raw);
+}
+
+// Token-prefix affinity, used only by the migration: the old id may still carry
+// the status tail the new fingerprint dropped ("ip-防护-n-个黑洞" vs "ip-防护").
+// Comparing whole tokens avoids pairing "更多" with "更多操作".
+function fingerprintAffinity(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const left = a.split("-");
+  const right = b.split("-");
+  if (left.length === right.length) return false;
+  const short = left.length < right.length ? left : right;
+  const long = left.length < right.length ? right : left;
+  for (let i = 0; i < short.length; i += 1) {
+    if (short[i] !== long[i]) return false;
+  }
+  return true;
+}
+
 function deriveId(target, label) {
-  const attrs = ["data-panel", "data-view", "data-action", "data-testid", "data-id", "id", "aria-label", "name", "title"];
+  // aria-label and title are deliberately absent: both are text the host
+  // rewrites for state, translation and counts. What is left is either an
+  // attribute the host uses as a handle, or the canonical label fingerprint.
+  const attrs = ["data-panel", "data-view", "data-action", "data-testid", "data-id", "id", "name"];
   if (target && target.getAttribute) {
     for (const attr of attrs) {
       const value = cleanLabel(target.getAttribute(attr));
       if (value) return value;
     }
   }
-  const fromLabel = slug(label);
-  return fromLabel ? `text:${fromLabel}` : "item";
+  const fromLabel = fingerprintOf(label);
+  return fromLabel ? `host:${fromLabel}` : "host:item";
 }
 
 function uniqueId(id, used) {
@@ -108,13 +157,94 @@ function uniqueId(id, used) {
   return next;
 }
 
-function assignIds(rows, entries) {
+function rememberAliases(scope, rows, previous) {
+  const next = {};
+  for (const row of rows) {
+    if (!row.fingerprint) continue;
+    // First row with a fingerprint wins, matching the DOM order used to assign
+    // ids; two identical labels then keep the same `~2` suffix every pass.
+    if (!next[row.fingerprint]) next[row.fingerprint] = row.id;
+  }
+  // Keep bindings for rows this pass did not see (a panel that mounts late):
+  // dropping them would make the row look new and lose its saved slot.
+  for (const key of Object.keys(previous || {})) {
+    if (!next[key]) next[key] = previous[key];
+  }
+  if (JSON.stringify(next) !== JSON.stringify(previous || {})) writeAliases(scope, next);
+}
+
+// One-shot hand-over of a layout written by an older build. The saved ids are
+// orphans only because this build derives them differently; pair them with the
+// rows that now hold no saved record, then rewrite order/hidden in place so the
+// arrangement is untouched. Runs on discovery, so a scope that never mounts is
+// never rewritten on a guess.
+function migrateScopeIds(found) {
+  const scope = found.scope;
+  const layout = readScope(scope);
+  if (!layout.order.length) return 0;
+  const rows = found.rows;
+  const ids = new Set(rows.map((row) => row.id));
+  const orphans = layout.order.filter((id) => !ids.has(id));
+  if (!orphans.length) return 0;
+  // Adopted host-menu shortcuts own their id lifecycle (reconcileHostActions
+  // renames them when the host reorders its menu). Pairing them here could only
+  // hand a freshly renamed id back to its legacy slot.
+  const isHostAction = (id) => String(id || "").indexOf(HOST_ACTION_PREFIX) === 0;
+  if (orphans.every(isHostAction)) return 0;
+  const known = new Set(layout.order);
+  const candidates = rows.filter((row) => !known.has(row.id) && !isHostAction(row.id));
+  const paired = new Map();
+  const takenRows = new Set();
+  const fingerprintOfRow = (row) => row.fingerprint || fingerprintOf(row.label);
+
+  const pair = (orphan, row) => {
+    paired.set(orphan, row.id);
+    takenRows.add(row);
+  };
+  for (const orphan of orphans) {
+    const fingerprint = idFingerprint(orphan);
+    if (!fingerprint) continue;
+    const hit = candidates.find((row) => !takenRows.has(row) && fingerprintOfRow(row) === fingerprint);
+    if (hit) pair(orphan, hit);
+  }
+  for (const orphan of orphans) {
+    if (paired.has(orphan)) continue;
+    const fingerprint = idFingerprint(orphan);
+    if (!fingerprint) continue;
+    const hit = candidates.find((row) => !takenRows.has(row) && fingerprintAffinity(fingerprint, fingerprintOfRow(row)));
+    if (hit) pair(orphan, hit);
+  }
+  // Equal counts mean the same rows are mounted, only the ids moved (a renamed
+  // action, or a new host build): pair what is left by position.
+  const leftOrphans = orphans.filter((id) => !paired.has(id));
+  const leftRows = candidates.filter((row) => !takenRows.has(row));
+  if (leftOrphans.length && leftOrphans.length === leftRows.length && !leftOrphans.some(isHostAction)) {
+    for (let i = 0; i < leftOrphans.length; i += 1) pair(leftOrphans[i], leftRows[i]);
+  }
+  if (!paired.size) return 0;
+
+  const swap = (id) => paired.get(id) || id;
+  writeScope(scope, {
+    order: layout.order.map(swap),
+    hidden: layout.hidden.map(swap),
+  });
+  const aliases = readAliases(scope);
+  for (const [oldId, newId] of paired) {
+    const fingerprint = idFingerprint(oldId);
+    if (fingerprint && !aliases[fingerprint]) aliases[fingerprint] = newId;
+  }
+  writeAliases(scope, aliases);
+  return paired.size;
+}
+
+function assignIds(rows, entries, scope) {
   const used = new Set();
   const available = [];
   for (const entry of entries || []) {
     const info = describeEntry(entry);
     if (info.id) available.push({ id: info.id, label: info.label, taken: false });
   }
+  const aliases = scope ? readAliases(scope) : {};
   rows.forEach((row) => {
     let picked = null;
     for (const entry of available) {
@@ -136,10 +266,28 @@ function assignIds(rows, entries) {
         }
       }
     }
-    const base = picked ? picked.id : deriveId(row.target, row.label);
+    const fingerprint = fingerprintOf(row.label);
+    let base = picked ? picked.id : "";
+    if (!base && row.target && row.target.getAttribute) {
+      // An adopted host-menu shortcut is mounted under its own id, and
+      // reconcileHostActions keeps that id current. The id attribute is
+      // therefore newer than any saved alias; letting the alias win would put
+      // the button back on the legacy id the rename just retired.
+      const mounted = cleanLabel(row.target.getAttribute("id"));
+      if (mounted && mounted.indexOf(HOST_ACTION_PREFIX) === 0) base = mounted;
+    }
+    if (!base && scope && fingerprint) {
+      // A binding written earlier outranks a fresh derivation: that is what
+      // keeps the id when the host adds or drops an attribute we key on.
+      const aliased = aliases[fingerprint];
+      if (aliased && !used.has(aliased)) base = aliased;
+    }
+    if (!base) base = deriveId(row.target, row.label);
     if (picked) picked.taken = true;
     row.id = uniqueId(base, used);
+    row.fingerprint = fingerprint;
   });
+  if (scope) rememberAliases(scope, rows, aliases);
   return rows;
 }
 
@@ -150,12 +298,19 @@ function collectSidebar(ctx) {
   // the workspace/session nav and reorder user sessions along with panels.
   const outlet = document.querySelector('[data-slot="sidebar.panellist"]');
   let container = null;
+  // How the container was found is part of the structure audit: the fallbacks
+  // below widen the guess, and a guess that starts being used silently is the
+  // first sign that the host moved the list.
+  let via = "slot";
   if (outlet) {
     const rowButton = outlet.closest("button");
+    via = rowButton ? "slot-button-parent" : "slot-parent";
     container = (rowButton && rowButton.parentElement) || outlet.closest("nav") || outlet.parentElement;
+    if (!rowButton && outlet.closest("nav")) via = "slot-nav";
   }
   if (!container) {
     container = document.querySelector('nav[class*="panelList"], [class*="panelList"]');
+    via = "panellist-class";
   }
   if (!container) {
     // Last resort: score only DIRECT row-like children. Scoring descendants
@@ -182,7 +337,10 @@ function collectSidebar(ctx) {
         bestScore = score;
       }
     }
-    if (best) container = best;
+    if (best) {
+      container = best;
+      via = "scored-nav";
+    }
   }
   if (!container) return null;
 
@@ -223,6 +381,7 @@ function collectSidebar(ctx) {
     scope: "sidebar",
     axis: "y",
     container,
+    via,
     rows,
     more: more ? (more.parentElement !== container ? more.parentElement : more) : null,
     // Outline the real trigger button, never its Tooltip/flex wrapper: the
@@ -259,10 +418,14 @@ function collectOutlet(scope, selector, options) {
   // Some host slots wrap every registered entry in one inner box.  Flattening
   // that box is safe only when it really contains several clickable rows; a
   // lone button must stay a single row.
+  let flattened = false;
   if (units.length === 1) {
     const sole = units[0];
     const nested = elementChildren(sole).filter((child) => clickableIn(child));
-    if (nested.length > 1) units = nested;
+    if (nested.length > 1) {
+      units = nested;
+      flattened = true;
+    }
   }
   const collected = collectUnitsFromUnits(units, options);
   // Anything that lives beside the slot outlet (the composer's ContextMeter,
@@ -283,6 +446,7 @@ function collectOutlet(scope, selector, options) {
     scope,
     axis: options && options.axis ? options.axis : "x",
     container,
+    via: (container === outlet ? "outlet" : "outlet-parent") + (flattened ? "+flatten" : ""),
     rows: collected.rows,
     tails: tails.filter((child) => child !== more),
     more,
@@ -328,8 +492,10 @@ function collectTabs() {
     const target = clickableIn(child);
     return !!target;
   });
+  let via = "tabs-slot";
   if (!units.length) {
     units = Array.from(list.querySelectorAll('button, [role="tab"]'));
+    via = "tabs-fallback-buttons";
   }
   const collected = collectUnitsFromUnits(units, { tabsOnly: true, axis: "x" });
   let more = null;
@@ -351,6 +517,7 @@ function collectTabs() {
     scope: "tabs",
     axis: "x",
     container: list,
+    via,
     rows: collected.rows,
     more,
     moreTarget: more ? menuTriggerButton(more) : null,
@@ -402,6 +569,7 @@ function collectRight() {
     scope: "right",
     axis: "y",
     container,
+    via: "right-guide",
     rows,
     tails,
     more,
@@ -476,6 +644,7 @@ function collectSettings() {
     scope: "settings",
     axis,
     container,
+    via: container === nav ? "settings-nav" : "settings-nav-child",
     rows: collected.rows,
     more: collected.more,
     moreTarget: collected.more ? menuTriggerButton(collected.more) : null,
@@ -506,7 +675,7 @@ function discoverScope(ctx, scope) {
   if (scope !== "right") {
     const def = scopeDef(scope);
     const entries = def && def.slot ? readEntries(ctx, def.slot) : [];
-    assignIds(found.rows, entries);
+    assignIds(found.rows, entries, scope);
   }
   for (const row of found.rows) {
     row.synthetic = false;

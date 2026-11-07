@@ -3,6 +3,71 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## 0.10.0 — 2026-11-08
+
+这一版把「行的身份」从文案里解耦：宿主给某一行加的实时计数、状态后缀、翻译改动，不再让已保存的
+排序与收纳失效；落点线也改成只认宿主实际画出来的盒子，并加入一套可以自己跑的结构审计。
+
+- **行 id 不再依赖文案原文**：行 id 优先取元素自带的稳定属性（`data-panel` / `data-view` /
+  `data-action` / `data-testid` 等），取不到时用规范化后的标签指纹——冒号后的状态段被剥掉、
+  数字归一化成 `n`。于是「IP 防护：0 个黑洞」换成「IP 防护：待探测」、会话数从 3 变 42，
+  已保存的顺序与收纳照旧生效。
+- **升级自动接管旧布局**：旧版本按原始标签写下的 id，在加载时一次性交给新的指纹 id：行沿用原来的
+  槽位，顺序不重排，也不需要你重新拖一遍；之后行被改名，别名表仍能把它认回原来的 id。
+- **存储格式升级到 v4**：每个区域多一张别名表（`aliases`），导出文件带上 `stateVersion`；
+  旧版本导出的 v3 配置仍可导入，别名会按导入的顺序重新推导。
+- **落点线只认宿主画出来的盒子**：线不会再横穿宿主绘制、但本插件不可移动的控件（例如会话头部的
+  分段控件）；遇到这种「洞」时，线停在洞旁边的间隙里，松手仍按线所指的位置落地。
+- **拖到最右端跟手**：把行拖到工具条末端之后继续往右，指示线跟着指针走到最右，而不是卡在最后一个
+  可见行的内边缘。
+- **菜单落线**：整张菜单共用一条线，始终落在两个一级行之间的间隙、跨整张列表宽度；从「更多操作」
+  把条目拖到一级时，线不会穿过一级行。
+- **兼容 `display:contents` 包裹**：会话头部的槽位出口就是这种结构——包裹层自己没有盒子，现在会
+  正确地站到子元素上取盒，落线与审计都因此准确。
+- **排障接口**：新增 `audit()`（按区域报告「插件以为的行」与「宿主实际画的控件」是否对得上，
+  列出没有行认领的控件、宿主不再绘制的行，以及容器是怎么被找到的）与 `identity()`（纯 id
+  推导规则），在控制台里就能自检；内部判断落点也复用同一套盒子模型。
+- **构建修复**：此前打包只替换了 `__BUILD__`，版本常量被原样留在产物里；现在
+  `window.__DSO_BUILD__` 报告的是真实版本 + 构建哈希。
+- **质量**：断言从 280 条增加到 324 条，全部通过（新增最右端扫掠、宿主控件「洞」、
+  `display:contents` 包裹、结构审计、旧布局迁移与改名别名等用例）。
+
+### English
+
+- **Row ids no longer come from label text**: an id prefers the element's own stable attributes
+  (`data-panel` / `data-view` / `data-action` / `data-testid` …) and otherwise falls back to a
+  canonical label fingerprint — the status segment after a colon is dropped and digits collapse to
+  `n`. So when "IP guard: 0 black holes" becomes "IP guard: probing" or a session count moves from
+  3 to 42, the saved order and tucked rows keep working.
+- **Upgrades adopt the old layout**: ids that older builds derived from the raw label are handed to
+  the new fingerprint ids once, at load time; every row keeps the slot it had, nothing is reshuffled,
+  and you never have to drag anything again. If a row is later renamed, the alias table still hands
+  it its old id back.
+- **Storage format is v4**: each scope gains an alias table (`aliases`) and exports carry
+  `stateVersion`; a v3 file exported by an older build still imports, with aliases re-derived from
+  the imported order.
+- **The drop line only trusts boxes the host paints**: it no longer cuts through controls the host
+  renders but this plugin cannot move (the session header's segmented control, for example); over
+  such a hole the line waits in the gap beside it, and releasing still lands where the line points.
+- **The far end follows the hand**: dragging a row past the end of the strip keeps the indicator
+  under the pointer all the way to the right, instead of pinning it to the inner edge of the last
+  visible row.
+- **Menu line**: one line serves the whole menu — always in the gap between two first-level rows,
+  spanning the full width of the list — and pulling an entry out of "More actions" no longer draws
+  it through a first-level row.
+- **`display:contents` wrappers work**: the session header's slot outlet is exactly this shape; a
+  wrapper with no box of its own now stands on its children for measuring, which keeps both the drop
+  line and the audit accurate.
+- **Diagnostics**: `audit()` reports per scope whether "the rows the plugin believes in" match "the
+  controls the host actually paints" — listing boxes no row owns, rows the host no longer paints, and
+  how the container was found — while `identity()` exposes the pure id rules, so both can be checked
+  from the console. The same box model now drives drop targeting.
+- **Build fix**: packaging used to substitute only `__BUILD__`, leaving the version constant as a
+  literal in the bundle; `window.__DSO_BUILD__` now reports the real version plus build hash.
+- **Quality**: assertions grew from 280 to 324, all passing (new cases cover the far-end sweep, holes
+  the host paints, `display:contents` wrappers, the structure audit, and legacy-layout adoption and
+  rename aliases).
+
 ## 0.9.7 — 2026-11-07
 
 把 dsh-sidebar-row-menu 的会话右键菜单真正接过来：可以在这个菜单里增删分隔线、把「··· 更多操作」二级

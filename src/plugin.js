@@ -214,6 +214,8 @@ function apply(ctx) {
     pass: () => runtime && runtime.pass(),
     refresh: () => runtime && runtime.refresh(),
     snapshot: () => (runtime ? runtime.snapshot() : []),
+    // Structure audit: rows the model knows about vs boxes the host paints.
+    audit: (scope) => (runtime ? runtime.audit(scope) : null),
     reset: () => runtime && runtime.reset(),
     exportConfig: () => (runtime ? runtime.exportConfig() : null),
     importConfig: (value) => (runtime ? runtime.importConfig(value) : { ok: false, reason: "inactive" }),
@@ -253,6 +255,9 @@ function apply(ctx) {
       runtimeInstance = null;
       stopHostSync();
     },
+    // Pure id-derivation rules; see src/scopes.js. Useful in a live console too.
+    identity: () =>
+      runtime ? runtime.identity : { canonicalLabel: null, fingerprintOf: null, idFingerprint: null, fingerprintAffinity: null },
     status: () => {
       if (!runtime) return { version: VERSION, scopes: {} };
       const status = runtime.status();

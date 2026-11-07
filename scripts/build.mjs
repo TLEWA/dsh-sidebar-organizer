@@ -36,10 +36,13 @@ const sourceDir = path.join(root, "src");
 // build hash (and therefore the committed bundle) differ per platform.
 const readSource = (file) =>
   fs.readFileSync(path.join(sourceDir, file), "utf8").replace(/\r\n/g, "\n").replace(/\s+$/, "");
-const rawParts = MODULES.map((file) => readSource(file).replaceAll("__VERSION__", pkg.version));
+// Both placeholders must be substituted in the emitted bytes: replacing only
+// __BUILD__ left the version constant as the literal "__VERSION__" at runtime,
+// so a page could not tell which build it was running.
+const versionedParts = MODULES.map((file) => readSource(file).replaceAll("__VERSION__", pkg.version));
 // Short content hash so a running page can report exactly which bundle it got.
-const build = pkg.version + "+" + crypto.createHash("sha256").update(rawParts.join("\n")).digest("hex").slice(0, 10);
-const parts = MODULES.map((file) => readSource(file).replaceAll("__BUILD__", build));
+const build = pkg.version + "+" + crypto.createHash("sha256").update(versionedParts.join("\n")).digest("hex").slice(0, 10);
+const parts = versionedParts.map((part) => part.replaceAll("__BUILD__", build));
 
 const banner = `/**
  * dsh-sidebar-organizer — client half (v${pkg.version}).
