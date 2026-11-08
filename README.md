@@ -306,6 +306,16 @@ npm run check   # 语法检查
 - [x] 0.9.7 — 接管 row-menu 的会话右键菜单：右键增删分隔线、把「更多操作」的条目提到一级、编辑后顺序由本插件保存，配置页新增「仅还原会话菜单」；修复工具条拖动的落点判断
 - [x] 0.10.0 — 行 id 与文案解耦（稳定属性优先、标签指纹兜底，计数/状态/改名不再让布局失效，旧布局自动接管，存储升到 v4 并带别名表）；落点线只认宿主实际画出的盒子（绕开不可移动的控件、最右端跟手）；新增 audit() / identity() 自检接口；修复构建未替换版本常量
 
+## 我的其他 DSH 项目
+
+整理布局只是 DSH 的一小块。下面这些插件都由我维护，按需取用。
+
+- **[dsh-sidebar-row-menu](https://github.com/TLEWA/dsh-sidebar-row-menu)** —— 侧栏行右键菜单：工作区行、会话行与会话正文各有自己的右键菜单，含「打开方式」「更多操作」二级菜单；本插件可调整这些菜单的顺序与分隔线。
+- **[dsh-better-choice](https://github.com/TLEWA/dsh-better-choice)** —— `ask_user_question` 增强：右键选项补备注，选之前先拿同一份上下文旁问模型一句。
+- **[dsh-if](https://github.com/TLEWA/dsh-if)** —— `/if` 命令：让模型结合上文判断条件，成立才把下面的指令作为用户消息发出。
+- **[dsh-utf8-output](https://github.com/TLEWA/dsh-utf8-output)** —— 修复 Windows 下 DSH 子进程 GBK/CP936/CP932 输出乱码。
+- **[dsh-opencode-go-router](https://github.com/TLEWA/dsh-opencode-go-router)** —— 上下文折叠或系统提示被重写后轮换 OpenCode Go 路由，少丢一点提示缓存。
+
 ## 声明与引用
 
 - 第三方代码与商标说明：[NOTICE.md](NOTICE.md)

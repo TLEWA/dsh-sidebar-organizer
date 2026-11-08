@@ -436,6 +436,16 @@ version rejection, and `dispose()` restoration).
 - [x] 0.9.7 — takes over row-menu's session context menu (right-click a row to toggle its divider, pull "More actions" entries onto the first level, the first edit makes this plugin own the order) with a "Restore session menu only" button; fixes header-strip drop targeting
 - [x] 0.10.0 — row ids decoupled from label text (stable attributes first, canonical label fingerprints otherwise; counts, status changes and renames no longer invalidate a layout, older layouts are adopted at load, storage moves to v4 with an alias table); the drop line only trusts boxes the host actually paints (it goes around controls the plugin cannot move and follows the hand at the far end); `audit()` / `identity()` diagnostics; build fix for the unsubstituted version constant
 
+## Other DSH projects I work on
+
+Reordering panels is only one corner of DSH. These are the other plugins I maintain — take what fits.
+
+- **[dsh-sidebar-row-menu](https://github.com/TLEWA/dsh-sidebar-row-menu)** — right-click menus for sidebar rows: workspace rows, session rows and the conversation body each get their own, including "Open with" and "More actions" submenus; this plugin can reorder those menus and their dividers.
+- **[dsh-better-choice](https://github.com/TLEWA/dsh-better-choice)** — an `ask_user_question` enhancement: right-click an option to add a note, or ask the model a side question with the same context before choosing.
+- **[dsh-if](https://github.com/TLEWA/dsh-if)** — the `/if` command: let the model judge a condition from prior context, then send the instruction below it as a user message only when it holds.
+- **[dsh-utf8-output](https://github.com/TLEWA/dsh-utf8-output)** — fixes GBK/CP936/CP932 mojibake from DSH subprocess output on Windows.
+- **[dsh-opencode-go-router](https://github.com/TLEWA/dsh-opencode-go-router)** — rotates OpenCode Go routing after a context fold or a system-prompt rewrite, so less of the prompt cache is lost.
+
 ## Notices
 
 - Third-party code and trademarks: [NOTICE.en.md](NOTICE.en.md)
