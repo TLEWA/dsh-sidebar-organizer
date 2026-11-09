@@ -12,20 +12,21 @@
   },
   "files": [
     "lib",
-    "src",
-    "scripts",
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
     "NOTICE.md",
     "NOTICE.en.md",
     "CHANGELOG.md",
+    "CHANGELOG.en.md",
     "CITATION.cff",
     "LICENSE"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "node --check lib/client.js && node --check lib/index.js"
+    "check": "node --check lib/client.js && node --check lib/index.js",
+    "prepublishOnly": "npx --yes --package=github:TLEWA/dsh-plugin-ci#v1 dsh-ci-gate --prepublish",
+    "prepack": "npm run build && npm run check"
   },
   "keywords": [
     "dsh",
@@ -48,7 +49,8 @@
   },
   "license": "MIT",
   "engines": {
-    "dsh": ">=0.2.1-rc.3"
+    "dsh": ">=0.2.1-rc.3",
+    "node": ">=20"
   },
   "dsh": {
     "engines": {
@@ -59,9 +61,8 @@
     },
     "client": {
       "platform": "web",
-      "inject": [
-        "react"
-      ]
-    }
+      "inject": []
+    },
+    "manifestVersion": 1
   }
 }
