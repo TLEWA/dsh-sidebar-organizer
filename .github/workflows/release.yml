@@ -2,116 +2,17 @@ name: release
 
 on:
   push:
-    tags:
-      - "v*"
-  repository_dispatch:
-    types: [release]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to build and publish (for example v0.6.0)"
-        required: true
-        type: string
+    tags: ['v*.*.*']
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event_name == 'repository_dispatch' && github.event.client_payload.tag || github.ref }}
-          fetch-depth: 0
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Resolve and verify tag
-        id: meta
-        env:
-          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event_name == 'repository_dispatch' && github.event.client_payload.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          tag="$INPUT_TAG"
-          version="$(node -p 'require("./package.json").version')"
-          if [ "v$version" != "$tag" ]; then
-            echo "::error::package.json version $version does not match tag $tag"
-            exit 1
-          fi
-          case "$version" in
-            *-*) prerelease=true ;;
-            *) prerelease=false ;;
-          esac
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-
-      - name: Build client bundle
-        run: npm run build
-
-      - name: Verify committed bundle
-        run: |
-          if ! git diff --exit-code -- lib/; then
-            echo "::error::lib/ is out of date; run npm run build and commit the result"
-            exit 1
-          fi
-
-      - name: Syntax check
-        run: npm run check
-
-      - name: Pack release asset
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          npm pack --pack-destination dist
-          cd dist
-          sha256sum ./*.tgz > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Ensure release notes helper
-        run: |
-          if [ ! -f scripts/release-notes.mjs ]; then
-            # Older tags predate the helper; borrow it from the default branch.
-            git fetch origin main
-            git show FETCH_HEAD:scripts/release-notes.mjs > scripts/release-notes.mjs
-          fi
-
-      - name: Generate release notes
-        env:
-          TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          set -euo pipefail
-          asset="$(basename "$(ls dist/*.tgz | head -n1)")"
-          node scripts/release-notes.mjs "$TAG" "$asset" > dist/release-notes.md
-          cat dist/release-notes.md
-
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
-        run: |
-          set -euo pipefail
-          mapfile -t assets < <(ls dist/*.tgz dist/SHA256SUMS)
-          flags=()
-          if [ "$PRERELEASE" = "true" ]; then
-            flags+=(--prerelease)
-          else
-            flags+=(--latest)
-          fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${assets[@]}" --clobber
-            gh release edit "$TAG" --title "$TAG" --notes-file dist/release-notes.md "${flags[@]}"
-          else
-            gh release create "$TAG" "${assets[@]}" --verify-tag \
-              --title "$TAG" --notes-file dist/release-notes.md "${flags[@]}"
-          fi
+    uses: TLEWA/dsh-plugin-ci/.github/workflows/reusable-release.yml@v1
+    secrets: inherit

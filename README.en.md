@@ -371,7 +371,7 @@ no runtime `import` — hence module sources plus build-time concatenation.
 
 ```bash
 npm run build   # src/ → lib/client.js
-npm run check   # syntax check
+npm run check
 ```
 
 Open `test/harness.html` in a browser for the self-checking regression run

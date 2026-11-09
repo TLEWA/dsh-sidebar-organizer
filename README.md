@@ -245,7 +245,7 @@ DSH 的客户端插件是以经典脚本方式通过 `window.__ModuleLoader__.lo
 
 ```bash
 npm run build   # src/ → lib/client.js
-npm run check   # 语法检查
+npm run check
 ```
 
 回归测试不碰真实 UI：用浏览器打开 `test/harness.html`，页面会自检并打印七区域发现、
