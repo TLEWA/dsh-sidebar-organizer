@@ -1591,6 +1591,42 @@ function createRuntime(ctx) {
     return 0;
   }
 
+  // A row-menu divider owns the hairline it is drawn at, whether it is painted
+  // by this plugin or shipped by row-menu. A click on that hairline must toggle
+  // that divider instead of the row whose wrapper happens to contain it.
+  function rowMenuLineGap(info, y, tolerance) {
+    if (!info || !Number.isFinite(y)) return 0;
+    const candidates = [];
+    if (info.pane) {
+      for (const child of Array.from(info.pane.children)) {
+        if (!child.hasAttribute(ROW_MENU_DIVIDER_ATTR)) continue;
+        const gap = Number(child.getAttribute(ROW_MENU_DIVIDER_ATTR));
+        if (!gap) continue;
+        const rect = child.getBoundingClientRect();
+        if (rect.height <= 0) continue;
+        candidates.push({ gap, y: rect.top });
+      }
+    }
+    const painted = rowMenuVisualRows(info);
+    for (let gap = 1; gap < painted.length; gap += 1) {
+      let lineY = null;
+      for (const sep of rowMenuRowSeparators(painted[gap])) {
+        if (!sep.isConnected) continue;
+        const rect = sep.getBoundingClientRect();
+        if (rect.height <= 0) continue;
+        lineY = rect.top;
+        break;
+      }
+      if (lineY === null) {
+        const above = painted[gap - 1].rect;
+        const below = painted[gap].rect;
+        lineY = below.top > above.top + above.height ? (above.top + above.height + below.top) / 2 : below.top;
+      }
+      candidates.push({ gap, y: lineY });
+    }
+    return nearestLineGap(candidates, y, tolerance);
+  }
+
   function rowMenuPaneName(pane) {
     if (!pane) return "";
     if (pane.classList.contains("dsrm-menu-surface")) return "first";
@@ -1609,6 +1645,32 @@ function createRuntime(ctx) {
     const aria = menuitem.getAttribute("aria-label") || item.getAttribute("aria-label");
     if (aria && aria.trim()) return aria.trim();
     return (menuitem.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  // Row-menu renders a separator as a sibling of the row it groups, but the
+  // header-toolbar menu nests each separator inside that row's own wrapper
+  // (wrapper = hairline + item). Walking only the pane's children therefore
+  // never saw those separators: they were neither counted as native gaps nor
+  // hidden once the pane was customised, so right-clicking one drew a second
+  // line while the original stayed on screen.
+  function rowMenuNestedSeparators(rowNode, pane) {
+    const found = [];
+    if (!rowNode || typeof rowNode.querySelectorAll !== "function") return found;
+    for (const node of Array.from(rowNode.querySelectorAll('[role="separator"], .dsrm-sep'))) {
+      if (node.hasAttribute(ROW_MENU_DIVIDER_ATTR)) continue;
+      if (node.getAttribute("aria-hidden") === "true") continue;
+      // A nested submenu paints its own separators; they follow that popup.
+      const menu = node.closest('[role="menu"]');
+      if (menu && menu !== pane) continue;
+      found.push(node);
+    }
+    return found;
+  }
+
+  // Every separator that groups a row, however row-menu rendered it.
+  function rowMenuRowSeparators(row) {
+    if (!row) return [];
+    return (row.seps || []).concat(row.nestedSeps || []);
   }
 
   // One row per direct child of the pane. The material layer is aria-hidden;
@@ -1668,6 +1730,7 @@ function createRuntime(ctx) {
         id: count === 1 ? label : label + "#" + count,
         rect: child.getBoundingClientRect(),
         seps: pending.splice(0),
+        nestedSeps: rowMenuNestedSeparators(child, pane),
       });
     }
     return { pane, name, rows, trailingSeps: pending, rect: pane.getBoundingClientRect() };
@@ -1979,19 +2042,11 @@ function createRuntime(ctx) {
     }
   }
 
-  function rowMenuNativeSeparator(info) {
-    for (const row of info.rows) {
-      for (const sep of row.seps) if (sep.isConnected) return sep;
-    }
-    for (const sep of info.trailingSeps) if (sep.isConnected) return sep;
-    return null;
-  }
-
   function rowMenuNativeGaps(info) {
     const gaps = [];
     const rows = rowMenuVisualRows(info);
     for (let index = 1; index < rows.length; index += 1) {
-      const shown = rows[index].seps.some(
+      const shown = rowMenuRowSeparators(rows[index]).some(
         (sep) => sep.isConnected && sep.style.display !== "none" && sep.getBoundingClientRect().height > 0
       );
       if (shown) gaps.push(index);
@@ -1999,20 +2054,13 @@ function createRuntime(ctx) {
     return gaps;
   }
 
-  function createRowMenuDivider(info, gap) {
-    const native = rowMenuNativeSeparator(info);
-    let node = null;
-    if (native) {
-      node = native.cloneNode(true);
-      node.removeAttribute(ROW_MENU_SEP_ATTR);
-      node.removeAttribute(ROW_MENU_HIDDEN_ATTR);
-      node.removeAttribute("aria-hidden");
-      node.style.removeProperty("order");
-      node.style.removeProperty("display");
-    } else {
-      node = document.createElement("div");
-      node.className = "dsrm-sep";
-    }
+  function createRowMenuDivider(gap) {
+    // Not a clone of the host separator: the host stylesheet hides a separator
+    // that directly follows another one ("X + X { display: none }"), so two
+    // injected lines in a row made the later one invisible. row-menu's own
+    // .dsrm-sep is a standalone hairline and carries no such sibling rule.
+    const node = document.createElement("div");
+    node.className = "dsrm-sep dso-rm-divider";
     node.setAttribute("role", "separator");
     node.setAttribute(ROW_MENU_DIVIDER_ATTR, String(gap));
     return node;
@@ -2055,6 +2103,14 @@ function createRuntime(ctx) {
     const gaps = readRowMenuDividers(info.name);
     if (!gaps) {
       for (const node of injected) node.remove();
+      for (const row of info.rows) {
+        for (const sep of rowMenuRowSeparators(row)) {
+          if (sep.style.display === "none") sep.style.display = "";
+        }
+      }
+      for (const sep of info.trailingSeps) {
+        if (sep.style.display === "none") sep.style.display = "";
+      }
       return;
     }
     // Painted dividers are flex children: the pane has to be a column, and the
@@ -2076,7 +2132,7 @@ function createRuntime(ctx) {
         }
       }
       if (!node) {
-        node = createRowMenuDivider(info, gap);
+        node = createRowMenuDivider(gap);
         pane.appendChild(node);
       }
       used.add(node);
@@ -2088,7 +2144,12 @@ function createRuntime(ctx) {
       if (!used.has(node) && node.isConnected) node.remove();
     }
     for (const row of info.rows) {
-      for (const sep of row.seps) sep.style.display = "none";
+      for (const sep of rowMenuRowSeparators(row)) {
+        // A separator nested in its row's wrapper is ours to hide but not to
+        // reorder; the marker lets the reset path give the line back.
+        if (sep.getAttribute(ROW_MENU_SEP_ATTR) !== "") sep.setAttribute(ROW_MENU_SEP_ATTR, "");
+        sep.style.display = "none";
+      }
     }
     for (const sep of info.trailingSeps) sep.style.display = "none";
   }
@@ -2942,8 +3003,13 @@ function createRuntime(ctx) {
       const info = rowMenuPaneInfo(rowPane);
       if (info) {
         const onLine = target.closest('[role="separator"], .dsrm-sep') !== null;
+        // A line always beats the row it is nested in. Without this, a
+        // separator shipped inside a row's wrapper resolved to that row, and
+        // the toggle drew a new line at the same seam while the original one
+        // stayed - the reported "it added a divider instead of removing it".
+        const lineGap = rowMenuLineGap(info, event.clientY, onLine ? Infinity : 4);
         let row = null;
-        if (!onLine) {
+        if (!lineGap) {
           for (const candidate of info.rows) {
             if (candidate.item === target || candidate.item.contains(target)) {
               row = candidate;
@@ -2953,15 +3019,8 @@ function createRuntime(ctx) {
         }
         if (row) {
           toggleRowMenuDivider(info, row);
-        } else {
-          // The click hit the seam a divider lives in, not a row: it toggles
-          // that divider, so the line a menu already had can be removed by
-          // right-clicking it.
-          const seam = dividerGapAtPoint(
-            info.rows.map((candidate) => candidate.rect),
-            event.clientY
-          );
-          if (seam) toggleRowMenuDividerGap(info, seam);
+        } else if (lineGap) {
+          toggleRowMenuDividerGap(info, lineGap);
         }
       }
       // Always swallow the event: a right-click on a divider or on empty pane

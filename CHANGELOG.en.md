@@ -24,10 +24,14 @@
   the same old copy, so a later write with a smaller `updatedAt` is answered as `stale` and cannot
   overwrite a newer layout.
 - **A row-menu divider no longer follows its row**: the separators on screen are frozen into gap
-  indexes before the first arrangement (native ones hidden, clones injected at their positions, the
-  pane switched to a flex column), so a divider is a position rather than a property of a row; a gap
-  past the last row is no longer painted either (the stored value is kept, so the divider returns
-  with its rows).
+  indexes before the first arrangement (native ones hidden, plugin-drawn lines injected at their
+  positions, the pane switched to a flex column; native separators nested inside a row's own wrapper
+  are included too, since the whole pane is scanned instead of its direct children only), so a
+  divider is a position rather than a property of a row; a gap past the last row is no longer painted
+  either (the stored value is kept, so the divider returns with its rows). The injected line is our
+  own `div.dsrm-sep`, not a clone of the host separator: the host's
+  `separator + separator { display: none }` sibling rule hid the second of two adjacent clones, so
+  the screen showed one line while the store held three.
 - **The blue drop line is back in both menus**: the menu's glass layer (`_material`, spanning the
   whole surface) was counted as one more row in the seam test, so every seam looked occupied and the
   line never appeared; nodes covering the whole surface are now skipped by geometry, which restores
@@ -41,8 +45,8 @@
   within ±4px of the pointer is the target (an injected line reports its own gap index, a shipped one
   is resolved from the row middles measured at click time), and only a click away from every line
   falls back to the row/seam rules; the set of shipped separators is also recomputed from live
-  geometry instead of the snapshot frozen when the menu opened (same for the host context menu and
-  row-menu's menus).
+  geometry instead of the snapshot frozen when the menu opened, and a zero-height (hidden) line never
+  takes the hit (same for the host context menu and row-menu's menus).
 
 ## 0.10.0 — 2026-11-08
 

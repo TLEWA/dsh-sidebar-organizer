@@ -4,6 +4,29 @@
    they read only the nodes and rects they are given. The bundle concatenates
    modules in build order, so runtime.js still sees them as plain functions. */
 
+// Pick the line a pointer aimed at from measured candidates ({gap, y}), the
+// nearest one inside `tolerance` pixels, or 0 when the pointer is not on any
+// line. Pass Infinity when the event target already is a separator: a hairline
+// nested inside its row's wrapper is still a line, and it must win over the row
+// around it. Pure so both menus share the rule and it can be unit-tested.
+function nearestLineGap(candidates, y, tolerance) {
+  if (!Array.isArray(candidates) || !Number.isFinite(y)) return 0;
+  const limit = Number.isFinite(tolerance) ? tolerance : 4;
+  let best = 0;
+  let bestDistance = Infinity;
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const gap = Number(candidate.gap);
+    const lineY = Number(candidate.y);
+    if (!Number.isFinite(gap) || gap <= 0 || !Number.isFinite(lineY)) continue;
+    const distance = Math.abs(lineY - y);
+    if (distance > limit || distance >= bestDistance) continue;
+    best = gap;
+    bestDistance = distance;
+  }
+  return best;
+}
+
 // A separator is a bare separator. Some host rows (dsh-session-menu's icon
 // rows) put role="separator" on the wrapper that also owns their menuitem;
 // hiding that as a divider would delete the action from the menu, so a node
