@@ -23,6 +23,37 @@
 - **Concurrent host pushes are serialized by `updatedAt`**: simultaneous POSTs no longer all read
   the same old copy, so a later write with a smaller `updatedAt` is answered as `stale` and cannot
   overwrite a newer layout.
+- **A row-menu divider no longer follows its row**: the separators on screen are frozen into gap
+  indexes before the first arrangement (native ones hidden, plugin-drawn lines injected at their
+  positions, the pane switched to a flex column; native separators nested inside a row's own wrapper
+  are included too, since the whole pane is scanned instead of its direct children only), so a
+  divider is a position rather than a property of a row; a gap past the last row is no longer painted
+  either (the stored value is kept, so the divider returns with its rows). The injected line is our
+  own `div.dsrm-sep`, not a clone of the host separator: the host's
+  `separator + separator { display: none }` sibling rule hid the second of two adjacent clones, so
+  the screen showed one line while the store held three.
+- **The blue drop line is back in both menus**: the menu's glass layer (`_material`, spanning the
+  whole surface) was counted as one more row in the seam test, so every seam looked occupied and the
+  line never appeared; nodes covering the whole surface are now skipped by geometry, which restores
+  the line in the host context menu and in row-menu's menus alike.
+- **The blue drop line paints under the drag preview and shows through it**: line and preview have to
+  share the highest z-index on the page (the row-menu surface itself is 2147483647, so lowering either
+  one hides it behind the open menu), so the line is mounted first and the preview is appended last.
+  The preview is a half-transparent pane (`backdrop-filter: blur(0.5px) saturate(1.15) brightness(0.78)`,
+  50% fill), so a line under it reads as a dimmed, slightly softened blue bar instead of being cut off,
+  while the dragged row still never has the line running across it. Glyph-only previews
+  (`dso-ghost-flat`) stay fully transparent and unfiltered.
+- **A divider the menu already had can be removed by right-clicking it — and the one you hit is the
+  one that goes**: the hairline is 0.5px tall with 3px margins, so a right-click almost always lands
+  on the pane padding, where the old code found no row and swallowed the event. Resolving the seam
+  instead was still wrong: the host sometimes nests a separator **inside the following row's own
+  wrapper**, so "on the line" read as "on that row", resolved the seam below it (gap + 1) and added a
+  new line while the old one stayed. A line now always wins over a row: the nearest visible line
+  within ±4px of the pointer is the target (an injected line reports its own gap index, a shipped one
+  is resolved from the row middles measured at click time), and only a click away from every line
+  falls back to the row/seam rules; the set of shipped separators is also recomputed from live
+  geometry instead of the snapshot frozen when the menu opened, and a zero-height (hidden) line never
+  takes the hit (same for the host context menu and row-menu's menus).
 
 ## 0.10.0 — 2026-11-08
 
