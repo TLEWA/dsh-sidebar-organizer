@@ -3,7 +3,7 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
-## Unreleased
+## 0.10.1 — 2026-11-11
 
 - 接入 Codex PR 公共审阅规则与本仓重点，保留现有 CI、人工批准和发布行为。
 
