@@ -23,6 +23,15 @@
 - **Concurrent host pushes are serialized by `updatedAt`**: simultaneous POSTs no longer all read
   the same old copy, so a later write with a smaller `updatedAt` is answered as `stale` and cannot
   overwrite a newer layout.
+- **A row-menu divider no longer follows its row**: the separators on screen are frozen into gap
+  indexes before the first arrangement (native ones hidden, clones injected at their positions, the
+  pane switched to a flex column), so a divider is a position rather than a property of a row; a gap
+  past the last row is no longer painted either (the stored value is kept, so the divider returns
+  with its rows).
+- **The blue drop line is back in both menus**: the menu's glass layer (`_material`, spanning the
+  whole surface) was counted as one more row in the seam test, so every seam looked occupied and the
+  line never appeared; nodes covering the whole surface are now skipped by geometry, which restores
+  the line in the host context menu and in row-menu's menus alike.
 
 ## 0.10.0 — 2026-11-08
 

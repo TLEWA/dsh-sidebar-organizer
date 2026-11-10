@@ -101,6 +101,9 @@ composer dock, session header, right sidebar, and settings navigation.
   entry onto the first level creates a clickable row of the same name (drag it back to undo), and
   "Restore session menu only" in the settings page returns it to the header order. No
   dsh.sidebar-row-menu.* storage key is ever written, and the "Context menus" switch still gates it.
+  Dividers in that menu are stored by position too: opening it first freezes row-menu's own separators
+  into gap indexes, so after that a dragged row no longer carries its divider along (the same rule the
+  context menu applies when it is first edited).
 - **Settings page**: DSH Settings → "Layout organizer", or this plugin's detail
   page. Seven location cards let you drag rows, move up/down, tuck/restore, and
   reset one section. Each card has its own "Drag" switch: turn it off and that
@@ -309,6 +312,16 @@ the page. Since 0.2.0 the mechanism is different:
   left completely alone until customized; "More actions" writes this plugin's `host-menu-order.v1`
   (the key row-menu's `orderMoreItems` reads); "Open with" lives in the `openwith` pane of
   `row-menu-layout.v1`. Only visual order changes — row-menu's React nodes are never moved.
+- Dividers and the drop line inside those menus (fixed in 0.10.1): row-menu renders a separator as a
+  sibling in front of the row it groups, and only rows are ordered, so a dragged row used to carry its
+  divider along. The fix mirrors the host context menu: before the first arrangement, the separators
+  that are on screen right then are frozen into gap indexes (native separators hidden, clones injected
+  at `2g-1`, and the pane gains the `.dso-rm-pane` flex column), so afterwards a divider is a position
+  and not a property of a row. A gap past the last row is no longer painted (the stored value is kept,
+  so the divider returns with its rows). The drop line only trusts boxes the host really paints: the
+  menu's glass layer (`_material`, spanning the whole menu) used to be counted as one more row in the
+  seam test, so every seam looked occupied and the blue line never appeared — nodes covering the whole
+  surface are now excluded by geometry (a node as large as a multi-row menu cannot be one of its rows).
 - Context-menu details (0.9.4): the host renders a submenu inside its row button (the panel is a
   sibling of the button), so a press is first matched with `role=menuitem` against the row's own
   button and anything inside the submenu is handed back to the host; the popup clones the whole
