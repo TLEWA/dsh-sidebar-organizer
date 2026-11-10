@@ -36,6 +36,10 @@
   whole surface) was counted as one more row in the seam test, so every seam looked occupied and the
   line never appeared; nodes covering the whole surface are now skipped by geometry, which restores
   the line in the host context menu and in row-menu's menus alike.
+- **The blue drop line now paints under the drag preview**: line and preview have to share the highest
+  z-index on the page (the row-menu surface itself is 2147483647, so lowering either one hides it
+  behind the open menu), so the line is mounted first and the preview is appended last — at equal
+  z-index the later node wins, keeping the line above the menu but behind the row being dragged.
 - **A divider the menu already had can be removed by right-clicking it — and the one you hit is the
   one that goes**: the hairline is 0.5px tall with 3px margins, so a right-click almost always lands
   on the pane padding, where the old code found no row and swallowed the event. Resolving the seam

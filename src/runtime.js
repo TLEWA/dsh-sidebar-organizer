@@ -4977,8 +4977,13 @@ function createRuntime(ctx) {
       /* pointer capture is an enhancement, not a requirement */
     }
     element.classList.add("dso-dragging");
-    gesture.ghost = createGhost(element, rect);
+    // The drop line is mounted BEFORE the drag preview on purpose: both use
+    // GHOST_Z because that is exactly the row-menu surface's level (nothing
+    // lower would clear the open menu), and at equal z-index the element later
+    // in the tree paints on top. Appending the line second drew it straight
+    // across the ghost whenever the drop gap fell inside the dragged row.
     gesture.indicator = createIndicator();
+    gesture.ghost = createGhost(element, rect);
     if (gesture.ghost) {
       gesture.offsetX = gesture.startX - rect.left;
       gesture.offsetY = gesture.startY - rect.top;
