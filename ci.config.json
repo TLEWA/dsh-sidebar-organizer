@@ -10,8 +10,10 @@
     "mode": "git-diff"
   },
   "typecheck": null,
-  "test": null,
-  "testGlobs": [],
+  "test": "npm test",
+  "testGlobs": [
+    "test/**/*.test.mjs"
+  ],
   "manifest": {
     "manifestVersion": 1,
     "requireEnginesNode": true,

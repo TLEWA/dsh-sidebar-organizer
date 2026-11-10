@@ -3,6 +3,40 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## Unreleased
+
+- 系统修复不再冒充用户编辑：id 迁移、投影回写与顺序补登记只写本地存储，不再抬高同步时间戳，
+  也不会把陈旧布局推上宿主覆盖另一窗口较新的编辑；只有用户操作与「恢复默认」才上传。
+- 跨窗口同步保留 v4 别名表：宿主存取布局时不再丢掉 `aliases`，拉到宿主布局后行改名映射仍然有效。
+- 逃生开关真正关掉同步：调用 `disable()` 会立刻停止跨窗口拉取/上传，禁用状态下重新加载也不会同步。
+- 宿主的损坏 `layout.json` 不再被当成「没有布局」：读取或写入时先把它改名为
+  `layout.json.corrupt-<时间戳>` 保留现场，并返回 5xx（`layout-corrupt`），避免下一次上传
+  静默覆盖唯一副本。
+- 本地布局主键损坏时先从 `v3-backup` 快照恢复，恢复不了才重置；坏值另存为
+  `*.corrupt-<时间戳>` 并告警，空布局写入也不再覆盖仍含布局的备份。
+- 宿主的并发上传按 `updatedAt` 串行落盘：同一瞬间的多个 POST 不再都读到旧副本，较小
+  `updatedAt` 的后写会被判为 `stale`，不会覆盖较新布局。
+
+### English
+
+- **System repairs no longer masquerade as user edits**: id migration, projection write-back and
+  appended-order registration touch local storage only — they neither raise the sync timestamp nor
+  push a stale layout over a newer edit from another window; only user actions and "reset" upload.
+- **Cross-window sync keeps the v4 alias table**: the host no longer drops `aliases` when it reads or
+  writes a layout, so a row renamed by the host still maps to its saved id after the layout is adopted.
+- **The escape hatch really stops syncing**: `disable()` now stops cross-window pull/push immediately,
+  and a reload while disabled no longer syncs either.
+- **A corrupt host `layout.json` is no longer treated as "no layout yet"**: reads and writes first keep
+  the file as `layout.json.corrupt-<timestamp>` and answer 5xx (`layout-corrupt`), so the next push
+  cannot silently overwrite the only copy.
+- **A corrupt local layout key is restored from its backup first**: when the primary key no longer
+  parses, the `v3-backup` snapshot is loaded before falling back to a reset; unusable raw values are
+  kept under `*.corrupt-<timestamp>` with a warning, and an empty write no longer replaces a backup
+  that still holds a layout.
+- **Concurrent host pushes are serialized by `updatedAt`**: simultaneous POSTs no longer all read
+  the same old copy, so a later write with a smaller `updatedAt` is answered as `stale` and cannot
+  overwrite a newer layout.
+
 ## 0.10.0 — 2026-11-08
 
 这一版把「行的身份」从文案里解耦：宿主给某一行加的实时计数、状态后缀、翻译改动，不再让已保存的

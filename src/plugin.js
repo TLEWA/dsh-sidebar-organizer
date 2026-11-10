@@ -248,6 +248,7 @@ function apply(ctx) {
         /* ignore */
       }
       if (runtime) runtime.stop();
+      stopHostSync();
     },
     dispose: () => {
       if (runtime) runtime.stop();
