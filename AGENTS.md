@@ -13,16 +13,19 @@
 
 ## 本仓库专属
 
-`dsh-sidebar-organizer` 没有自动化测试；`lib/client.js` 由 `scripts/build.mjs` 把 `src/`
-按固定 MODULES 顺序拼成经典脚本，`lib/index.js` 是宿主源码。
+`lib/client.js` 由 `scripts/build.mjs` 把 `src/` 按固定 MODULES 顺序拼成经典脚本，
+`lib/index.js` 是宿主源码。本仓已有 `node:test` 测试：`npm test`，覆盖系统修复、
+host aliases、disable sync、损坏布局、备份恢复与写入串行化。
 
 - 绝不手改 `lib/client.js`；改 `src/` 后 `npm run build`，提交构建产物。新增源文件必须插到
   `MODULES` 的正确依赖位置。
 - 构建会归一 CRLF、替换 `__VERSION__` / `__BUILD__` 并写内容哈希；`npm run check` 只做语法检查，
   不能替代浏览器回归。
-- 没有 `npm test`。改 UI/交互必须打开 `test/harness.html` 手工覆盖：七区域发现与顺序、持久化、
+- 改 UI/交互除 `npm test` 外，还必须打开 `test/harness.html` 手工覆盖：七区域发现与顺序、持久化、
   v4 迁移、收纳、设置页、菜单拖动、导入导出、dispose。
 - 布局存储是 v4（scopes + aliases）；迁移和稳定 id 是兼容性契约，不能静默重置用户布局。
+- host 归一化必须保留 v4 per-scope aliases；任何 layout 读写都不得静默重置 aliases。
+- CDP 前备份 `$DSH_HOME/storages/dsh-sidebar-organizer/layout.json`；旧版 host 会在加载时丢掉 aliases。
 - 跨窗口同步走 `POST/GET /api/dsh-sidebar-organizer/layout`；宿主只允许 owner 写
   `$DSH_HOME/storages/dsh-sidebar-organizer/layout.json`，用临时文件 + rename 原子替换。
 - 被整理的插槽只读：只写 inline order/display，不重建/不改宿主节点；注册必须静态、幂等，
@@ -41,9 +44,23 @@
 ```bash
 npx --yes --package=github:TLEWA/dsh-plugin-ci#v1 dsh-ci-gate
 npm run build
+npm test
 npm run check
 ```
 
 ## 发布
 
 只由维护者打 tag 触发 `release.yml`。模型不得执行 `npm publish`、不得改版本号（除非在 `release/` 分支上且被明确要求）。
+
+<!-- dsh-review-policy:v1:start -->
+## Code Review Rules
+
+- 用中文报告可证明的严重缺陷，写清触发条件、实际影响和最小相关代码位置；避免风格建议及重复 CI 已完成的机械检查。未返回审阅结果不表示通过。
+- 检查宿主兼容性与用户数据边界：插件不得意外改变非目标请求、消息、配置或持久化数据；判断影响时遵守本仓明确记录的兼容例外。
+- 检查异常、取消、卸载与重复初始化路径：钩子、监听器和共享状态应正确清理；失败回退不得造成重复执行、数据丢失或泄漏敏感信息。
+- 审阅只发表意见。不得自动修复、添加人工批准标签、合并、改版本或发布；保留现有 CI 与人工批准流程。
+<!-- dsh-review-policy:v1:end -->
+
+### 本仓审阅重点
+
+- 布局迁移与读写必须保留 v4 scopes、稳定 id 和 aliases；只调整宿主节点 order/display，跨窗口持久化不得丢失布局或覆盖 row-menu 存储。

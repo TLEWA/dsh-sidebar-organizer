@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Adopt shared Codex PR review rules and repository-specific review guidance; preserve existing CI, human approval, and release behavior.
+
 ### English
 
 - **System repairs no longer masquerade as user edits**: id migration, projection write-back and
