@@ -32,6 +32,11 @@
   whole surface) was counted as one more row in the seam test, so every seam looked occupied and the
   line never appeared; nodes covering the whole surface are now skipped by geometry, which restores
   the line in the host context menu and in row-menu's menus alike.
+- **A divider the menu already had can be removed by right-clicking it**: the hairline is 0.5px tall
+  with 3px margins, so a right-click almost always lands on the pane padding, where the old code
+  found no row and swallowed the event without doing anything. The pane is now resolved from the
+  pointer: a click in the seam between two rows toggles that seam's divider, and only a click inside
+  a row keeps the "divider underneath" rule (same for the host context menu and row-menu's menus).
 
 ## 0.10.0 — 2026-11-08
 
