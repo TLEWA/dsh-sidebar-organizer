@@ -17,9 +17,13 @@ const CSS = `
   box-sizing: border-box;
   pointer-events: none;
   z-index: ${GHOST_Z};
-  opacity: 0.96;
+  /* A frosted pane, not an opaque tile: the drop line lives on the same
+     z-index and is mounted under the preview, so the preview samples it
+     through this filter instead of cutting it off. */
+  -webkit-backdrop-filter: blur(0.5px) saturate(1.15) brightness(0.78);
+  backdrop-filter: blur(0.5px) saturate(1.15) brightness(0.78);
   border-radius: var(--dsw-radius-md, 6px);
-  background: var(--dsw-specific-sidebar-fill, rgba(24, 24, 27, 0.92));
+  background: var(--dso-ghost-fill, rgba(24, 24, 27, 0.5)) !important;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.16);
   transform: scale(1.03);
 }
@@ -29,6 +33,8 @@ const CSS = `
 .dso-ghost.dso-ghost-flat {
   background: transparent !important;
   box-shadow: none !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .dso-indicator {
   position: fixed;
