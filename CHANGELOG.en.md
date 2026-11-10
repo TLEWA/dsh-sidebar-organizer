@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### English
+
+- **System repairs no longer masquerade as user edits**: id migration, projection write-back and
+  appended-order registration touch local storage only — they neither raise the sync timestamp nor
+  push a stale layout over a newer edit from another window; only user actions and "reset" upload.
+- **Cross-window sync keeps the v4 alias table**: the host no longer drops `aliases` when it reads or
+  writes a layout, so a row renamed by the host still maps to its saved id after the layout is adopted.
+- **The escape hatch really stops syncing**: `disable()` now stops cross-window pull/push immediately,
+  and a reload while disabled no longer syncs either.
+- **A corrupt host `layout.json` is no longer treated as "no layout yet"**: reads and writes first keep
+  the file as `layout.json.corrupt-<timestamp>` and answer 5xx (`layout-corrupt`), so the next push
+  cannot silently overwrite the only copy.
+- **A corrupt local layout key is restored from its backup first**: when the primary key no longer
+  parses, the `v3-backup` snapshot is loaded before falling back to a reset; unusable raw values are
+  kept under `*.corrupt-<timestamp>` with a warning, and an empty write no longer replaces a backup
+  that still holds a layout.
+- **Concurrent host pushes are serialized by `updatedAt`**: simultaneous POSTs no longer all read
+  the same old copy, so a later write with a smaller `updatedAt` is answered as `stale` and cannot
+  overwrite a newer layout.
+
 ## 0.10.0 — 2026-11-08
 
 ### English

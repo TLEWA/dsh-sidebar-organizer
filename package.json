@@ -25,6 +25,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "node --check lib/client.js && node --check lib/index.js",
+    "test": "node --test",
     "prepublishOnly": "npx --yes --package=github:TLEWA/dsh-plugin-ci#v1 dsh-ci-gate --prepublish",
     "prepack": "npm run build && npm run check"
   },

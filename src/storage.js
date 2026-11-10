@@ -70,7 +70,11 @@ function normalizeLayoutState(value) {
       const next = normalizeScopeLayout(value.scopes[scope]);
       if (next.order.length || next.hidden.length) state.scopes[scope] = next;
     }
-    state.aliases = normalizeAliases(value.aliases);
+    const aliases = value.aliases && typeof value.aliases === "object" && !Array.isArray(value.aliases) ? value.aliases : {};
+    for (const scope of Object.keys(aliases)) {
+      const next = normalizeAliases(aliases[scope]);
+      if (Object.keys(next).length) state.aliases[scope] = next;
+    }
     return state;
   }
 
@@ -82,28 +86,101 @@ function normalizeLayoutState(value) {
   return state;
 }
 
+function parseStoredState(raw) {
+  if (!raw) return { status: "missing" };
+  try {
+    const parsed = JSON.parse(raw);
+    return { status: "ok", parsed, state: normalizeLayoutState(parsed) };
+  } catch (err) {
+    return { status: "corrupt", raw, error: err };
+  }
+}
+
+// Keep the raw value under a key writeState never touches, so a reset cannot
+// destroy the only evidence of what went wrong.
+function keepCorruptValue(baseKey, raw) {
+  const stamp = Date.now();
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const key = `${baseKey}.corrupt-${stamp + attempt}`;
+    try {
+      window.localStorage.setItem(key, raw);
+      return key;
+    } catch (err) {
+      // Quota or privacy errors will not get better under another name.
+      return null;
+    }
+  }
+  return null;
+}
+
+function warnCorruptLayout(message) {
+  try {
+    console.warn("[dsh-sidebar-organizer] " + message);
+  } catch (err) {
+    /* console may be unavailable */
+  }
+}
+
+function recoverFromCorruptPrimary(raw) {
+  let backup = { status: "missing" };
+  try {
+    backup = parseStoredState(window.localStorage.getItem(LAYOUT_BACKUP_KEY));
+  } catch (err) {
+    /* storage may be unavailable */
+  }
+  // The backup is a full snapshot written beside every save; prefer it over
+  // wiping every scope and alias because the primary key lost a byte.
+  if (backup.status === "ok") {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(backup.state));
+    } catch (err) {
+      /* keep the restored copy in memory */
+    }
+    warnCorruptLayout("layout store was corrupt; restored the backup copy");
+    layoutCache = backup.state;
+    return layoutCache;
+  }
+  const primaryKey = keepCorruptValue(STORAGE_KEY, raw);
+  let backupKey = null;
+  if (backup.status === "corrupt") backupKey = keepCorruptValue(LAYOUT_BACKUP_KEY, backup.raw);
+  warnCorruptLayout(
+    "layout store is corrupt and the backup is unusable; resetting" +
+      (primaryKey ? " (kept as " + primaryKey + ")" : "") +
+      (backupKey ? " (backup kept as " + backupKey + ")" : "")
+  );
+  layoutCache = emptyLayoutState();
+  return layoutCache;
+}
+
 function readState() {
   if (layoutCache) return layoutCache;
-  let parsed = null;
+  let primary = { status: "missing" };
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      parsed = JSON.parse(raw);
+      primary = parseStoredState(raw);
     } else {
       const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY);
       if (legacy) {
-        parsed = JSON.parse(legacy);
-        try {
-          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-        } catch (err) {
-          /* ignore quota / privacy errors */
+        primary = parseStoredState(legacy);
+        if (primary.status === "ok") {
+          try {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(primary.parsed));
+          } catch (err) {
+            /* ignore quota / privacy errors */
+          }
         }
       }
     }
   } catch (err) {
-    parsed = null;
+    /* localStorage unavailable; behave like an empty store */
   }
-  layoutCache = restoreFromBackup(parsed) || normalizeLayoutState(parsed);
+  if (primary.status === "corrupt") return recoverFromCorruptPrimary(primary.raw);
+  if (primary.status !== "ok") {
+    layoutCache = emptyLayoutState();
+    return layoutCache;
+  }
+  layoutCache = restoreFromBackup(primary.parsed) || primary.state;
   return layoutCache;
 }
 
@@ -146,12 +223,27 @@ function cloneState(state) {
   return next;
 }
 
+function backupStillHasLayout() {
+  try {
+    const raw = window.localStorage.getItem(LAYOUT_BACKUP_KEY);
+    if (!raw) return false;
+    return hasLayoutContent(JSON.parse(raw));
+  } catch (err) {
+    return false;
+  }
+}
+
 function writeState(state) {
   layoutCache = cloneState(state);
   const serialized = JSON.stringify(layoutCache);
   try {
     window.localStorage.setItem(STORAGE_KEY, serialized);
-    window.localStorage.setItem(LAYOUT_BACKUP_KEY, serialized);
+    // A failed read can hand us an empty state; trading the safety copy for it
+    // would erase the last recoverable layout. A real layout (or no backup at
+    // all) refreshes the backup.
+    if (hasLayoutContent(layoutCache) || !backupStillHasLayout()) {
+      window.localStorage.setItem(LAYOUT_BACKUP_KEY, serialized);
+    }
   } catch (err) {
     /* storage may be unavailable; keep the in-memory copy */
   }

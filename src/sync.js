@@ -101,13 +101,18 @@ function syncFailure(error) {
 
 // Called by every local mutation (storage.js). `options.user` marks a change the
 // user made; only those are worth publishing, and only they flip the
-// "customized" flag this whole merge rule hangs on.
+// "customized" flag this whole merge rule hangs on. System repairs (id
+// migration, projection write-back, appended-order fixes) write storage too,
+// but they are not a new revision of the layout: publishing them would make a
+// stale local copy look newer than another window's edit and overwrite it.
 function noteLocalChange(options) {
   const user = Boolean(options && options.user);
+  const reset = Boolean(options && options.reset === true);
   if (user) markLayoutCustomized();
+  if (reset) syncResetQueued = true;
+  if (!user && !reset) return;
   syncDiag.state = syncDiag.state === "idle" ? "pending" : syncDiag.state;
   writeSyncMeta(syncMeta({ updatedAt: Date.now() }));
-  if (options && options.reset === true) syncResetQueued = true;
   if ((user || syncResetQueued) && isCrossWindowEnabled()) scheduleHostPush(SYNC_PUSH_DELAY_MS);
 }
 
@@ -317,8 +322,25 @@ function setCrossWindowEnabled(enabled) {
   return next;
 }
 
+// The escape hatch sets a storage key and reloads; a boot while it is set must
+// not pull (and later push) a layout behind the user's back.
+function pluginDisabled() {
+  try {
+    return (
+      window.localStorage.getItem(DISABLED_KEY) === "1" ||
+      window.localStorage.getItem(LEGACY_DISABLED_KEY) === "1"
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
 function startHostSync() {
   if (syncStarted) return;
+  if (pluginDisabled()) {
+    syncDiag.state = "disabled";
+    return;
+  }
   syncStarted = true;
   document.addEventListener("visibilitychange", onSyncWake);
   window.addEventListener("focus", onSyncWake);
@@ -330,6 +352,9 @@ function startHostSync() {
   // order the host registered is known before deciding whether this window
   // holds a hand-made layout (see layoutArrangedByUser).
   const begin = () => {
+    // disable() can run before this frame: stopHostSync() has already flipped
+    // the flag, so the pending first pull must not fire.
+    if (!syncStarted) return;
     const meta = readSyncMeta();
     // A window that never synced may still hold a hand-made layout: 0.7.1 and
     // older had nowhere else to put one, so its copy is the only surviving
