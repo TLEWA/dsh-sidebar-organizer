@@ -32,11 +32,17 @@
   whole surface) was counted as one more row in the seam test, so every seam looked occupied and the
   line never appeared; nodes covering the whole surface are now skipped by geometry, which restores
   the line in the host context menu and in row-menu's menus alike.
-- **A divider the menu already had can be removed by right-clicking it**: the hairline is 0.5px tall
-  with 3px margins, so a right-click almost always lands on the pane padding, where the old code
-  found no row and swallowed the event without doing anything. The pane is now resolved from the
-  pointer: a click in the seam between two rows toggles that seam's divider, and only a click inside
-  a row keeps the "divider underneath" rule (same for the host context menu and row-menu's menus).
+- **A divider the menu already had can be removed by right-clicking it — and the one you hit is the
+  one that goes**: the hairline is 0.5px tall with 3px margins, so a right-click almost always lands
+  on the pane padding, where the old code found no row and swallowed the event. Resolving the seam
+  instead was still wrong: the host sometimes nests a separator **inside the following row's own
+  wrapper**, so "on the line" read as "on that row", resolved the seam below it (gap + 1) and added a
+  new line while the old one stayed. A line now always wins over a row: the nearest visible line
+  within ±4px of the pointer is the target (an injected line reports its own gap index, a shipped one
+  is resolved from the row middles measured at click time), and only a click away from every line
+  falls back to the row/seam rules; the set of shipped separators is also recomputed from live
+  geometry instead of the snapshot frozen when the menu opened (same for the host context menu and
+  row-menu's menus).
 
 ## 0.10.0 — 2026-11-08
 
