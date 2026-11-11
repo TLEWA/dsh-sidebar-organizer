@@ -50,6 +50,11 @@ let syncPushRunning = false;
 let syncPushQueued = false;
 let syncResetQueued = false;
 let syncPullAttempts = 0;
+// Bumped by startHostSync()/stopHostSync(). A request still in flight when the
+// sync is torn down (hot reload, disable()) compares its captured epoch before
+// every write and timer: an AbortController would only cancel the fetch, and the
+// catch branch would still re-arm the retry timer.
+let syncEpoch = 0;
 let syncLastWakeAt = 0;
 const syncDiag = {
   state: "idle",
@@ -156,6 +161,7 @@ async function pushHostLayout(force) {
   }
   syncPushRunning = true;
   syncResetQueued = false;
+  const epoch = syncEpoch;
   const meta = readSyncMeta();
   const updatedAt = Number(meta.updatedAt) || Date.now();
   try {
@@ -165,8 +171,10 @@ async function pushHostLayout(force) {
       body: JSON.stringify({ layout: stateSnapshot(), updatedAt, reset }),
       cache: "no-store",
     });
+    if (epoch !== syncEpoch) return false;
     if (!response.ok) throw new Error("HTTP " + response.status);
     const body = await response.json();
+    if (epoch !== syncEpoch) return false;
     syncDiag.pushes += 1;
     syncDiag.state = "ready";
     syncDiag.lastError = null;
@@ -178,14 +186,19 @@ async function pushHostLayout(force) {
     }
     writeSyncMeta(syncMeta({ updatedAt: remoteAt || updatedAt, syncedAt: Date.now() }));
   } catch (error) {
+    if (epoch !== syncEpoch) return false;
     syncFailure(error);
     syncResetQueued = syncResetQueued || reset;
     scheduleHostPush(SYNC_RETRY_MS);
   } finally {
-    syncPushRunning = false;
-    if (syncPushQueued) {
-      syncPushQueued = false;
-      scheduleHostPush(SYNC_PUSH_DELAY_MS);
+    // Once the epoch moved on a newer generation owns these flags; resetting
+    // them here would unblock the push it is currently running.
+    if (epoch === syncEpoch) {
+      syncPushRunning = false;
+      if (syncPushQueued) {
+        syncPushQueued = false;
+        scheduleHostPush(SYNC_PUSH_DELAY_MS);
+      }
     }
   }
 }
@@ -196,20 +209,31 @@ async function pullHostLayout() {
     return false;
   }
   const meta = readSyncMeta();
+  const startedAt = Number(meta.updatedAt) || 0;
+  const epoch = syncEpoch;
   try {
     const response = await fetch(SYNC_ROUTE, {
       method: "GET",
       headers: { accept: "application/json" },
       cache: "no-store",
     });
+    if (epoch !== syncEpoch) return false;
     if (!response.ok) throw new Error("HTTP " + response.status);
     const body = await response.json();
+    if (epoch !== syncEpoch) return false;
     syncDiag.pulls += 1;
     syncDiag.state = "ready";
     syncDiag.lastError = null;
     syncPullAttempts = 0;
     const remoteAt = Number(body && body.updatedAt) || 0;
-    const localAt = Number(meta.updatedAt) || 0;
+    // Read the local revision after the await: a drag made while the request was
+    // open is newer than anything this response can carry, and must not be
+    // overwritten by an older host copy.
+    const localAt = Number(readSyncMeta().updatedAt) || 0;
+    if (localAt !== startedAt) {
+      syncDiag.state = "local-newer";
+      return false;
+    }
 
     if (!body || !body.layout || !hasLayoutContent(body.layout)) {
       // A host without a copy never overrides what this window already shows.
@@ -229,6 +253,7 @@ async function pullHostLayout() {
     }
     return adoptHostLayout(body.layout, remoteAt);
   } catch (error) {
+    if (epoch !== syncEpoch) return false;
     syncFailure(error);
     if (syncPullAttempts < SYNC_PULL_RETRY_LIMIT) {
       // The host route may not be mounted yet while the app is still booting.
@@ -306,11 +331,20 @@ function setCrossWindowEnabled(enabled) {
   if (next) {
     syncDiag.state = "idle";
     syncForceAdopt = true;
+    const epoch = syncEpoch;
     pullHostLayout().then((adopted) => {
+      if (epoch !== syncEpoch || !syncStarted) {
+        syncForceAdopt = false;
+        return;
+      }
       syncForceAdopt = false;
       if (!adopted && isLayoutCustomized()) scheduleHostPush(SYNC_PUSH_DELAY_MS);
     });
   } else {
+    // Turning sharing off also invalidates the requests already in flight, so a
+    // pull or push that finishes later cannot write behind the switch.
+    syncEpoch += 1;
+    syncPushRunning = false;
     if (syncPushTimer) {
       window.clearTimeout(syncPushTimer);
       syncPushTimer = 0;
@@ -342,6 +376,10 @@ function startHostSync() {
     return;
   }
   syncStarted = true;
+  syncEpoch += 1;
+  // A push left running by a previous instance must not block this one.
+  syncPushRunning = false;
+  syncPushQueued = false;
   document.addEventListener("visibilitychange", onSyncWake);
   window.addEventListener("focus", onSyncWake);
   if (!isCrossWindowEnabled()) {
@@ -368,8 +406,10 @@ function startHostSync() {
       syncClaiming = true;
     }
     writeSyncMeta(syncMeta());
+    const epoch = syncEpoch;
     pullHostLayout().then((adopted) => {
       syncClaiming = false;
+      if (epoch !== syncEpoch || !syncStarted) return;
       if (adopted) return;
       if (preSyncWork) {
         scheduleHostPush(SYNC_PUSH_DELAY_MS, true);
@@ -388,6 +428,8 @@ function startHostSync() {
 function stopHostSync() {
   if (!syncStarted) return;
   syncStarted = false;
+  // Invalidate the continuations of requests that are already in flight.
+  syncEpoch += 1;
   document.removeEventListener("visibilitychange", onSyncWake);
   window.removeEventListener("focus", onSyncWake);
   if (syncPushTimer) {
@@ -400,6 +442,7 @@ function stopHostSync() {
     window.clearTimeout(syncPullTimer);
     syncPullTimer = 0;
   }
+  syncPushRunning = false;
   syncPushQueued = false;
   syncResetQueued = false;
   syncPullAttempts = 0;
