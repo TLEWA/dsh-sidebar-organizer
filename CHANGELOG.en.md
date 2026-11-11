@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+- **A stale host copy no longer overwrites a drag made while the pull was in flight**: if the local
+  layout changed before the response arrived, that response is treated as local-newer and dropped,
+  and the edit is published by this window's own push.
+- **Teardown cancels in-flight sync**: after `disable()`, turning the switch off, or a hot reload, a late response no longer
+  writes the layout or its backup, and the failure branch no longer re-arms the retry timer, so a
+  disabled plugin cannot keep syncing in the background.
+- The plugin index copy for `dsh-utf8-output` now says `GBK/CP936/GB18030`, matching the encodings
+  it actually implements.
+
 ## 0.10.1 — 2026-11-11
 
 - Adopt shared Codex PR review rules and repository-specific review guidance; preserve existing CI, human approval, and release behavior.
