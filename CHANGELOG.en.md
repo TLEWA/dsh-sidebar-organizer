@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.0] - 2026-11-11
 
 - **A stopped sync no longer posts a leftover layout**: when the boot pull's "the host has no copy" result
   arrives after teardown, its continuation no longer arms a push timer (it used to POST the layout 350 ms

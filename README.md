@@ -50,7 +50,7 @@
 也可以直接粘贴 Git 地址（使用仓库里已构建好的 `lib/`，无需在本机构建）：
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.10.0
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.11.0
 ```
 
 ### 从 npm 安装
