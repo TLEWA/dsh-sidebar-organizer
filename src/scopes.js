@@ -1,7 +1,7 @@
 /* Discover the six host regions and pair their DOM rows with stable ids. */
 
 const SCOPE_DEFS = [
-  { key: "sidebar", axis: "y", more: true, slot: PANEL_SLOT, selector: '[data-slot="sidebar.panellist"]' },
+  { key: "sidebar", axis: "y", more: true, slot: PANEL_SLOT, selector: '[data-slot="sidebar.panellist"], [data-slot="sidebar.panel.icon"]' },
   { key: "footer", axis: "x", more: true, slot: FOOTER_SLOT, selector: '[data-slot="sidebar.footer.action"]' },
   { key: "tabs", axis: "x", more: true, slot: TABS_SLOT, selector: "[data-conversation-tabs]" },
   { key: "composer", axis: "x", more: true, slot: COMPOSER_SLOT, selector: '[data-slot="conversation.composer.dock"]' },
@@ -292,21 +292,29 @@ function assignIds(rows, entries, scope) {
 }
 
 function collectSidebar(ctx) {
-  // `sidebar.panellist` is the slot for each panel's icon, so the outlet lives
-  // INSIDE the row button. Walking out from it is the only reliable way to find
-  // the panel list itself; a generic "nav with buttons" scan can otherwise pick
-  // the workspace/session nav and reorder user sessions along with panels.
-  const outlet = document.querySelector('[data-slot="sidebar.panellist"]');
+  // The panel icon slot lives INSIDE the row button in every host so far, so
+  // walking out from it is the only reliable way to find the panel list itself;
+  // a generic "nav with buttons" scan can otherwise pick the workspace/session
+  // nav and reorder user sessions along with panels. 0.2.2-rc.2 renamed the
+  // rendered slot to `sidebar.panel.icon` and wrapped each button in a
+  // `div.panelEntry`, while plugins still register into `sidebar.panellist`;
+  // accept both outlet names and take the enclosing nav first.
+  const outlet = document.querySelector('[data-slot="sidebar.panellist"], [data-slot="sidebar.panel.icon"]');
   let container = null;
   // How the container was found is part of the structure audit: the fallbacks
   // below widen the guess, and a guess that starts being used silently is the
   // first sign that the host moved the list.
   let via = "slot";
   if (outlet) {
-    const rowButton = outlet.closest("button");
-    via = rowButton ? "slot-button-parent" : "slot-parent";
-    container = (rowButton && rowButton.parentElement) || outlet.closest("nav") || outlet.parentElement;
-    if (!rowButton && outlet.closest("nav")) via = "slot-nav";
+    const nav = outlet.closest("nav");
+    if (nav) {
+      container = nav;
+      via = "slot-nav";
+    } else {
+      const rowButton = outlet.closest("button");
+      via = rowButton ? "slot-button-parent" : "slot-parent";
+      container = (rowButton && rowButton.parentElement) || outlet.parentElement;
+    }
   }
   if (!container) {
     container = document.querySelector('nav[class*="panelList"], [class*="panelList"]');
