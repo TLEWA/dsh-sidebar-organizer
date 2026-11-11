@@ -140,3 +140,24 @@ test("O-10: a push that fails after stopHostSync does not re-arm the retry timer
 
   assert.equal(env.clock.pending(), 0, "a push retry timer survived teardown");
 });
+
+
+test("O-10: a pull that lands after stopHostSync does not schedule a push", async () => {
+  const env = createClientEnv({ modules: ["constants.js", "storage.js", "sync.js"] });
+  const pending = deferred();
+  env.setFetchHandler(() => pending.promise);
+  env.storage.setItem(CUSTOMIZED_KEY, "1");
+  env.storage.setItem(SYNC_KEY, JSON.stringify({ updatedAt: 100, client: "seed", syncedAt: 0 }));
+
+  await boot(env);
+  assert.equal(env.fetchCalls.length, 1, "the boot pull did not start");
+
+  // The window holds a hand-made layout, so "the host has no copy" would make
+  // the boot continuation publish it - unless the epoch says it was stopped.
+  env.dso.stopHostSync();
+  pending.resolve({ ok: true, status: 200, json: async () => ({ ok: true, updatedAt: 0, layout: null }) });
+  await env.flush();
+
+  assert.equal(env.clock.pending(), 0, "a pull stopped by teardown armed a push timer");
+  assert.equal(env.fetchCalls.length, 1, "a stopped pull posted the layout");
+});

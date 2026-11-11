@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- **A stopped sync no longer posts a leftover layout**: when the boot pull's "the host has no copy" result
+  arrives after teardown, its continuation no longer arms a push timer (it used to POST the layout 350 ms
+  after the plugin was disabled).
 - **A stale host copy no longer overwrites a drag made while the pull was in flight**: if the local
   layout changed before the response arrived, that response is treated as local-newer and dropped,
   and the edit is published by this window's own push.

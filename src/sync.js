@@ -331,7 +331,12 @@ function setCrossWindowEnabled(enabled) {
   if (next) {
     syncDiag.state = "idle";
     syncForceAdopt = true;
+    const epoch = syncEpoch;
     pullHostLayout().then((adopted) => {
+      if (epoch !== syncEpoch || !syncStarted) {
+        syncForceAdopt = false;
+        return;
+      }
       syncForceAdopt = false;
       if (!adopted && isLayoutCustomized()) scheduleHostPush(SYNC_PUSH_DELAY_MS);
     });
@@ -401,8 +406,10 @@ function startHostSync() {
       syncClaiming = true;
     }
     writeSyncMeta(syncMeta());
+    const epoch = syncEpoch;
     pullHostLayout().then((adopted) => {
       syncClaiming = false;
+      if (epoch !== syncEpoch || !syncStarted) return;
       if (adopted) return;
       if (preSyncWork) {
         scheduleHostPush(SYNC_PUSH_DELAY_MS, true);
