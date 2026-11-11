@@ -3,6 +3,26 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## [Unreleased]
+
+- 适配 DSH 0.2.2-rc.2 的侧栏结构：每个面板从直接挂在 `nav` 下的按钮变成
+  `nav > div.panelEntry > button`，面板图标槽也从 `sidebar.panellist` 改为 `sidebar.panel.icon`。
+  侧栏区域现在同时识别 rc.1 与 rc.2 的槽名，并优先以面板列表所在的 `nav` 作为排序容器，
+  恢复 rc.2 下的排序、收纳与「更多」；rc.1 行为不变，未固定面板的已保存槽位也不会丢。
+  rc.2 宿主尚未发布，本轮由结构夹具与 `test/o11-rc2-sidebar-dom.test.mjs` 覆盖，
+  真机回归待发布后补。
+
+### English
+
+- Adapt to the DSH 0.2.2-rc.2 sidebar structure: each panel is now
+  `nav > div.panelEntry > button` instead of a button directly under `nav`, and the panel
+  icon slot moved from `sidebar.panellist` to `sidebar.panel.icon`. The sidebar scope now
+  recognises both slot names and resolves the enclosing `nav` panel list as its ordering
+  container first, restoring ordering, tucking and "More" on rc.2. rc.1 behaviour is unchanged,
+  and saved slots for unpinned panels are retained. The rc.2 host is not released yet; this is
+  covered by a structural fixture and `test/o11-rc2-sidebar-dom.test.mjs`, with real-host
+  regression pending that release.
+
 ## [0.11.0] - 2026-11-11
 
 - 停止同步后不再补发落单的上传：启动时那次「宿主没有副本」的判断如果晚于停用返回，它的后续不会再排一次
