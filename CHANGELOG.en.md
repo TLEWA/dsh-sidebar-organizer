@@ -1,17 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.1] - 2026-11-12
 
 ### English
 
 - Adapt to the DSH 0.2.2-rc.2 sidebar structure: each panel is now
-  `nav > div.panelEntry > button` instead of a button directly under `nav`, and the panel
-  icon slot moved from `sidebar.panellist` to `sidebar.panel.icon`. The sidebar scope now
-  recognises both slot names and resolves the enclosing `nav` panel list as its ordering
-  container first, restoring ordering, tucking and "More" on rc.2. rc.1 behaviour is unchanged,
-  and saved slots for unpinned panels are retained. The rc.2 host is not released yet; this is
-  covered by a structural fixture and `test/o11-rc2-sidebar-dom.test.mjs`, with real-host
-  regression pending that release.
+  `nav > div.panelEntry > button` instead of a button directly under `nav`. The sidebar scope
+  recognises both the `sidebar.panellist` and `sidebar.panel.icon` icon slot names and resolves
+  the enclosing `nav` panel list as its ordering container first, restoring ordering, tucking
+  and "More" on rc.2. rc.1 behaviour is unchanged, and saved slots for unpinned panels are
+  retained. Ordering, drag, persistence, reset and re-pinning were verified on a temporary web
+  host built from rc.2 source; the official rc.2 package is not released yet, so a regression
+  with the installed package is still pending.
 
 ## [0.11.0] - 2026-11-11
 

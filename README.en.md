@@ -147,7 +147,7 @@ Alternatively, paste the Git URL (it uses the already-built `lib/` in the reposi
 so no local build is needed):
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.11.0
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.11.1
 ```
 
 ### From npm
@@ -405,12 +405,12 @@ version rejection, and `dispose()` restoration).
 
 - DSH `>= 0.2.1-rc.3` (developed against `0.2.1-rc.5` and checked against the
   `0.2.2-rc.1` component sources and a 0.2.2-shaped harness).
-- DSH 0.2.2-rc.2 wraps every sidebar panel in `div.panelEntry` and moves the panel icon
-  slot from `sidebar.panellist` to `sidebar.panel.icon`. The plugin now recognises both
-  slot names and resolves the enclosing `nav` panel list as its ordering container first,
-  so sidebar ordering, tucking and "More" use one path on rc.1 and rc.2 alike. rc.2 is not
-  released yet; this change is covered by a structural fixture and contract tests, with
-  real-host regression pending that release.
+- DSH 0.2.2-rc.2 wraps every sidebar panel in `div.panelEntry`. The plugin recognises both the
+  `sidebar.panellist` and `sidebar.panel.icon` icon slot names and resolves the enclosing `nav`
+  panel list as its ordering container first, so sidebar ordering, tucking and "More" use one path
+  on rc.1 and rc.2 alike. Ordering, drag, persistence and re-pinning were verified on a temporary
+  web host built from rc.2 source; the official rc.2 package is not released yet, so a regression
+  with the installed package is still pending.
 - 0.2.2 inserted "Copy as Markdown" above download in the session header's shipped
   More menu. Pulled-out download/feedback shortcuts now identify actions by label
   and icon instead of menu position, so the shortcut follows its action when the

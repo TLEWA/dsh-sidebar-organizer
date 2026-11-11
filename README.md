@@ -50,7 +50,7 @@
 也可以直接粘贴 Git 地址（使用仓库里已构建好的 `lib/`，无需在本机构建）：
 
 ```
-git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.11.0
+git+https://github.com/TLEWA/dsh-sidebar-organizer.git#v0.11.1
 ```
 
 ### 从 npm 安装
@@ -268,10 +268,10 @@ npm run check
 
 - DSH `>= 0.2.1-rc.3`（在 `0.2.1-rc.5` 上开发，并对照 `0.2.2-rc.1` 的组件源码与
   0.2.2 结构夹具验证）。
-- DSH 0.2.2-rc.2 把侧栏每个面板包进 `div.panelEntry`，面板图标槽也从 `sidebar.panellist`
-  改为 `sidebar.panel.icon`。插件现在同时识别两种槽名，并优先向上找到面板列表所在的 `nav`
-  作为排序容器，因此 rc.1 与 rc.2 的侧栏排序、收纳和「更多」走同一套逻辑；rc.2 尚未正式发布，
-  本轮用结构夹具与契约测试覆盖，真机待发布后回归。
+- DSH 0.2.2-rc.2 把侧栏每个面板包进 `div.panelEntry`；插件现在同时识别
+  `sidebar.panellist` 与 `sidebar.panel.icon` 两种图标槽名，并优先向上找到面板列表所在的 `nav`
+  作为排序容器，因此 rc.1 与 rc.2 的侧栏排序、收纳和「更多」走同一套逻辑。已在 rc.2 源码构建的
+  临时 Web 宿主上验证排序、拖拽、持久化与重新固定；rc.2 官方安装包尚未发布，发布后仍需补一次回归。
 - 0.2.2 的会话头部「更多操作」新增了「复制会话为 Markdown」。已拉出的下载/反馈快捷
   按钮按动作内容（标签 + 图标）识别并自动迁移，不再按菜单里的位置编号，因此宿主插入
   新行也不会点错动作。
