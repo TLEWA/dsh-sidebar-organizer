@@ -22,6 +22,12 @@
   300px away from the pointer. Once a row is tucked it becomes a real last row again. The floating
   strip copies the host surface material (background alpha raised to 0.94 so text underneath stays
   unreadable) and follows both themes.
+- Fixes the top-right "···" popup: right-clicking no longer closes it (it used to be parked as an ordinary
+  context menu whose intent never resolved), so right-clicking between two rows toggles the divider there;
+  after a drag the host's own two dividers no longer stack on one another (rows take 2N, lines 2N-1, the host
+  lines are hidden and ours paint the seams, stored as gap indexes); and the saved row order finally applies
+  when the popup opens - the host tags its row id on the inner button, never on the row container, so the
+  ordering pass silently found no rows.
 - Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
   snapshots falling back to labels, a throwing accessor degrading safely) and
   `test/o14-context-more-anchor.test.mjs` (float switch, above/below decision, defaults for junk

@@ -137,3 +137,73 @@ function contextMoreAnchorSide(options) {
   if (menuTop > needed) return "above";
   return "below";
 }
+
+// The shipped "more actions" popup is not a right-click menu: the host builds it
+// from a hardcoded list and its separators are painted in DOM order. Reordering
+// the rows therefore has to reproduce the seams itself, with the same positional
+// rule the right-click menus use - gap N is the seam under the Nth visible row,
+// so a line keeps its place when rows move across it.
+//
+// The host's own separators are the starting point: their seam is however many
+// rows the host painted above them. The sequence is passed as kinds ("row" /
+// "separator") because nothing here may touch the DOM, which is what keeps this
+// unit-testable.
+function headerMenuGapsFromKinds(kinds) {
+  const gaps = [];
+  let rows = 0;
+  for (const kind of Array.isArray(kinds) ? kinds : []) {
+    if (kind === "separator") {
+      if (rows > 0) gaps.push(rows);
+      continue;
+    }
+    if (kind === "row") rows += 1;
+  }
+  return gaps;
+}
+
+// A seam only exists between two rows: 0 would be above the first row and
+// rowCount would be below the last one, and the host hides those hairlines
+// anyway. Keeping the list inside that range is what stops a stale layout from
+// stacking every remaining line on the same edge.
+function normalizeHeaderMenuGaps(gaps, rowCount) {
+  const total = Number.isFinite(rowCount) ? Math.floor(rowCount) : Infinity;
+  const out = [];
+  for (const gap of Array.isArray(gaps) ? gaps : []) {
+    if (typeof gap !== "number" || !Number.isFinite(gap)) continue;
+    const next = Math.floor(gap);
+    if (next <= 0 || next >= total) continue;
+    if (out.indexOf(next) !== -1) continue;
+    out.push(next);
+  }
+  out.sort((a, b) => a - b);
+  return out;
+}
+
+// A right-click on a row toggles the seam directly below it. The last row has
+// no seam below it, so that toggle is a no-op and the list comes back
+// unchanged - never an empty list, which would read as "hide every line".
+function toggleHeaderMenuGap(gaps, gap, rowCount) {
+  const current = normalizeHeaderMenuGaps(gaps, rowCount);
+  if (typeof gap !== "number" || !Number.isFinite(gap)) return current;
+  const next = Math.floor(gap);
+  const at = current.indexOf(next);
+  if (at === -1) current.push(next);
+  else current.splice(at, 1);
+  return normalizeHeaderMenuGaps(current, rowCount);
+}
+
+// The host tags the row's inner button (`data-dso-host-id`), never the viewport
+// child that carries the flex `order`. A lookup that only read the child itself
+// found no rows at all, so the saved order was written to storage and then never
+// applied - the popup kept the host's own order until the next release. The
+// lookup takes a node-like object (dataset + querySelector) so the rule is
+// testable without a DOM.
+function headerMenuRowIdOf(node) {
+  if (!node) return "";
+  const own = node.dataset ? node.dataset.dsoHostId : "";
+  if (typeof own === "string" && own) return own;
+  const inner =
+    typeof node.querySelector === "function" ? node.querySelector("[data-dso-host-id]") : null;
+  const id = inner && inner.dataset ? inner.dataset.dsoHostId : "";
+  return typeof id === "string" ? id : "";
+}

@@ -541,6 +541,49 @@ function writeHostMenuOrder(labels) {
   }
 }
 
+// The shipped popup's separators are positional too: gap N is the seam under
+// the Nth visible row. Unlike the right-click menus these cannot be inferred
+// from the host once the rows move (its two separators are hardcoded and stay
+// in DOM order), so the list is remembered as soon as the user touches the
+// popup. 'customized' distinguishes "never touched, follow the host" from "the
+// user removed every line on purpose".
+function emptyHostMenuDividers() {
+  return { gaps: [], customized: false };
+}
+
+function normalizeHostMenuDividers(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const gaps = [];
+  if (Array.isArray(raw.gaps)) {
+    for (const gap of raw.gaps) {
+      if (typeof gap !== "number" || !isFinite(gap)) continue;
+      const next = Math.floor(gap);
+      if (next <= 0 || gaps.indexOf(next) !== -1) continue;
+      gaps.push(next);
+    }
+  }
+  gaps.sort((a, b) => a - b);
+  return { gaps, customized: raw.customized === true };
+}
+
+function readHostMenuDividers() {
+  try {
+    const raw = window.localStorage.getItem(HOST_MENU_DIVIDERS_KEY);
+    if (!raw) return emptyHostMenuDividers();
+    return normalizeHostMenuDividers(JSON.parse(raw));
+  } catch (err) {
+    return emptyHostMenuDividers();
+  }
+}
+
+function writeHostMenuDividers(value) {
+  try {
+    window.localStorage.setItem(HOST_MENU_DIVIDERS_KEY, JSON.stringify(normalizeHostMenuDividers(value)));
+  } catch (err) {
+    /* storage may be unavailable */
+  }
+}
+
 /* ---- 0.2.2 right-click menus ------------------------------------------- */
 
 // The menu rows belong to the host (and to other plugins); what is ours is the

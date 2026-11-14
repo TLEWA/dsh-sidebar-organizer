@@ -47,6 +47,16 @@ const HOST_ACTION_KEY = "dsh.sidebar-organizer.host-actions.v1";
 // reorder would silently rebind them). Applied through `style.order` on the
 // menu's flex viewport, never by moving React-owned nodes.
 const HOST_MENU_ORDER_KEY = "dsh.sidebar-organizer.host-menu-order.v1";
+// The shipped popup's own separators are hardcoded and painted in DOM order, so
+// once the rows are reordered they no longer sit between the groups they were
+// meant to divide - they all pile up right after the first row (the reported
+// "多个分割线还重叠了"). The popup therefore keeps its own divider list here, in
+// the same positional form as the right-click menus: gap N is the seam under
+// the Nth visible row, so a line stays where it was placed when rows move.
+const HOST_MENU_DIVIDERS_KEY = "dsh.sidebar-organizer.host-menu-dividers.v1";
+// Marks the divider nodes this plugin injects into that popup, so the host row
+// scan never mistakes one of them for an action.
+const HOST_MENU_DIVIDER_ATTR = "data-dso-header-divider";
 const HOST_ACTION_PREFIX = "dso-host-";
 const DISABLED_KEY = "dsh.sidebar-organizer.disabled";
 // Set the first time the user actually rearranges something in this origin. The
