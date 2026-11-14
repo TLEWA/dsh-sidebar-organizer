@@ -29,6 +29,9 @@ function createRuntime(ctx) {
     // per-open-popup: the host owns the portal and unmounts it on close.
     headerMenuDividers: [],
     headerMenuNative: new Map(),
+    // The inline order this plugin wrote on each row and native seam, so a stop or
+    // a switch-off can hand the popup back exactly as the host painted it.
+    headerMenuOrdered: new Map(),
     clickBypass: null,
     hotkeyDown: false,
     hotkeyToggleOn: false,
@@ -351,6 +354,7 @@ function createRuntime(ctx) {
       state.headerMenu = null;
       removeHeaderMenuBlock();
       clearHeaderMenuDividers();
+      clearHeaderMenuOrder();
       return;
     }
     // The shipped menu's own rows ("download session log", "feedback") are not
@@ -693,6 +697,19 @@ function createRuntime(ctx) {
     }
   }
 
+  function setHeaderMenuOrder(node, value) {
+    if (!node || !node.style) return;
+    if (!state.headerMenuOrdered.has(node)) state.headerMenuOrdered.set(node, node.style.order || "");
+    if (node.style.order !== value) node.style.order = value;
+  }
+
+  function clearHeaderMenuOrder() {
+    for (const [node, previous] of state.headerMenuOrdered) {
+      if (node && node.style) node.style.order = previous || "";
+    }
+    state.headerMenuOrdered.clear();
+  }
+
   function clearHeaderMenuDividers() {
     for (const node of state.headerMenuDividers) {
       if (node && node.parentNode) node.parentNode.removeChild(node);
@@ -724,12 +741,7 @@ function createRuntime(ctx) {
       // A switch turned off mid-session leaves the order from the last pass on the
       // nodes; without a saved order there is nothing to lay out, so hand the
       // popup fully back to the host.
-      for (const node of rows) {
-        if (node.style.order) node.style.order = "";
-      }
-      for (const node of viewport.children) {
-        if (isContextSeparator(node) && node.style.order) node.style.order = "";
-      }
+      clearHeaderMenuOrder();
       return;
     }
     if (saved.length) {
@@ -750,8 +762,7 @@ function createRuntime(ctx) {
       });
     }
     rows.forEach((node, index) => {
-      const next = String(index * 2);
-      if (node.style.order !== next) node.style.order = next;
+      setHeaderMenuOrder(node, String(index * 2));
     });
 
     // The order is the popup's own feature, not a right-click one: it was applied
@@ -802,8 +813,7 @@ function createRuntime(ctx) {
       if (node.hasAttribute(HOST_MENU_DIVIDER_ATTR)) continue;
       if (isContextSeparator(node)) {
         const gap = above;
-        const next = gap >= 1 && gap < rowCount ? String(gap * 2 - 1) : "";
-        if (node.style.order !== next) node.style.order = next;
+        setHeaderMenuOrder(node, gap >= 1 && gap < rowCount ? String(gap * 2 - 1) : "");
         continue;
       }
       if (headerMenuRowNode(node)) above += 1;
@@ -6070,6 +6080,7 @@ function createRuntime(ctx) {
     state.headerMenu = null;
     removeHeaderMenuBlock();
     clearHeaderMenuDividers();
+    clearHeaderMenuOrder();
     cancelGesture();
     for (const cleanup of state.listenerCleanup.splice(0)) {
       try {

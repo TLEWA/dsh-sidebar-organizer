@@ -37,6 +37,9 @@
   the right-click menus turned off instead of writing storage while the popup stayed put, and the host's
   own two separators take part in the same order (nothing is written at all while there is no saved order),
   so the shipped grouping is not pulled under the first row.
+- Stopping the plugin (or turning the switch off) now also restores the inline `order` it wrote on the popup's
+  rows and on the host's own separators; previously only `display` came back, so the two host lines slid back
+  under the first row while the rows kept their plugin order.
 - Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
   snapshots falling back to labels, a throwing accessor degrading safely) and
   `test/o14-context-more-anchor.test.mjs` (float switch, above/below decision, defaults for junk
