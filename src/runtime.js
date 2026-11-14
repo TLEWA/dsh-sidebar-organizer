@@ -712,10 +712,6 @@ function createRuntime(ctx) {
     if (!menu || !menu.isConnected) return;
     const viewport = headerMenuViewport(menu);
     if (!viewport) return;
-    if (!contextMenuEnabled()) {
-      clearHeaderMenuDividers();
-      return;
-    }
     const rows = headerMenuRowNodes(viewport);
     if (!rows.length) return;
     const saved = readHostMenuOrder();
@@ -740,6 +736,16 @@ function createRuntime(ctx) {
       const next = String(index * 2);
       if (node.style.order !== next) node.style.order = next;
     });
+
+    // The order is the popup's own feature, not a right-click one: it was applied
+    // before the dividers existed and has to keep working on a host that never
+    // opens the right-click menus (DSH 0.2.1) or with that switch turned off.
+    // Only the seams are gated - an early return here froze a saved order and
+    // left the drag writing storage while the popup stayed put.
+    if (!contextMenuEnabled()) {
+      clearHeaderMenuDividers();
+      return;
+    }
     const store = readHostMenuDividers();
     const gaps = store.customized
       ? normalizeHeaderMenuGaps(store.gaps, rows.length)
