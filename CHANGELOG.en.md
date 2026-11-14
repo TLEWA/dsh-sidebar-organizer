@@ -4,6 +4,10 @@
 
 ### English
 
+- Fixed divider toggling after a reorder: the seam under the pointer used the row's child index, but a drag
+  only changes the painted order and leaves the children where they were - a row dragged to the top could never
+  get a divider and other rows toggled the wrong seam. Rows are now read back in paint order (their flex order)
+  before the gap is derived.
 - The conversation-body context menu is organizable too (DSH 0.2.2-rc.3 opens it through the
   host `contextMenus` service as `kind: "conversation"`, with dsh-sidebar-row-menu doing the
   opening): long-press to reorder, right-click a row to toggle the divider under it, drag to the

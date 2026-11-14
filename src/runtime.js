@@ -644,6 +644,19 @@ function createRuntime(ctx) {
     return rows;
   }
 
+  // The rows as the browser paints them. A right-click has to name the seam under
+  // the row the pointer is on, and after a drag that is not the row's index in
+  // the viewport any more - only the flex order says where it went.
+  function headerMenuVisualRowNodes(viewport) {
+    const rows = headerMenuRowNodes(viewport);
+    const order = (node) => {
+      const raw = node && node.style ? Number.parseInt(node.style.order, 10) : NaN;
+      return Number.isFinite(raw) ? raw : null;
+    };
+    const indexes = sortHeaderMenuRowIndexes(rows.map((node, index) => ({ index, order: order(node) })));
+    return indexes.map((index) => rows[index]);
+  }
+
   // The seams the host painted itself, translated into gap indexes. Read from
   // the sequence rather than from rects: the popup animates open, so heights
   // measured on the first pass are still 0.
@@ -3297,7 +3310,7 @@ function createRuntime(ctx) {
       if (menu !== state.contextMenu && (state.headerMenu === menu || headerOpenedContextMenu(menu))) {
         if (contextMenuEnabled()) {
           const viewport = headerMenuViewport(menu);
-          const rows = viewport ? headerMenuRowNodes(viewport) : [];
+          const rows = viewport ? headerMenuVisualRowNodes(viewport) : [];
           const row = rows.find((node) => node === target || node.contains(target));
           if (row && viewport) {
             const store = readHostMenuDividers();

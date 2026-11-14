@@ -207,3 +207,21 @@ function headerMenuRowIdOf(node) {
   const id = inner && inner.dataset ? inner.dataset.dsoHostId : "";
   return typeof id === "string" ? id : "";
 }
+
+
+// Reading a gap off "which DOM child is this?" is right only until the popup is
+// rearranged: applying an order moves the rows on screen and leaves the children
+// where they were, so the index of a row in the viewport no longer says which gap
+// sits under it. The rows are therefore read back in the order the browser paints
+// them - their flex order, or the plain child order when nothing was set yet (an
+// unstyled item also defaults to order 0, so a missing order sorts first, not
+// last). Entries are {index, order}; the result is indexes into the same array.
+function sortHeaderMenuRowIndexes(entries) {
+  if (!Array.isArray(entries)) return [];
+  const rows = entries.filter((entry) => entry && Number.isFinite(entry.index));
+  const anyOrder = rows.some((entry) => Number.isFinite(entry.order));
+  if (!anyOrder) return rows.map((entry) => entry.index);
+  const rank = (entry) => (Number.isFinite(entry.order) ? entry.order : 0);
+  rows.sort((a, b) => rank(a) - rank(b) || a.index - b.index);
+  return rows.map((entry) => entry.index);
+}
