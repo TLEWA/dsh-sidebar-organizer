@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### English
+
+- The session header's "More actions" button is draggable again: 0.2.2-rc.2 moved it
+  out of the utilities slot and next to it, and the plugin treats it as one of the
+  strip's columns again, so its position survives reloads. It is never tucked (the
+  only way back to the shelf has to stay on the strip), and dragging More onto itself
+  now reorders it instead of hiding it.
+- Fix the wrong nesting when a row was dragged into "More actions": since 0.2.2 the
+  right-click menu and the header sheet share one contextual-menu primitive, and
+  submenus ("open with ...") are menus of their own, so the tucked rows could be
+  injected into one. The shelf now only accepts the sheet its still-expanded trigger
+  opened, skips submenu panes explicitly, and the right-click layout no longer
+  rewrites the sheet's rows.
+- Adds `test/o12-header-more-row.test.mjs` covering More as a strip row (sibling,
+  span-wrapped and rendered inside the slot) and outlets without `fixedMore` still
+  keeping More out of the rows.
+
 ## [0.11.1] - 2026-11-12
 
 ### English

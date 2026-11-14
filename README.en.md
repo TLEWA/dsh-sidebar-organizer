@@ -52,9 +52,10 @@ composer dock, session header, right sidebar, and settings navigation.
   share the conversation More menu; the right sidebar uses its own "More tools".
   The session header tucks into the shipped "More actions" menu (the one with
   "Download session log" and "Feedback"), with tucked icons listed directly
-  above its own items. That "..." button is host chrome: it is neither sortable
-  nor tuckable, and the split control next to it ("file explorer / more ways to
-  open") also stays whole.
+  above its own items. That "..." button is a column of the strip too, so it can
+  be dragged into place, but it is never tuckable - the only way back to the shelf
+  has to stay on the strip, and dragging More onto itself does not tuck it; the
+  split control next to it ("file explorer / more ways to open") also stays whole.
   Settings navigation can only tuck its first row from the settings page; once a row
   is tucked, the plugin adds a "More" anchor at the bottom of the navigation that
   lists tucked entries (click one to open that section) and accepts more drops.
@@ -415,6 +416,10 @@ version rejection, and `dispose()` restoration).
   More menu. Pulled-out download/feedback shortcuts now identify actions by label
   and icon instead of menu position, so the shortcut follows its action when the
   host inserts a row and legacy positional ids migrate automatically.
+- 0.2.2 moved the session header's "More actions" button out of the slot and next
+  to it. The plugin treats it as a column of the strip again: it can be dragged into
+  place, it is never tucked (that would take away the only way back to the shelf),
+  and a saved order picks up its position automatically.
 - 0.2.2 lays the settings nav out horizontally in short browser windows; the
   drag axis follows the rendered direction.
 - Session / workspace context-menu ordering and dividers exist only on 0.2.2+

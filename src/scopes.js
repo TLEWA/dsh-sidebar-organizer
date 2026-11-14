@@ -450,6 +450,19 @@ function collectOutlet(scope, selector, options) {
       }
     }
   }
+  // 0.7.0-pre shipped the header's "More" control as an ordinary row; 0.8 made
+  // it host chrome so the split control the host mounts right before it could
+  // not be torn apart. It is sortable again: the user asked for the "…" button
+  // itself to be a column of the strip. The element keeps its second job as the
+  // tuck target and menu anchor, which is what `moreTarget` still reports.
+  let moreIsRow = false;
+  if (options && options.fixedMore && more) {
+    const target = clickableIn(more) || menuTriggerButton(more);
+    if (target) {
+      collected.rows.push({ unit: more, target, label: labelOf(target) || labelOf(more) });
+      moreIsRow = true;
+    }
+  }
   return {
     scope,
     axis: options && options.axis ? options.axis : "x",
@@ -458,10 +471,7 @@ function collectOutlet(scope, selector, options) {
     rows: collected.rows,
     tails: tails.filter((child) => child !== more),
     more,
-    // The session header's "More actions" button is host chrome, not an
-    // overflow caret at the end of a strip: it must keep the slot the host
-    // gave it (right after the split control) and never be sorted or tucked.
-    moreIsChrome: !!(options && options.fixedMore && collected.more),
+    moreIsRow,
     moreTarget: more ? menuTriggerButton(more) : null,
   };
 }
