@@ -715,6 +715,23 @@ function createRuntime(ctx) {
     const rows = headerMenuRowNodes(viewport);
     if (!rows.length) return;
     const saved = readHostMenuOrder();
+    // Nothing to do and nothing of ours to undo: the popup is still exactly the
+    // way the host painted it. Writing an order here would strand the host's
+    // separators at the default 0 while every row moved to 2N, pulling both
+    // lines under the first row - the grouping the user never touched.
+    if (!saved.length && !contextMenuEnabled()) {
+      clearHeaderMenuDividers();
+      // A switch turned off mid-session leaves the order from the last pass on the
+      // nodes; without a saved order there is nothing to lay out, so hand the
+      // popup fully back to the host.
+      for (const node of rows) {
+        if (node.style.order) node.style.order = "";
+      }
+      for (const node of viewport.children) {
+        if (isContextSeparator(node) && node.style.order) node.style.order = "";
+      }
+      return;
+    }
     if (saved.length) {
       // Only the shipped rows carry the saved order: our tucked shelf keeps its
       // slot, so it can never end up below the rows it is meant to sit above.
@@ -743,7 +760,10 @@ function createRuntime(ctx) {
     // Only the seams are gated - an early return here froze a saved order and
     // left the drag writing storage while the popup stayed put.
     if (!contextMenuEnabled()) {
+      // The seams stay the host's own, but they still have to take part in the
+      // same order: left at 0 they would all float above the reordered rows.
       clearHeaderMenuDividers();
+      placeHeaderMenuNativeSeams(viewport, rows.length);
       return;
     }
     const store = readHostMenuDividers();
@@ -771,6 +791,23 @@ function createRuntime(ctx) {
       if (node.dataset.dsoHeaderGap !== String(gap)) node.dataset.dsoHeaderGap = String(gap);
       if (node.parentNode !== viewport) viewport.appendChild(node);
     });
+  }
+
+  // With our dividers switched off the host paints the seams itself. They still
+  // have to be ordered together with the rows: an unstyled separator defaults to
+  // order 0 and jumps above every row the moment an order is written.
+  function placeHeaderMenuNativeSeams(viewport, rowCount) {
+    let above = 0;
+    for (const node of viewport.children) {
+      if (node.hasAttribute(HOST_MENU_DIVIDER_ATTR)) continue;
+      if (isContextSeparator(node)) {
+        const gap = above;
+        const next = gap >= 1 && gap < rowCount ? String(gap * 2 - 1) : "";
+        if (node.style.order !== next) node.style.order = next;
+        continue;
+      }
+      if (headerMenuRowNode(node)) above += 1;
+    }
   }
 
   function reorderHostMenu(id, beforeId) {

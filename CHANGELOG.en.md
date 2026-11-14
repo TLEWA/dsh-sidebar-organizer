@@ -34,7 +34,9 @@
   ordering pass silently found no rows.
 - The order of the header `···` popup no longer depends on the right-click menu switch: ordering is the
   popup's own feature and the switch only owns the dividers, so a drag still reorders on DSH 0.2.1 or with
-  the right-click menus turned off instead of writing storage while the popup stayed put.
+  the right-click menus turned off instead of writing storage while the popup stayed put, and the host's
+  own two separators take part in the same order (nothing is written at all while there is no saved order),
+  so the shipped grouping is not pulled under the first row.
 - Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
   snapshots falling back to labels, a throwing accessor degrading safely) and
   `test/o14-context-more-anchor.test.mjs` (float switch, above/below decision, defaults for junk
