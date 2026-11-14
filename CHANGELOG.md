@@ -3,6 +3,62 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## [Unreleased]
+
+- 会话正文右键菜单也能整理了（DSH 0.2.2-rc.3 起，这张菜单由宿主 `contextMenus` 以
+  `kind: "conversation"` 渲染，dsh-sidebar-row-menu 负责打开它）：长按条目拖动排序、右键
+  条目增删分隔线、拖到最底部收进 `··· 更多 ›`、悬停展开后再长按拖回一级。顺序、分隔线与
+  收纳状态按菜单分别保存，与侧栏会话 / 工作区两张右键菜单互不干扰。
+- 识别不再猜文案：插件读宿主 `contextMenus` 服务当前 target 的 `kind`，读不到时退回原来的
+  标签判断；不写 row-menu 的任何存储键，row-menu 自绘的那张旧菜单仍走原路径。
+- 拖动时的蓝色插入线不再整条消失：这一帧还量不到行盒时（宿主先挂菜单面、后画行，或其他
+  插件把行设成 `display:contents`），线贴到菜单边缘继续显示，松手仍按指针所在行落位。
+- 「··· 更多」的落点在第一次收纳之前浮在菜单外侧定位，不撑高菜单——菜单一旦变高，宿主会按
+  CSS anchor positioning 把整张菜单翻转约 300px、离开指针；收纳过之后它回到菜单里当真实末行。
+  浮层的底色与模糊取宿主 surface 的材质（底色不透明度提到 0.94，压在正文上仍看得清），两套
+  主题都跟随。
+- 修复右上角「···」弹窗：右键点击不再把弹窗关掉（以前它被当成普通右键菜单 park 起来，意图永远等不到
+  菜单），现在在行与行之间右键即可插入 / 移除分割线；拖动重排后宿主原生两条分割线不再叠在同一位置（行占
+  2N、线占 2N-1，宿主线隐藏、由插件绘制的线接管，位置按 GAP 索引保存）；保存的弹窗行顺序重新在打开时生效
+  ——宿主的行 id 打在内层按钮上，行容器上一直取不到，排序因此空转。
+- 修复拖动重排后右键错位：右键要在「指针所在行」下方增删分割线，而以前按行在弹窗里的子节点序号算位置，
+  拖动只改视觉顺序、子节点不动，于是拖到首位的那个条目永远加不上线，其他条目会改到错误的位置；
+  现在先按实际视觉顺序（行上的 order）排出各行，再换算 GAP。
+- 右上角「···」弹窗的行顺序与「右键菜单」开关解耦：顺序是弹窗自己的功能，开关只控制分隔线；
+  在 DSH 0.2.1 或关掉右键菜单的情况下，拖动排序照常生效，不会再出现「存了顺序但不换位」；
+  开关关闭时由宿主自己画的两条分隔线也一起参与排序（没有已保存顺序时完全不写样式），所以
+  默认分组不会被挤到第一行下面。
+- 停用插件或关掉开关时，头部弹窗的行与宿主自己的分隔线会还原成宿主原本的 `order`：以前只恢复了分隔线的
+  display，行上写过的顺序还留着，两条线会重新叠到「复制」下面。
+- 新增 `test/o13-context-target-kind.test.mjs`（target kind 识别、非 conversation 与空快照退回
+  标签路径、读取抛错时降级）与 `test/o14-context-more-anchor.test.mjs`（浮动开关、上下翻转
+  判定与缺测时的默认值）。
+
+### English
+
+- The conversation-body context menu is organizable too (DSH 0.2.2-rc.3 opens it through the
+  host `contextMenus` service as `kind: "conversation"`, with dsh-sidebar-row-menu doing the
+  opening): long-press to reorder, right-click a row to toggle the divider under it, drag to the
+  bottom to tuck it into `··· More ›`, hover to expand and long-press an entry back onto the
+  first level. Order, dividers and tucked rows are stored per menu, so the session and workspace
+  menus never reshuffle each other.
+- Recognition no longer guesses from labels: the plugin reads the `kind` of the host
+  `contextMenus` target and falls back to the label path when that is unavailable. No
+  dsh.sidebar-row-menu.* key is written and the menu row-menu draws itself keeps the old path.
+- The blue insertion line no longer disappears entirely while dragging: when this frame has no
+  measurable row boxes (the host mounts the surface before it paints the rows, or another plugin
+  makes a row `display:contents`), the line falls back to the menu edge and the release still
+  lands on the row under the pointer.
+- Before the first tuck, the `··· More` target floats outside the menu box instead of growing it:
+  a taller menu made the host re-place the whole surface through CSS anchor positioning, roughly
+  300px away from the pointer. Once a row is tucked it becomes a real last row again. The floating
+  strip copies the host surface material (background alpha raised to 0.94 so text underneath stays
+  unreadable) and follows both themes.
+- Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
+  snapshots falling back to labels, a throwing accessor degrading safely) and
+  `test/o14-context-more-anchor.test.mjs` (float switch, above/below decision, defaults for junk
+  measurements).
+
 ## [0.11.2] - 2026-11-14
 
 - 会话头部的「更多操作」按钮重新可以拖动：0.2.2-rc.2 把它从工具条槽位里挪到槽位旁边后，

@@ -24,6 +24,14 @@ function createRuntime(ctx) {
     headerMenu: null,
     headerMenuBlock: null,
     headerMenuSignature: "",
+    // Divider nodes this plugin injected into the shipped popup, plus the
+    // display value its own separators had before being hidden. Both are
+    // per-open-popup: the host owns the portal and unmounts it on close.
+    headerMenuDividers: [],
+    headerMenuNative: new Map(),
+    // The inline order this plugin wrote on each row and native seam, so a stop or
+    // a switch-off can hand the popup back exactly as the host painted it.
+    headerMenuOrdered: new Map(),
     clickBypass: null,
     hotkeyDown: false,
     hotkeyToggleOn: false,
@@ -345,6 +353,8 @@ function createRuntime(ctx) {
     if (!menu) {
       state.headerMenu = null;
       removeHeaderMenuBlock();
+      clearHeaderMenuDividers();
+      clearHeaderMenuOrder();
       return;
     }
     // The shipped menu's own rows ("download session log", "feedback") are not
@@ -369,6 +379,8 @@ function createRuntime(ctx) {
       state.headerMenuBlock.parentNode.replaceChild(fresh, state.headerMenuBlock);
       state.headerMenuBlock = fresh;
       state.headerMenuSignature = signature;
+      // The shelf is a row of its own, so the seam indexes shift with it.
+      applyHostMenuOrder(menu);
       return;
     }
     state.headerMenu = menu;
@@ -377,6 +389,9 @@ function createRuntime(ctx) {
     const host = headerMenuViewport(menu);
     host.insertBefore(block, host.firstChild);
     state.headerMenuBlock = block;
+    // Re-applied now that the shelf exists: it is the first row, and every seam
+    // below it moved one index down.
+    applyHostMenuOrder(menu);
   }
 
   // ---- shipped-menu actions pulled onto the strip -----------------------
@@ -614,27 +629,195 @@ function createRuntime(ctx) {
     return node && node.parentElement === viewport ? node : null;
   }
 
+  // A row of the shipped popup: one of the host's action wrappers, our tucked
+  // shelf, or anything else that carries a menu item. The host's separators and
+  // our own injected lines are the seams between them, never rows.
+  function headerMenuRowNode(node) {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.hasAttribute(HOST_MENU_DIVIDER_ATTR)) return false;
+    if (isContextSeparator(node)) return false;
+    if (node.hasAttribute("data-dso-host-id")) return true;
+    return Boolean(node.querySelector('[role="menuitem"]'));
+  }
+
+  function headerMenuRowNodes(viewport) {
+    const rows = [];
+    for (const node of viewport.children) {
+      if (headerMenuRowNode(node)) rows.push(node);
+    }
+    return rows;
+  }
+
+  // The rows as the browser paints them. A right-click has to name the seam under
+  // the row the pointer is on, and after a drag that is not the row's index in
+  // the viewport any more - only the flex order says where it went.
+  function headerMenuVisualRowNodes(viewport) {
+    const rows = headerMenuRowNodes(viewport);
+    const order = (node) => {
+      const raw = node && node.style ? Number.parseInt(node.style.order, 10) : NaN;
+      return Number.isFinite(raw) ? raw : null;
+    };
+    const indexes = sortHeaderMenuRowIndexes(rows.map((node, index) => ({ index, order: order(node) })));
+    return indexes.map((index) => rows[index]);
+  }
+
+  // The seams the host painted itself, translated into gap indexes. Read from
+  // the sequence rather than from rects: the popup animates open, so heights
+  // measured on the first pass are still 0.
+  function headerMenuNativeGaps(viewport, rowCount) {
+    const kinds = [];
+    for (const node of viewport.children) {
+      if (node.hasAttribute(HOST_MENU_DIVIDER_ATTR)) continue;
+      if (isContextSeparator(node)) kinds.push("separator");
+      else if (headerMenuRowNode(node)) kinds.push("row");
+    }
+    return normalizeHeaderMenuGaps(headerMenuGapsFromKinds(kinds), rowCount);
+  }
+
+  function headerMenuDividerNode(viewport) {
+    for (const node of viewport.children) {
+      if (isContextSeparator(node)) return node.cloneNode(false);
+    }
+    const fallback = document.createElement("div");
+    fallback.className = "dso-ctx-divider";
+    fallback.setAttribute("role", "separator");
+    return fallback;
+  }
+
+  // The host hides a separator that is first, consecutive with another one, or
+  // trailing. Its two separators become interior rows the moment the actions are
+  // reordered, so they are taken out of the flow and our copies do the painting.
+  function hideHeaderMenuSeparators(viewport) {
+    for (const node of viewport.children) {
+      if (node.hasAttribute(HOST_MENU_DIVIDER_ATTR)) continue;
+      if (!isContextSeparator(node)) continue;
+      if (node.style.display === "none") continue;
+      state.headerMenuNative.set(node, node.style.display);
+      node.style.display = "none";
+    }
+  }
+
+  function setHeaderMenuOrder(node, value) {
+    if (!node || !node.style) return;
+    if (!state.headerMenuOrdered.has(node)) state.headerMenuOrdered.set(node, node.style.order || "");
+    if (node.style.order !== value) node.style.order = value;
+  }
+
+  function clearHeaderMenuOrder() {
+    for (const [node, previous] of state.headerMenuOrdered) {
+      if (node && node.style) node.style.order = previous || "";
+    }
+    state.headerMenuOrdered.clear();
+  }
+
+  function clearHeaderMenuDividers() {
+    for (const node of state.headerMenuDividers) {
+      if (node && node.parentNode) node.parentNode.removeChild(node);
+    }
+    state.headerMenuDividers = [];
+    for (const [node, previous] of state.headerMenuNative) {
+      if (node && node.style) node.style.display = previous || "";
+    }
+    state.headerMenuNative.clear();
+  }
+
+  // Rows and seams are ordered out of one sequence: row N owns 2N, the seam
+  // above it 2N-1. That is the whole fix for the reported overlapping
+  // dividers - the hardcoded separators had no order at all, so they defaulted
+  // to 0 and stacked right under the first row.
   function applyHostMenuOrder(menu) {
     if (!menu || !menu.isConnected) return;
-    const saved = readHostMenuOrder();
-    if (!saved.length) return;
     const viewport = headerMenuViewport(menu);
     if (!viewport) return;
-    const entries = [];
-    for (const node of menu.querySelectorAll("[data-dso-host-id]")) {
-      const target = hostMenuOrderTarget(node, viewport);
-      if (!target) continue;
-      const label = (node.textContent || "").trim();
-      entries.push({ target, label, at: entries.length });
+    const rows = headerMenuRowNodes(viewport);
+    if (!rows.length) return;
+    const saved = readHostMenuOrder();
+    // Nothing to do and nothing of ours to undo: the popup is still exactly the
+    // way the host painted it. Writing an order here would strand the host's
+    // separators at the default 0 while every row moved to 2N, pulling both
+    // lines under the first row - the grouping the user never touched.
+    if (!saved.length && !contextMenuEnabled()) {
+      clearHeaderMenuDividers();
+      // A switch turned off mid-session leaves the order from the last pass on the
+      // nodes; without a saved order there is nothing to lay out, so hand the
+      // popup fully back to the host.
+      clearHeaderMenuOrder();
+      return;
     }
-    const rank = (entry) => {
-      const index = saved.indexOf(entry.label);
-      return index === -1 ? saved.length : index;
-    };
-    entries.sort((a, b) => rank(a) - rank(b) || a.at - b.at);
-    entries.forEach((entry, index) => {
-      if (entry.target.style.order !== String(index)) entry.target.style.order = String(index);
+    if (saved.length) {
+      // Only the shipped rows carry the saved order: our tucked shelf keeps its
+      // slot, so it can never end up below the rows it is meant to sit above.
+      const slots = [];
+      rows.forEach((node, index) => {
+        if (headerMenuRowIdOf(node)) slots.push(index);
+      });
+      const sorted = slots.map((index) => rows[index]);
+      const rank = (node) => {
+        const at = saved.indexOf((node.textContent || "").trim());
+        return at === -1 ? saved.length : at;
+      };
+      sorted.sort((a, b) => rank(a) - rank(b));
+      slots.forEach((slot, index) => {
+        rows[slot] = sorted[index];
+      });
+    }
+    rows.forEach((node, index) => {
+      setHeaderMenuOrder(node, String(index * 2));
     });
+
+    // The order is the popup's own feature, not a right-click one: it was applied
+    // before the dividers existed and has to keep working on a host that never
+    // opens the right-click menus (DSH 0.2.1) or with that switch turned off.
+    // Only the seams are gated - an early return here froze a saved order and
+    // left the drag writing storage while the popup stayed put.
+    if (!contextMenuEnabled()) {
+      // The seams stay the host's own, but they still have to take part in the
+      // same order: left at 0 they would all float above the reordered rows.
+      clearHeaderMenuDividers();
+      placeHeaderMenuNativeSeams(viewport, rows.length);
+      return;
+    }
+    const store = readHostMenuDividers();
+    const gaps = store.customized
+      ? normalizeHeaderMenuGaps(store.gaps, rows.length)
+      : headerMenuNativeGaps(viewport, rows.length);
+    hideHeaderMenuSeparators(viewport);
+    const nodes = state.headerMenuDividers;
+    while (nodes.length > gaps.length) {
+      const extra = nodes.pop();
+      if (extra && extra.parentNode) extra.parentNode.removeChild(extra);
+    }
+    while (nodes.length < gaps.length) {
+      const node = headerMenuDividerNode(viewport);
+      node.setAttribute(HOST_MENU_DIVIDER_ATTR, "1");
+      node.setAttribute("role", "separator");
+      node.setAttribute("aria-hidden", "true");
+      nodes.push(node);
+    }
+    nodes.forEach((node, index) => {
+      const gap = gaps[index];
+      const next = String(gap * 2 - 1);
+      if (node.style.order !== next) node.style.order = next;
+      if (node.style.display !== "block") node.style.display = "block";
+      if (node.dataset.dsoHeaderGap !== String(gap)) node.dataset.dsoHeaderGap = String(gap);
+      if (node.parentNode !== viewport) viewport.appendChild(node);
+    });
+  }
+
+  // With our dividers switched off the host paints the seams itself. They still
+  // have to be ordered together with the rows: an unstyled separator defaults to
+  // order 0 and jumps above every row the moment an order is written.
+  function placeHeaderMenuNativeSeams(viewport, rowCount) {
+    let above = 0;
+    for (const node of viewport.children) {
+      if (node.hasAttribute(HOST_MENU_DIVIDER_ATTR)) continue;
+      if (isContextSeparator(node)) {
+        const gap = above;
+        setHeaderMenuOrder(node, gap >= 1 && gap < rowCount ? String(gap * 2 - 1) : "");
+        continue;
+      }
+      if (headerMenuRowNode(node)) above += 1;
+    }
   }
 
   function reorderHostMenu(id, beforeId) {
@@ -658,6 +841,16 @@ function createRuntime(ctx) {
     }
     labels.splice(at, 0, sourceLabel);
     writeHostMenuOrder(labels);
+    // The first drag freezes the seams the host painted itself: from then on the
+    // lines are ours, so they stay between the groups the host drew even while
+    // rows move across them.
+    if (!readHostMenuDividers().customized) {
+      const viewport = headerMenuViewport(menu);
+      if (viewport) {
+        const rows = headerMenuRowNodes(viewport);
+        writeHostMenuDividers({ gaps: headerMenuNativeGaps(viewport, rows.length), customized: true });
+      }
+    }
     applyHostMenuOrder(menu);
     return true;
   }
@@ -872,6 +1065,37 @@ function createRuntime(ctx) {
     if (value.indexOf("session:") === 0) return "session";
     if (value.indexOf("workspace:") === 0) return "workspace";
     return "";
+  }
+
+  function contextMenuService() {
+    try {
+      if (typeof ctx.get === "function") {
+        const value = ctx.get("contextMenus");
+        if (value) return value;
+      }
+    } catch (error) {
+      console.warn("[dsh-sidebar-organizer] contextMenus lookup failed:", error);
+    }
+    try {
+      return ctx.contextMenus || null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // A conversation-body menu is opened by dsh-sidebar-row-menu through the
+  // host's contextMenus service as { kind: "conversation" }; unlike the row
+  // menus it carries no row-key and no label unique to it, so read the target
+  // the host is showing right now. Only the conversation kind is reported: the
+  // session and workspace menus keep their row-key/label paths, so an
+  // unexpected target here can never reclassify them.
+  function contextTargetKind() {
+    try {
+      return contextMenuTargetKind(contextMenuService());
+    } catch (error) {
+      console.warn("[dsh-sidebar-organizer] context target lookup failed:", error);
+      return "";
+    }
   }
 
   function contextKindFromLabels(labels) {
@@ -1546,6 +1770,8 @@ function createRuntime(ctx) {
       state.contextPendingAt = 0;
       if (Date.now() - at < CONTEXT_PENDING_TTL) return pending;
     }
+    const target = contextTargetKind();
+    if (target) return target;
     return contextKindFromLabels(model.rows.map((row) => row.label));
   }
 
@@ -2743,6 +2969,49 @@ function createRuntime(ctx) {
     return wrap;
   }
 
+  // The menu paints itself with a translucent "material" layer over a blurred
+  // backdrop. A 34px strip hangs over ordinary page content, so the same alpha
+  // let the text underneath read through it; solid enough to stand on its own,
+  // still the host's own hue in both themes.
+  function contextSurfaceColor(color) {
+    const match = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)$/.exec(
+      String(color || "").trim()
+    );
+    if (!match) return "";
+    const alpha = match[4] === undefined ? 1 : Number(match[4]);
+    if (!isFinite(alpha)) return "";
+    return "rgba(" + match[1] + ", " + match[2] + ", " + match[3] + ", " + Math.max(alpha, 0.94).toFixed(2) + ")";
+  }
+
+  // The drag-only anchor hangs off the menu edge with the host's own surface
+  // paint, so no theme color is hard-coded here and the menu's measured height
+  // never changes while a row is being dragged.
+  function positionContextMoreAnchor() {
+    const anchor = state.ctxMoreAnchor;
+    const model = state.contextRows;
+    const menu = model && model.menu;
+    if (!anchor || !menu || !anchor.classList.contains("is-floating")) return;
+    const rect = menu.getBoundingClientRect();
+    const above =
+      contextMoreAnchorSide({
+        menuTop: rect.top,
+        menuBottom: rect.bottom,
+        viewportHeight: window.innerHeight,
+        height: anchor.offsetHeight || 34,
+      }) === "above";
+    if (anchor.classList.contains("is-above") !== above) anchor.classList.toggle("is-above", above);
+    const material = menu.querySelector('[class*="_material_"]');
+    const paint = material ? getComputedStyle(material) : null;
+    if (!paint) return;
+    const color = contextSurfaceColor(paint.backgroundColor);
+    if (color && anchor.style.backgroundColor !== color) anchor.style.backgroundColor = color;
+    const blur = paint.backdropFilter || paint.webkitBackdropFilter || "";
+    if (blur && blur !== "none" && anchor.style.backdropFilter !== blur) {
+      anchor.style.backdropFilter = blur;
+      anchor.style.webkitBackdropFilter = blur;
+    }
+  }
+
   function setContextMoreExpanded(open) {
     const anchor = state.ctxMoreAnchor;
     const button = anchor ? anchor.querySelector(".dso-ctx-more-trigger") : null;
@@ -2772,11 +3041,25 @@ function createRuntime(ctx) {
     }
     if (!state.ctxMoreAnchor) state.ctxMoreAnchor = buildContextMoreAnchor();
     const anchor = state.ctxMoreAnchor;
+    // A menu that already tucks rows keeps a real More row inside its frame. The
+    // anchor a drag needs before the first tuck is laid out OUT of the flow
+    // instead: growing the surface mid-drag made the host re-place the whole
+    // menu (CSS anchor positioning flipped it ~300px up, away from the pointer).
+    const floating = contextMoreAnchorFloats(tucked.length);
+    if (anchor.classList.contains("is-floating") !== floating) {
+      anchor.classList.toggle("is-floating", floating);
+      if (!floating) {
+        anchor.classList.remove("is-above");
+        anchor.style.backgroundColor = "";
+        anchor.style.backdropFilter = "";
+      }
+    }
     // The host paints the menu as viewport + footer block + root-level buttons, so
     // appending into the viewport would park "More" above the footer actions. Hanging
     // it off the menu root with a huge order value puts it under every one of them.
     if (anchor.parentNode !== model.menu) model.menu.appendChild(anchor);
     if (anchor.style.order !== CONTEXT_MORE_ORDER) anchor.style.order = CONTEXT_MORE_ORDER;
+    if (floating) positionContextMoreAnchor();
     if (!state.ctxMoreOpen) return;
     if (!tucked.length) {
       closeContextMorePanel();
@@ -3070,6 +3353,32 @@ function createRuntime(ctx) {
     }
     const menu = target.closest("[data-context-menu]");
     if (menu) {
+      // The header "more actions" popup is a `data-context-menu` as well, but it
+      // is not one of the right-click menus: liveContextMenu() skips it on
+      // purpose. It used to fall into the park branch below, so a right-click
+      // was stored as a pending toggle that no sync ever consumed - the click
+      // did nothing and still swallowed the browser menu. Its own dividers are
+      // toggled here, against the shelf and the shipped rows it shares a pass
+      // with.
+      if (menu !== state.contextMenu && (state.headerMenu === menu || headerOpenedContextMenu(menu))) {
+        if (contextMenuEnabled()) {
+          const viewport = headerMenuViewport(menu);
+          const rows = viewport ? headerMenuVisualRowNodes(viewport) : [];
+          const row = rows.find((node) => node === target || node.contains(target));
+          if (row && viewport) {
+            const store = readHostMenuDividers();
+            const current = store.customized
+              ? normalizeHeaderMenuGaps(store.gaps, rows.length)
+              : headerMenuNativeGaps(viewport, rows.length);
+            const next = toggleHeaderMenuGap(current, rows.indexOf(row) + 1, rows.length);
+            writeHostMenuDividers({ gaps: next, customized: true });
+            applyHostMenuOrder(menu);
+          }
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (menu !== state.contextMenu || !state.contextRows) {
         // Not measured yet: park the intent, keep this menu open, and let the
         // next frame's sync act on the complete row list.
@@ -4714,18 +5023,24 @@ function createRuntime(ctx) {
   }
   function placeMenuLine(gesture, surface, boundary, targetRect, lastRect, pointerPos) {
     const boxes = paintedMenuBoxes(surface);
+    const rect = surface ? surface.getBoundingClientRect() : null;
+    const measured = rect && (rect.width > 0 || rect.height > 0) ? rect : null;
     let at = boxes.length ? paintedDropLine(boundary, "y", boxes, targetRect, lastRect, pointerPos) : null;
-    if (at === null && boxes.length) {
-      const rect = surface.getBoundingClientRect();
-      const seam = Math.min(Math.max(boundary, rect.top + 1), rect.bottom - 1);
+    if (at === null && boxes.length && measured) {
+      const seam = Math.min(Math.max(boundary, measured.top + 1), measured.bottom - 1);
       if (!menuLineThroughRow(seam, boxes)) at = seam;
     }
-    if (at === null) {
+    // A menu can still be missing its row boxes for a frame or two (the host
+    // mounts the surface before it paints the rows, and another plugin's row
+    // can be display:contents). Hiding the line there read as "drag is dead",
+    // so fall back to the surface edge: the release still lands on the row
+    // under the pointer, and the bar keeps the gesture legible.
+    if (at === null && measured) at = Math.min(Math.max(boundary, measured.top + 1), measured.bottom - 1);
+    if (at === null || !measured) {
       hideIndicator(gesture);
       return false;
     }
-    const rect = surface.getBoundingClientRect();
-    showIndicator(gesture, "y", at, rect, rect);
+    showIndicator(gesture, "y", at, measured, measured);
     return true;
   }
 
@@ -5764,6 +6079,8 @@ function createRuntime(ctx) {
     closeSettingsMoreMenu();
     state.headerMenu = null;
     removeHeaderMenuBlock();
+    clearHeaderMenuDividers();
+    clearHeaderMenuOrder();
     cancelGesture();
     for (const cleanup of state.listenerCleanup.splice(0)) {
       try {

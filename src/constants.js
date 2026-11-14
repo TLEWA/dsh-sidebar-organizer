@@ -47,6 +47,16 @@ const HOST_ACTION_KEY = "dsh.sidebar-organizer.host-actions.v1";
 // reorder would silently rebind them). Applied through `style.order` on the
 // menu's flex viewport, never by moving React-owned nodes.
 const HOST_MENU_ORDER_KEY = "dsh.sidebar-organizer.host-menu-order.v1";
+// The shipped popup's own separators are hardcoded and painted in DOM order, so
+// once the rows are reordered they no longer sit between the groups they were
+// meant to divide - they all pile up right after the first row (the reported
+// "多个分割线还重叠了"). The popup therefore keeps its own divider list here, in
+// the same positional form as the right-click menus: gap N is the seam under
+// the Nth visible row, so a line stays where it was placed when rows move.
+const HOST_MENU_DIVIDERS_KEY = "dsh.sidebar-organizer.host-menu-dividers.v1";
+// Marks the divider nodes this plugin injects into that popup, so the host row
+// scan never mistakes one of them for an action.
+const HOST_MENU_DIVIDER_ATTR = "data-dso-header-divider";
 const HOST_ACTION_PREFIX = "dso-host-";
 const DISABLED_KEY = "dsh.sidebar-organizer.disabled";
 // Set the first time the user actually rearranges something in this origin. The
@@ -66,13 +76,16 @@ const CROSS_WINDOW_KEY = "dsh.sidebar-organizer.cross-window.v1";
 // press. Both may be on at once.
 const HOTKEY_KEY = "dsh.sidebar-organizer.hotkey.v1";
 // 0.2.2's unified right-click menus are the only surface these rows live on: the
-// session row menu and the workspace row menu. Both are host-rendered (rows come
-// from ctx.contextMenus registrations), so the custom order and the user's
-// dividers are applied to the open DOM and remembered here. Dividers are stored
-// as GAP indexes, never attached to a row: the user asked for a separator that
-// stays where it was placed when rows move across it.
+// session row menu, the workspace row menu and, since dsh-sidebar-row-menu 1.13
+// on rc.2+, the conversation body menu (kind "conversation"): its rows are
+// host-rendered too, because row-menu registers the body menu through the same
+// ctx.contextMenus service. The end user asked for all three to drag the same
+// way. Each kind keeps its own order and its own dividers, applied to the open
+// DOM and remembered here. Dividers are stored as GAP indexes, never attached
+// to a row: the user asked for a separator that stays where it was placed when
+// rows move across it.
 const CONTEXT_MENU_KEY = "dsh.sidebar-organizer.context-menu.v1";
-const CONTEXT_MENU_KINDS = ["session", "workspace"];
+const CONTEXT_MENU_KINDS = ["session", "workspace", "conversation"];
 const CONTEXT_MENU_VERSION = 1;
 // dsh-sidebar-row-menu draws its own blank-conversation menu from the session
 // header toolbar. Its first level normally follows the header order (and its

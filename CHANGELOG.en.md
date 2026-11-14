@@ -1,5 +1,50 @@
 # Changelog
 
+## [Unreleased]
+
+### English
+
+- Fixed divider toggling after a reorder: the seam under the pointer used the row's child index, but a drag
+  only changes the painted order and leaves the children where they were - a row dragged to the top could never
+  get a divider and other rows toggled the wrong seam. Rows are now read back in paint order (their flex order)
+  before the gap is derived.
+- The conversation-body context menu is organizable too (DSH 0.2.2-rc.3 opens it through the
+  host `contextMenus` service as `kind: "conversation"`, with dsh-sidebar-row-menu doing the
+  opening): long-press to reorder, right-click a row to toggle the divider under it, drag to the
+  bottom to tuck it into `··· More ›`, hover to expand and long-press an entry back onto the
+  first level. Order, dividers and tucked rows are stored per menu, so the session and workspace
+  menus never reshuffle each other.
+- Recognition no longer guesses from labels: the plugin reads the `kind` of the host
+  `contextMenus` target and falls back to the label path when that is unavailable. No
+  dsh.sidebar-row-menu.* key is written and the menu row-menu draws itself keeps the old path.
+- The blue insertion line no longer disappears entirely while dragging: when this frame has no
+  measurable row boxes (the host mounts the surface before it paints the rows, or another plugin
+  makes a row `display:contents`), the line falls back to the menu edge and the release still
+  lands on the row under the pointer.
+- Before the first tuck, the `··· More` target floats outside the menu box instead of growing it:
+  a taller menu made the host re-place the whole surface through CSS anchor positioning, roughly
+  300px away from the pointer. Once a row is tucked it becomes a real last row again. The floating
+  strip copies the host surface material (background alpha raised to 0.94 so text underneath stays
+  unreadable) and follows both themes.
+- Fixes the top-right "···" popup: right-clicking no longer closes it (it used to be parked as an ordinary
+  context menu whose intent never resolved), so right-clicking between two rows toggles the divider there;
+  after a drag the host's own two dividers no longer stack on one another (rows take 2N, lines 2N-1, the host
+  lines are hidden and ours paint the seams, stored as gap indexes); and the saved row order finally applies
+  when the popup opens - the host tags its row id on the inner button, never on the row container, so the
+  ordering pass silently found no rows.
+- The order of the header `···` popup no longer depends on the right-click menu switch: ordering is the
+  popup's own feature and the switch only owns the dividers, so a drag still reorders on DSH 0.2.1 or with
+  the right-click menus turned off instead of writing storage while the popup stayed put, and the host's
+  own two separators take part in the same order (nothing is written at all while there is no saved order),
+  so the shipped grouping is not pulled under the first row.
+- Stopping the plugin (or turning the switch off) now also restores the inline `order` it wrote on the popup's
+  rows and on the host's own separators; previously only `display` came back, so the two host lines slid back
+  under the first row while the rows kept their plugin order.
+- Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
+  snapshots falling back to labels, a throwing accessor degrading safely) and
+  `test/o14-context-more-anchor.test.mjs` (float switch, above/below decision, defaults for junk
+  measurements).
+
 ## [0.11.2] - 2026-11-14
 
 ### English

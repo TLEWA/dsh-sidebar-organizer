@@ -575,6 +575,34 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   padding: 0;
   margin: 0;
 }
+/* While a row is dragged, the More target is laid out outside the menu box.
+   Anything that grows the menu makes the host re-place the surface through CSS
+   anchor positioning, and the measured 34px of an in-flow row flipped the whole
+   menu roughly 300px up, away from the pointer mid-gesture. Out of flow the
+   menu keeps its height, so the target stays where the user is dragging. The
+   paint is copied from the host surface at runtime (see
+   positionContextMoreAnchor), so both themes keep their own material. */
+.dso-ctx-more.is-floating {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 34px;
+  margin-top: 4px;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(48, 49, 54, 0.92);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.16),
+    0 6px 20px rgba(0, 0, 0, 0.28);
+}
+.dso-ctx-more.is-floating.is-above {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 4px;
+}
 /* The armed anchor keeps the full "drop here" feedback — it shrinks to 0.94 and
    breathes, as the sidebar targets do. Hit-testing measures the wrapper
    ([data-dso-ctx-more]), which never scales, so the shrink cannot move the drop
