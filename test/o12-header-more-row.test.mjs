@@ -195,3 +195,41 @@ test("O-12: outlets without fixedMore keep their More control out of the rows", 
   assert.deepEqual(found.rows, ["action"]);
   assert.equal(found.moreIsRow, false);
 });
+
+test("O-12: the More row never adopts the id of a button that has not mounted yet", () => {
+  // No id attributes here: the host's buttons have none, so the row ids come
+  // from their accessible labels ("host:…") exactly as on the live header.
+  const panelRow = element("button", { "aria-label": "展开底部面板" });
+  const more = element("button", {
+    "aria-label": "更多操作",
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
+  });
+  const outlet = element("div", { id: "outlet", "data-slot": "conversation.session.header.utilities" }, [panelRow]);
+  const container = element("div", { id: "utilities" }, [outlet, more]);
+
+  // writeScope() reports a local change through sync.js, so this one test
+  // loads it too; the DOM shape is the same as the other cases.
+  const env = createClientEnv({ modules: ["constants.js", "storage.js", "sync.js", "scopes.js"] });
+  installHeader(env, { outlet, container });
+  const found = collectHeader(env);
+  assert.equal(found.moreIsRow, true);
+
+  // First pass after an upgrade: the layout still names a button the host has
+  // not mounted yet ("IP 防护" mounts late), so that id is an orphan while the
+  // freshly-promoted More row is the only unseen row. Pairing the two would
+  // rewrite hidden to the More id and un-tuck IP 防护 for good.
+  env.dso.writeScope("header", {
+    order: ["host:展开底部面板", "host:ip-防护"],
+    hidden: ["host:ip-防护"],
+  });
+
+  const json = vm.runInContext(
+    "JSON.stringify((() => { const found = discoverScope(null, \"header\"); return { paired: migrateScopeIds(found), scope: readScope(\"header\") }; })())",
+    env.context
+  );
+  const result = JSON.parse(json);
+  assert.equal(result.paired, 0, "the More row must not be paired with an absent button");
+  assert.deepEqual(result.scope.order, ["host:展开底部面板", "host:ip-防护"]);
+  assert.deepEqual(result.scope.hidden, ["host:ip-防护"], "the tucked button keeps its saved slot");
+});

@@ -15,9 +15,12 @@
   injected into one. The shelf now only accepts the sheet its still-expanded trigger
   opened, skips submenu panes explicitly, and the right-click layout no longer
   rewrites the sheet's rows.
+- Safer upgrades: on the first pass that discovers the header, "More actions" no
+  longer takes over the saved layout record of a button that has not mounted yet
+  (that button would otherwise lose its tucked slot and position once it appears).
 - Adds `test/o12-header-more-row.test.mjs` covering More as a strip row (sibling,
-  span-wrapped and rendered inside the slot) and outlets without `fixedMore` still
-  keeping More out of the rows.
+  span-wrapped and rendered inside the slot), outlets without `fixedMore` still
+  keeping More out of the rows, and the migration above never mispairing.
 
 ## [0.11.1] - 2026-11-12
 
