@@ -3,6 +3,49 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## [Unreleased]
+
+- 会话正文右键菜单也能整理了（DSH 0.2.2-rc.3 起，这张菜单由宿主 `contextMenus` 以
+  `kind: "conversation"` 渲染，dsh-sidebar-row-menu 负责打开它）：长按条目拖动排序、右键
+  条目增删分隔线、拖到最底部收进 `··· 更多 ›`、悬停展开后再长按拖回一级。顺序、分隔线与
+  收纳状态按菜单分别保存，与侧栏会话 / 工作区两张右键菜单互不干扰。
+- 识别不再猜文案：插件读宿主 `contextMenus` 服务当前 target 的 `kind`，读不到时退回原来的
+  标签判断；不写 row-menu 的任何存储键，row-menu 自绘的那张旧菜单仍走原路径。
+- 拖动时的蓝色插入线不再整条消失：这一帧还量不到行盒时（宿主先挂菜单面、后画行，或其他
+  插件把行设成 `display:contents`），线贴到菜单边缘继续显示，松手仍按指针所在行落位。
+- 「··· 更多」的落点在第一次收纳之前浮在菜单外侧定位，不撑高菜单——菜单一旦变高，宿主会按
+  CSS anchor positioning 把整张菜单翻转约 300px、离开指针；收纳过之后它回到菜单里当真实末行。
+  浮层的底色与模糊取宿主 surface 的材质（底色不透明度提到 0.94，压在正文上仍看得清），两套
+  主题都跟随。
+- 新增 `test/o13-context-target-kind.test.mjs`（target kind 识别、非 conversation 与空快照退回
+  标签路径、读取抛错时降级）与 `test/o14-context-more-anchor.test.mjs`（浮动开关、上下翻转
+  判定与缺测时的默认值）。
+
+### English
+
+- The conversation-body context menu is organizable too (DSH 0.2.2-rc.3 opens it through the
+  host `contextMenus` service as `kind: "conversation"`, with dsh-sidebar-row-menu doing the
+  opening): long-press to reorder, right-click a row to toggle the divider under it, drag to the
+  bottom to tuck it into `··· More ›`, hover to expand and long-press an entry back onto the
+  first level. Order, dividers and tucked rows are stored per menu, so the session and workspace
+  menus never reshuffle each other.
+- Recognition no longer guesses from labels: the plugin reads the `kind` of the host
+  `contextMenus` target and falls back to the label path when that is unavailable. No
+  dsh.sidebar-row-menu.* key is written and the menu row-menu draws itself keeps the old path.
+- The blue insertion line no longer disappears entirely while dragging: when this frame has no
+  measurable row boxes (the host mounts the surface before it paints the rows, or another plugin
+  makes a row `display:contents`), the line falls back to the menu edge and the release still
+  lands on the row under the pointer.
+- Before the first tuck, the `··· More` target floats outside the menu box instead of growing it:
+  a taller menu made the host re-place the whole surface through CSS anchor positioning, roughly
+  300px away from the pointer. Once a row is tucked it becomes a real last row again. The floating
+  strip copies the host surface material (background alpha raised to 0.94 so text underneath stays
+  unreadable) and follows both themes.
+- Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
+  snapshots falling back to labels, a throwing accessor degrading safely) and
+  `test/o14-context-more-anchor.test.mjs` (float switch, above/below decision, defaults for junk
+  measurements).
+
 ## [0.11.2] - 2026-11-14
 
 - 会话头部的「更多操作」按钮重新可以拖动：0.2.2-rc.2 把它从工具条槽位里挪到槽位旁边后，

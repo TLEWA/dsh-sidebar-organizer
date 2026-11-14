@@ -874,6 +874,37 @@ function createRuntime(ctx) {
     return "";
   }
 
+  function contextMenuService() {
+    try {
+      if (typeof ctx.get === "function") {
+        const value = ctx.get("contextMenus");
+        if (value) return value;
+      }
+    } catch (error) {
+      console.warn("[dsh-sidebar-organizer] contextMenus lookup failed:", error);
+    }
+    try {
+      return ctx.contextMenus || null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // A conversation-body menu is opened by dsh-sidebar-row-menu through the
+  // host's contextMenus service as { kind: "conversation" }; unlike the row
+  // menus it carries no row-key and no label unique to it, so read the target
+  // the host is showing right now. Only the conversation kind is reported: the
+  // session and workspace menus keep their row-key/label paths, so an
+  // unexpected target here can never reclassify them.
+  function contextTargetKind() {
+    try {
+      return contextMenuTargetKind(contextMenuService());
+    } catch (error) {
+      console.warn("[dsh-sidebar-organizer] context target lookup failed:", error);
+      return "";
+    }
+  }
+
   function contextKindFromLabels(labels) {
     for (const kind of CONTEXT_MENU_KINDS) {
       const hints = CONTEXT_KIND_HINTS[kind] || [];
@@ -1546,6 +1577,8 @@ function createRuntime(ctx) {
       state.contextPendingAt = 0;
       if (Date.now() - at < CONTEXT_PENDING_TTL) return pending;
     }
+    const target = contextTargetKind();
+    if (target) return target;
     return contextKindFromLabels(model.rows.map((row) => row.label));
   }
 
@@ -2743,6 +2776,49 @@ function createRuntime(ctx) {
     return wrap;
   }
 
+  // The menu paints itself with a translucent "material" layer over a blurred
+  // backdrop. A 34px strip hangs over ordinary page content, so the same alpha
+  // let the text underneath read through it; solid enough to stand on its own,
+  // still the host's own hue in both themes.
+  function contextSurfaceColor(color) {
+    const match = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)$/.exec(
+      String(color || "").trim()
+    );
+    if (!match) return "";
+    const alpha = match[4] === undefined ? 1 : Number(match[4]);
+    if (!isFinite(alpha)) return "";
+    return "rgba(" + match[1] + ", " + match[2] + ", " + match[3] + ", " + Math.max(alpha, 0.94).toFixed(2) + ")";
+  }
+
+  // The drag-only anchor hangs off the menu edge with the host's own surface
+  // paint, so no theme color is hard-coded here and the menu's measured height
+  // never changes while a row is being dragged.
+  function positionContextMoreAnchor() {
+    const anchor = state.ctxMoreAnchor;
+    const model = state.contextRows;
+    const menu = model && model.menu;
+    if (!anchor || !menu || !anchor.classList.contains("is-floating")) return;
+    const rect = menu.getBoundingClientRect();
+    const above =
+      contextMoreAnchorSide({
+        menuTop: rect.top,
+        menuBottom: rect.bottom,
+        viewportHeight: window.innerHeight,
+        height: anchor.offsetHeight || 34,
+      }) === "above";
+    if (anchor.classList.contains("is-above") !== above) anchor.classList.toggle("is-above", above);
+    const material = menu.querySelector('[class*="_material_"]');
+    const paint = material ? getComputedStyle(material) : null;
+    if (!paint) return;
+    const color = contextSurfaceColor(paint.backgroundColor);
+    if (color && anchor.style.backgroundColor !== color) anchor.style.backgroundColor = color;
+    const blur = paint.backdropFilter || paint.webkitBackdropFilter || "";
+    if (blur && blur !== "none" && anchor.style.backdropFilter !== blur) {
+      anchor.style.backdropFilter = blur;
+      anchor.style.webkitBackdropFilter = blur;
+    }
+  }
+
   function setContextMoreExpanded(open) {
     const anchor = state.ctxMoreAnchor;
     const button = anchor ? anchor.querySelector(".dso-ctx-more-trigger") : null;
@@ -2772,11 +2848,25 @@ function createRuntime(ctx) {
     }
     if (!state.ctxMoreAnchor) state.ctxMoreAnchor = buildContextMoreAnchor();
     const anchor = state.ctxMoreAnchor;
+    // A menu that already tucks rows keeps a real More row inside its frame. The
+    // anchor a drag needs before the first tuck is laid out OUT of the flow
+    // instead: growing the surface mid-drag made the host re-place the whole
+    // menu (CSS anchor positioning flipped it ~300px up, away from the pointer).
+    const floating = contextMoreAnchorFloats(tucked.length);
+    if (anchor.classList.contains("is-floating") !== floating) {
+      anchor.classList.toggle("is-floating", floating);
+      if (!floating) {
+        anchor.classList.remove("is-above");
+        anchor.style.backgroundColor = "";
+        anchor.style.backdropFilter = "";
+      }
+    }
     // The host paints the menu as viewport + footer block + root-level buttons, so
     // appending into the viewport would park "More" above the footer actions. Hanging
     // it off the menu root with a huge order value puts it under every one of them.
     if (anchor.parentNode !== model.menu) model.menu.appendChild(anchor);
     if (anchor.style.order !== CONTEXT_MORE_ORDER) anchor.style.order = CONTEXT_MORE_ORDER;
+    if (floating) positionContextMoreAnchor();
     if (!state.ctxMoreOpen) return;
     if (!tucked.length) {
       closeContextMorePanel();
@@ -4714,18 +4804,24 @@ function createRuntime(ctx) {
   }
   function placeMenuLine(gesture, surface, boundary, targetRect, lastRect, pointerPos) {
     const boxes = paintedMenuBoxes(surface);
+    const rect = surface ? surface.getBoundingClientRect() : null;
+    const measured = rect && (rect.width > 0 || rect.height > 0) ? rect : null;
     let at = boxes.length ? paintedDropLine(boundary, "y", boxes, targetRect, lastRect, pointerPos) : null;
-    if (at === null && boxes.length) {
-      const rect = surface.getBoundingClientRect();
-      const seam = Math.min(Math.max(boundary, rect.top + 1), rect.bottom - 1);
+    if (at === null && boxes.length && measured) {
+      const seam = Math.min(Math.max(boundary, measured.top + 1), measured.bottom - 1);
       if (!menuLineThroughRow(seam, boxes)) at = seam;
     }
-    if (at === null) {
+    // A menu can still be missing its row boxes for a frame or two (the host
+    // mounts the surface before it paints the rows, and another plugin's row
+    // can be display:contents). Hiding the line there read as "drag is dead",
+    // so fall back to the surface edge: the release still lands on the row
+    // under the pointer, and the bar keeps the gesture legible.
+    if (at === null && measured) at = Math.min(Math.max(boundary, measured.top + 1), measured.bottom - 1);
+    if (at === null || !measured) {
       hideIndicator(gesture);
       return false;
     }
-    const rect = surface.getBoundingClientRect();
-    showIndicator(gesture, "y", at, rect, rect);
+    showIndicator(gesture, "y", at, measured, measured);
     return true;
   }
 

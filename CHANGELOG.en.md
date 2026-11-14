@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased]
+
+### English
+
+- The conversation-body context menu is organizable too (DSH 0.2.2-rc.3 opens it through the
+  host `contextMenus` service as `kind: "conversation"`, with dsh-sidebar-row-menu doing the
+  opening): long-press to reorder, right-click a row to toggle the divider under it, drag to the
+  bottom to tuck it into `··· More ›`, hover to expand and long-press an entry back onto the
+  first level. Order, dividers and tucked rows are stored per menu, so the session and workspace
+  menus never reshuffle each other.
+- Recognition no longer guesses from labels: the plugin reads the `kind` of the host
+  `contextMenus` target and falls back to the label path when that is unavailable. No
+  dsh.sidebar-row-menu.* key is written and the menu row-menu draws itself keeps the old path.
+- The blue insertion line no longer disappears entirely while dragging: when this frame has no
+  measurable row boxes (the host mounts the surface before it paints the rows, or another plugin
+  makes a row `display:contents`), the line falls back to the menu edge and the release still
+  lands on the row under the pointer.
+- Before the first tuck, the `··· More` target floats outside the menu box instead of growing it:
+  a taller menu made the host re-place the whole surface through CSS anchor positioning, roughly
+  300px away from the pointer. Once a row is tucked it becomes a real last row again. The floating
+  strip copies the host surface material (background alpha raised to 0.94 so text underneath stays
+  unreadable) and follows both themes.
+- Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
+  snapshots falling back to labels, a throwing accessor degrading safely) and
+  `test/o14-context-more-anchor.test.mjs` (float switch, above/below decision, defaults for junk
+  measurements).
+
 ## [0.11.2] - 2026-11-14
 
 ### English

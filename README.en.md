@@ -107,6 +107,22 @@ composer dock, session header, right sidebar, and settings navigation.
   context menu applies when it is first edited). Right-clicking a divider itself removes it (the
   hairline is half a pixel tall, so the 3+3px seam around it is the hit area); right-clicking a row
   still only toggles the divider underneath it.
+- **Conversation-body menu** (DSH 0.2.2-rc.3+, together with dsh-sidebar-row-menu): the menu the
+  host opens on a right-click inside the conversation (its own "Copy conversation as Markdown /
+  Download session log / Open in app / Feedback") is organized the same way now — long-press to
+  reorder a row, right-click a row to toggle the divider under it, drag to the bottom to tuck it
+  into `··· More ›`, hover to expand and long-press an entry back onto the first level. Order,
+  dividers and tucked rows are stored **per menu**, so the session, workspace and conversation
+  menus never reshuffle each other. The menu is recognised from the host `contextMenus` service
+  target `kind` (`conversation`), not from its labels, and no dsh.sidebar-row-menu.* key is ever
+  written; menus row-menu draws itself keep the old path. While dragging, a blue insertion line
+  marks the drop seam; if this frame has no measurable row boxes yet (the host mounts the surface
+  before it paints the rows, or another plugin makes a row `display:contents`), the line falls back
+  to the menu edge instead of disappearing, and the release still lands on the row under the
+  pointer. Before the first tuck the `··· More` target floats outside the menu box so the surface
+  never grows (growing it made the host re-place the whole menu through CSS anchor positioning);
+  after a tuck it becomes a real last row again, with its paint copied from the host surface so it
+  follows both themes.
 - **Settings page**: DSH Settings → "Layout organizer", or this plugin's detail
   page. Seven location cards let you drag rows, move up/down, tuck/restore, and
   reset one section. Each card has its own "Drag" switch: turn it off and that

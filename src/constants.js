@@ -66,13 +66,16 @@ const CROSS_WINDOW_KEY = "dsh.sidebar-organizer.cross-window.v1";
 // press. Both may be on at once.
 const HOTKEY_KEY = "dsh.sidebar-organizer.hotkey.v1";
 // 0.2.2's unified right-click menus are the only surface these rows live on: the
-// session row menu and the workspace row menu. Both are host-rendered (rows come
-// from ctx.contextMenus registrations), so the custom order and the user's
-// dividers are applied to the open DOM and remembered here. Dividers are stored
-// as GAP indexes, never attached to a row: the user asked for a separator that
-// stays where it was placed when rows move across it.
+// session row menu, the workspace row menu and, since dsh-sidebar-row-menu 1.13
+// on rc.2+, the conversation body menu (kind "conversation"): its rows are
+// host-rendered too, because row-menu registers the body menu through the same
+// ctx.contextMenus service. The end user asked for all three to drag the same
+// way. Each kind keeps its own order and its own dividers, applied to the open
+// DOM and remembered here. Dividers are stored as GAP indexes, never attached
+// to a row: the user asked for a separator that stays where it was placed when
+// rows move across it.
 const CONTEXT_MENU_KEY = "dsh.sidebar-organizer.context-menu.v1";
-const CONTEXT_MENU_KINDS = ["session", "workspace"];
+const CONTEXT_MENU_KINDS = ["session", "workspace", "conversation"];
 const CONTEXT_MENU_VERSION = 1;
 // dsh-sidebar-row-menu draws its own blank-conversation menu from the session
 // header toolbar. Its first level normally follows the header order (and its

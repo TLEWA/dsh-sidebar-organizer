@@ -60,6 +60,33 @@ function dividerGapOfMiddle(rects, middle) {
 // `tolerance` is how far from the line's middle still counts as "on the line";
 // pass Infinity when the event target already is a separator. The nearest line
 // within tolerance wins, so overlapping candidates cannot flip the answer.
+// A menu opened through the host's contextMenus service names its target kind in
+// the service (`{ kind: "session" }`, `{ kind: "conversation" }`, ...); the DOM
+// carries no marker. The service exposes that target as a snapshot store, and
+// the accessor has changed once already, so read whichever of getSnapshot/get/
+// snapshot exists before falling back to a plain `value`. Pure over the given
+// service object, which keeps this rule unit-testable without a host.
+function contextMenuTargetKind(service) {
+  if (!service) return "";
+  try {
+    const active = service.active;
+    if (!active) return "";
+    let target = null;
+    let read = false;
+    for (const name of ["getSnapshot", "get", "snapshot"]) {
+      if (typeof active[name] !== "function") continue;
+      target = active[name]();
+      read = true;
+      break;
+    }
+    if (!read) target = active.value === undefined ? null : active.value;
+    return target && target.kind === "conversation" ? "conversation" : "";
+  } catch (error) {
+    console.warn("[dsh-sidebar-organizer] context target read failed:", error);
+    return "";
+  }
+}
+
 function contextDividerLineGap(menu, rects, y, tolerance) {
   if (!menu || !menu.isConnected || !Number.isFinite(y) || !rects || !rects.length) return 0;
   let best = 0;
@@ -80,4 +107,33 @@ function contextDividerLineGap(menu, rects, y, tolerance) {
     bestDistance = distance;
   }
   return best;
+}
+// A right-click menu has no host-owned More row. Before the menu has tucked
+// anything, the anchor a drag needs is laid out OUTSIDE the menu box: growing
+// the surface mid-drag made the host re-place the whole menu (CSS anchor
+// positioning flipped it ~300px up, away from the pointer). Once a row is
+// tucked the anchor becomes a real row inside the frame again, so the strip
+// never lingers in menus nobody customized.
+function contextMoreAnchorFloats(tuckedCount) {
+  return !(Number(tuckedCount) > 0);
+}
+
+// Which side of the menu the out-of-flow anchor takes. Below reads as "the rest
+// of the list", so it wins whenever a full anchor plus its gap fits under the
+// menu; it only flips above when the menu is close enough to the bottom edge to
+// leave no room, and the space above can actually hold it. An unmeasurable menu
+// keeps the default instead of guessing.
+function contextMoreAnchorSide(options) {
+  const menuTop = options ? Number(options.menuTop) : NaN;
+  const menuBottom = options ? Number(options.menuBottom) : NaN;
+  const viewportHeight = options ? Number(options.viewportHeight) : NaN;
+  const rawHeight = options ? Number(options.height) : NaN;
+  const rawMargin = options ? Number(options.margin) : NaN;
+  const height = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : 34;
+  const margin = Number.isFinite(rawMargin) && rawMargin >= 0 ? rawMargin : 8;
+  if (!Number.isFinite(menuTop) || !Number.isFinite(menuBottom) || !Number.isFinite(viewportHeight)) return "below";
+  const needed = height + margin;
+  if (viewportHeight - menuBottom >= needed) return "below";
+  if (menuTop > needed) return "above";
+  return "below";
 }
