@@ -192,7 +192,10 @@ function migrateScopeIds(found) {
   const isHostAction = (id) => String(id || "").indexOf(HOST_ACTION_PREFIX) === 0;
   if (orphans.every(isHostAction)) return 0;
   const known = new Set(layout.order);
-  const candidates = rows.filter((row) => !known.has(row.id) && !isHostAction(row.id));
+  // A row this build just started mounting is not a candidate: on the first
+  // pass after an upgrade it can be the only unseen row, and the positional
+  // fallback below would hand it a saved id whose button has not mounted yet.
+  const candidates = rows.filter((row) => !row.noMigrate && !known.has(row.id) && !isHostAction(row.id));
   const paired = new Map();
   const takenRows = new Set();
   const fingerprintOfRow = (row) => row.fingerprint || fingerprintOf(row.label);
@@ -450,6 +453,23 @@ function collectOutlet(scope, selector, options) {
       }
     }
   }
+  // 0.7.0-pre shipped the header's "More" control as an ordinary row; 0.8 made
+  // it host chrome so the split control the host mounts right before it could
+  // not be torn apart. It is sortable again: the user asked for the "…" button
+  // itself to be a column of the strip. The element keeps its second job as the
+  // tuck target and menu anchor, which is what `moreTarget` still reports.
+  let moreIsRow = false;
+  if (options && options.fixedMore && more) {
+    const target = clickableIn(more) || menuTriggerButton(more);
+    if (target) {
+      // `noMigrate` keeps this brand-new row out of the upgrade pairing in
+      // migrateScopeIds(): otherwise a button that is simply not mounted yet
+      // (a panel that initialised later) would lose its id to "More", and
+      // applyFound() then clears that id's hidden flag, silently un-tucking it.
+      collected.rows.push({ unit: more, target, label: labelOf(target) || labelOf(more), noMigrate: true });
+      moreIsRow = true;
+    }
+  }
   return {
     scope,
     axis: options && options.axis ? options.axis : "x",
@@ -458,10 +478,7 @@ function collectOutlet(scope, selector, options) {
     rows: collected.rows,
     tails: tails.filter((child) => child !== more),
     more,
-    // The session header's "More actions" button is host chrome, not an
-    // overflow caret at the end of a strip: it must keep the slot the host
-    // gave it (right after the split control) and never be sorted or tucked.
-    moreIsChrome: !!(options && options.fixedMore && collected.more),
+    moreIsRow,
     moreTarget: more ? menuTriggerButton(more) : null,
   };
 }

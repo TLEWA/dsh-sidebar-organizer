@@ -218,6 +218,30 @@ function createRuntime(ctx) {
     return dx * dx + dy * dy;
   }
 
+  // 0.2.2 renders every menu with one primitives.Menu, including the contextual
+  // surface a right click opens and the sheet the header's More control opens.
+  // The DOM only tells them apart by which trigger reports itself expanded, so
+  // that is the whole test. A right click leaves every data-context-menu-trigger
+  // collapsed, while our header anchor keeps aria-expanded="true" until the
+  // sheet exits.
+  function headerOpenedContextMenu(menu) {
+    const anchor = headerAnchor();
+    if (!anchor || !anchor.isConnected) return false;
+    if (anchor.getAttribute("aria-expanded") !== "true") return false;
+    // Another popover may open its own contextual menu meanwhile (the split
+    // control's "open with", settings); only the most recently mounted one is
+    // the sheet our trigger opened.
+    let last = null;
+    for (const other of document.querySelectorAll("[data-context-menu]")) {
+      if (!other.isConnected || other.hidden) continue;
+      if (!other.querySelector('[role="menuitem"]')) continue;
+      const rect = other.getBoundingClientRect();
+      if (!rect.width && !rect.height) continue;
+      last = other;
+    }
+    return last === menu;
+  }
+
   // Every visible popup that could be the host's "More actions" menu. Menus
   // without rows (anchors' empty shells, our own settings popup) are not
   // candidates: the shipped menu always has at least one menuitem.
@@ -226,9 +250,15 @@ function createRuntime(ctx) {
     for (const menu of document.querySelectorAll('[role="menu"]')) {
       if (menu.classList.contains("dso-settings-more-menu")) continue;
       if (menu.closest(".dso-settings-more-menu")) continue;
-      // 0.2.2 routes the same primitives.Menu through a contextual surface for
-      // right-click / keyboard menus. It is never the header's More menu.
-      if (menu.closest("[data-context-menu]")) continue;
+      // A submenu panel ("open with >", "在应用中打开 >") is a menu of its own,
+      // and 0.2.2 portals it next to the sheet rather than inside it. Treating
+      // it as a candidate injected the tucked rows into another action's
+      // submenu - the reported "menu item swallowed the rows" nesting.
+      if (menu.hasAttribute("data-submenu-layout")) continue;
+      if (menu.closest("[data-submenu-layout]")) continue;
+      // Right-click menus are never the header sheet; the sheet is contextual
+      // too now, so accept a contextual menu only while our trigger opened it.
+      if (menu.closest("[data-context-menu]") && !headerOpenedContextMenu(menu)) continue;
       if (!menu.querySelector('[role="menuitem"]')) continue;
       const rect = menu.getBoundingClientRect();
       if (!rect.width && !rect.height) continue;
@@ -263,8 +293,12 @@ function createRuntime(ctx) {
 
   function headerMenuViewport(menu) {
     // The shipped menu wraps its rows in a scroll viewport; insert above the
-    // native items so "download / feedback" keep their familiar place.
-    return menu.querySelector('[class*="_viewport_"]') || menu;
+    // native items so "download / feedback" keep their familiar place. A
+    // viewport inside one of the items belongs to that item (submenu surfaces
+    // mount there in older builds), never to the sheet.
+    const viewport = menu.querySelector('[class*="_viewport_"]');
+    if (viewport && !viewport.closest('[role="menuitem"]')) return viewport;
+    return menu;
   }
 
   function headerTuckedBlock(rows) {
@@ -859,6 +893,11 @@ function createRuntime(ctx) {
     let picked = null;
     for (const menu of document.querySelectorAll("[data-context-menu]")) {
       if (!menu.isConnected || menu.hidden) continue;
+      // The header's More sheet is a contextual surface too, but it belongs to
+      // the header scope: the shelf writes its rows there and orders them. The
+      // right-click layout must not flatten it or compete for the same nodes.
+      if (state.headerMenu === menu) continue;
+      if (headerOpenedContextMenu(menu)) continue;
       if (!menu.querySelector('[role="menuitem"]')) continue;
       const rect = menu.getBoundingClientRect();
       if (!rect.width && !rect.height) continue;
@@ -3241,21 +3280,27 @@ function createRuntime(ctx) {
     // ids to the fingerprint ids this build derives before anything reads the
     // layout, so a hand-made arrangement survives the upgrade without a re-drag.
     migrateScopeIds(found);
-    // 0.7.0-pre persisted the shipped "More actions" button as a row; now that
-    // it is host chrome again, a stale "more" entry in the saved order would
-    // shift every drop index by one. Drop it before anything reads the layout.
-    if (found.moreIsChrome) {
-      const stale = readScope(scope);
-      if (stale.order.indexOf("more") !== -1 || stale.hidden.indexOf("more") !== -1) {
-        writeScope(scope, {
-          order: stale.order.filter((id) => id !== "more"),
-          hidden: stale.hidden.filter((id) => id !== "more"),
-        });
-      }
-    }
     const layout = normalizedLayout(scope);
     const byId = new Map();
     for (const row of found.rows) byId.set(row.id, row);
+    // 0.8-0.11 kept the shipped "More actions" button as host chrome and
+    // scrubbed any stale "more" row id out of the saved layout. It is a row
+    // again, so the scrub only runs while no current row owns that id (the
+    // English label derives exactly "more").
+    if (!byId.has("more")) {
+      if (layout.order.indexOf("more") !== -1 || layout.hidden.indexOf("more") !== -1) {
+        layout.order = layout.order.filter((id) => id !== "more");
+        layout.hidden = layout.hidden.filter((id) => id !== "more");
+      }
+    }
+    // It must never be tucked: a hidden "…" takes away the only way back to
+    // everything the strip is hiding.
+    const moreRow = found.moreIsRow && found.more
+      ? found.rows.find((row) => row.unit === found.more || row.target === found.more)
+      : null;
+    if (moreRow && layout.hidden.indexOf(moreRow.id) !== -1) {
+      layout.hidden = layout.hidden.filter((id) => id !== moreRow.id);
+    }
 
     const hiddenSet = new Set(layout.hidden);
     const visible = layout.order.filter((id) => !hiddenSet.has(id));
@@ -3285,14 +3330,7 @@ function createRuntime(ctx) {
       applyOrder(tails[index], tailBase + index);
       applyDisplay(tails[index], false);
     }
-    if (found.more && found.moreIsChrome) {
-      // Host chrome (the header's shipped "More actions" button) keeps the slot
-      // the host gave it. The split control before it also resolves to order 0,
-      // and equal orders fall back to DOM order, so the button stays where the
-      // host mounted it instead of jumping to the far right.
-      applyOrder(found.more, 0);
-      applyDisplay(found.more, false);
-    } else if (found.more) {
+    if (found.more && !moreRow) {
       // Settings only grows its "More" row while something is tucked: with an
       // empty shelf the extra control would just be another dead row. Count
       // only rows that still exist: a tucked row the host has since removed
@@ -4896,7 +4934,13 @@ function createRuntime(ctx) {
       return;
     }
 
-    if (snapshot.moreRect && pointIn(snapshot.moreRect, x, y, 2)) {
+    // The More control is one of the strip's rows now, so its own box can sit
+    // under the pointer. Tucking another row there still means "hide it", but
+    // dragging More onto itself must not hide the only way back to the shelf.
+    const moreRow = snapshot.found && snapshot.found.moreIsRow
+      ? snapshot.found.rows.find((row) => row.unit === snapshot.found.more || row.target === snapshot.found.more)
+      : null;
+    if (snapshot.moreRect && !(moreRow && moreRow.id === gesture.id) && pointIn(snapshot.moreRect, x, y, 2)) {
       gesture.target = { kind: "hide" };
       dropMore = true;
       return;

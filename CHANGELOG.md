@@ -3,6 +3,37 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
+## [Unreleased]
+
+- 会话头部的「更多操作」按钮重新可以拖动：0.2.2-rc.2 把它从工具条槽位里挪到槽位旁边后，
+  插件重新把它当成条带的一列写入顺序，刷新或重启后位置照你的安排保留。它自身永远不会被
+  收纳（唯一回收入口要一直在条带上），拖它自己也只在条带内换位、不再收进菜单。
+- 修复把行拖进「更多操作」时被塞进子菜单的嵌套：0.2.2 起右键菜单与头部弹窗共用同一套上下文
+  菜单原语，二级菜单（「在应用中打开」等）也是独立菜单，插件此前会把收纳行注入其中一个。
+  现在只认仍处于展开状态的「更多操作」触发按钮打开的那张一级菜单，显式跳过子菜单面板，
+  右键菜单也不再改写这张弹窗的行。
+- 升级更安全：首次发现会话头部的那一次，「更多操作」不会顶替尚未挂载按钮的旧布局记录
+  （否则那个按钮稍后挂载时会丢掉已保存的收纳状态与位置）。
+- 新增 `test/o12-header-more-row.test.mjs`，覆盖「更多」成为条带一行（同级、包在 span 里、
+  渲染在槽位内部）、非 `fixedMore` 区域仍不把「更多」当成行，以及上述迁移不误配。
+
+### English
+
+- The session header's "More actions" button is draggable again: 0.2.2-rc.2 moved it
+  out of the utilities slot and next to it, and the plugin treats it as one of the
+  strip's columns again, so its position survives reloads. It is never tucked (the
+  only way back to the shelf has to stay on the strip), and dragging More onto itself
+  now reorders it instead of hiding it.
+- Fix the wrong nesting when a row was dragged into "More actions": since 0.2.2 the
+  right-click menu and the header sheet share one contextual-menu primitive, and
+  submenus ("open with ...") are menus of their own, so the tucked rows could be
+  injected into one. The shelf now only accepts the sheet its still-expanded trigger
+  opened, skips submenu panes explicitly, and the right-click layout no longer
+  rewrites the sheet's rows.
+- Adds `test/o12-header-more-row.test.mjs` covering More as a strip row (sibling,
+  span-wrapped and rendered inside the slot) and outlets without `fixedMore` still
+  keeping More out of the rows.
+
 ## [0.11.1] - 2026-11-12
 
 - 适配 DSH 0.2.2-rc.2 的侧栏结构：每个面板从直接挂在 `nav` 下的按钮变成
