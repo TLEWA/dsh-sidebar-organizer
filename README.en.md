@@ -119,10 +119,13 @@ composer dock, session header, right sidebar, and settings navigation.
   marks the drop seam; if this frame has no measurable row boxes yet (the host mounts the surface
   before it paints the rows, or another plugin makes a row `display:contents`), the line falls back
   to the menu edge instead of disappearing, and the release still lands on the row under the
-  pointer. Before the first tuck the `··· More` target floats outside the menu box so the surface
-  never grows (growing it made the host re-place the whole menu through CSS anchor positioning);
-  after a tuck it becomes a real last row again, with its paint copied from the host surface so it
-  follows both themes.
+  pointer. Before the first tuck the row being dragged steps aside for the drag, so the `··· More`
+  target takes its slot inside the flow: the surface keeps its exact height (growing it mid-drag
+  made the host re-place the whole menu through CSS anchor positioning) while the target, its hit
+  box and its paint stay inside the panel; the row and the target come back in the same task on
+  release or cancel. A menu left with a single visible row has no slot to free and still falls back
+  to the strip on the menu edge (paint copied from the host surface, both themes); after a tuck it
+  is a real last row anyway.
 - **Settings page**: DSH Settings → "Layout organizer", or this plugin's detail
   page. Seven location cards let you drag rows, move up/down, tuck/restore, and
   reset one section. Each card has its own "Drag" switch: turn it off and that
@@ -311,7 +314,11 @@ the page. Since 0.2.0 the mechanism is different:
   **menu root** (`div[data-dso-ctx-more]` holding one `role=menuitem` button; it is
   kept out of `model.rows`, never gets `data-dso-ctx-id`, and takes `order = 9999`),
   so it always comes after `_viewport_`, `_footer_`, and plugin buttons — the very
-  last row of the menu. Tucked ids live in `hidden`; their rows get
+  last row of the menu. Until the menu has tucked anything, a drag hides the source row
+  (`.dso-ctx-more-source-hidden`) and the anchor turns off `is-floating` to take the 34px
+  it freed: the height nets to zero, the host has no reason to re-place the surface, and the
+  anchor stays inside the panel; release and cancel restore both in one synchronous block.
+  Tucked ids live in `hidden`; their rows get
   `display:none`, visible rows are numbered by their visible index, so divider
   gaps still point at rows you can see. Dropping on the anchor tucks (refused
   when only one visible item is left); hovering it expands a body-level

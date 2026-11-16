@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { createClientEnv } from "./helpers/client-env.mjs";
 
-// The drag-only More anchor of a right-click menu is laid out OUTSIDE the menu
-// box: as a real row it grew the surface, and the host re-placed the whole menu
-// mid-gesture (measured ~300px up, away from the pointer). Both decisions that
-// keep it out of the way are pure and pinned here, because getting them wrong
-// is invisible until a menu near the viewport edge jumps under the pointer.
+// The drag-only More anchor of a right-click menu must never grow the surface:
+// as an extra real row it made the host re-place the whole menu mid-gesture
+// (measured ~300px up, away from the pointer). The three decisions that keep it
+// from doing that are pure and pinned here, because getting them wrong is
+// invisible until a menu near the viewport edge jumps under the pointer.
 async function geometryEnv() {
   return createClientEnv({ modules: ["context-geometry.js"] });
 }
@@ -20,6 +20,11 @@ function floats(env, tucked) {
 function side(env, options) {
   env.sandbox.__menu = options;
   return vm.runInContext("contextMoreAnchorSide(__menu)", env.context);
+}
+
+function pinned(env, options) {
+  env.sandbox.__pin = options;
+  return vm.runInContext("contextMoreAnchorPinned(__pin)", env.context);
 }
 
 test("O-14: the anchor floats only until the menu has tucked its first row", async () => {
@@ -60,4 +65,27 @@ test("O-14: the row height and gap drive the decision, and junk measurements kee
   assert.equal(side(env, { menuBottom: 745, viewportHeight: 802 }), "below", "a missing top measurement is not guessed");
   assert.equal(side(env, null), "below");
   assert.equal(side(env, undefined), "below");
+});
+
+test("O-14: the first drag keeps the anchor inside the menu, in the slot the dragged row freed", async () => {
+  const env = await geometryEnv();
+  assert.equal(
+    pinned(env, { dragging: true, tuckedCount: 0, visibleCount: 7 }),
+    true,
+    "a row that is really being dragged can stand in for the anchor: same height, control inside the panel"
+  );
+  assert.equal(pinned(env, { dragging: true, tuckedCount: 0, visibleCount: 2 }), true, "two rows left is still a usable drop list");
+});
+
+test("O-14: pinning never applies without a drag, after a tuck, or when it would empty the menu", async () => {
+  const env = await geometryEnv();
+  assert.equal(pinned(env, { dragging: false, tuckedCount: 0, visibleCount: 7 }), false, "an idle menu grows nothing: no anchor at all");
+  assert.equal(pinned(env, { dragging: true, tuckedCount: 1, visibleCount: 6 }), false, "a menu that already tucks rows is in flow anyway");
+  assert.equal(
+    pinned(env, { dragging: true, tuckedCount: 0, visibleCount: 1 }),
+    false,
+    "the last visible action cannot be tucked, so the anchor has to stay out of flow"
+  );
+  assert.equal(pinned(env, null), false);
+  assert.equal(pinned(env, undefined), false);
 });

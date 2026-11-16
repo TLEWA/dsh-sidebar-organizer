@@ -21,11 +21,15 @@
   measurable row boxes (the host mounts the surface before it paints the rows, or another plugin
   makes a row `display:contents`), the line falls back to the menu edge and the release still
   lands on the row under the pointer.
-- Before the first tuck, the `··· More` target floats outside the menu box instead of growing it:
-  a taller menu made the host re-place the whole surface through CSS anchor positioning, roughly
-  300px away from the pointer. Once a row is tucked it becomes a real last row again. The floating
-  strip copies the host surface material (background alpha raised to 0.94 so text underneath stays
-  unreadable) and follows both themes.
+- Fix the `··· More` target living outside the menu's own DOM: before the first tuck it hung off
+  the menu box as a floating strip during a drag, which is exactly the stray bar that showed up
+  below the panel and could not pick up its rounded corners or material. The dragged row now steps
+  aside for the drag and the anchor takes its slot inside the flow: the surface keeps its exact
+  height (growing it made the host re-place the whole menu through CSS anchor positioning, roughly
+  300px away from the pointer), and the target, its hit box and its paint stay inside the panel;
+  release and cancel restore the row and drop the anchor in one frame. A menu left with a single
+  visible row has no slot to free and still falls back to the strip on the menu edge (material
+  copied from the host surface, alpha 0.94, both themes); after a tuck it is a real last row anyway.
 - Fixes the top-right "···" popup: right-clicking no longer closes it (it used to be parked as an ordinary
   context menu whose intent never resolved), so right-clicking between two rows toggles the divider there;
   after a drag the host's own two dividers no longer stack on one another (rows take 2N, lines 2N-1, the host
@@ -42,8 +46,8 @@
   under the first row while the rows kept their plugin order.
 - Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
   snapshots falling back to labels, a throwing accessor degrading safely) and
-  `test/o14-context-more-anchor.test.mjs` (float switch, above/below decision, defaults for junk
-  measurements).
+  `test/o14-context-more-anchor.test.mjs` (float switch, the in-panel pin decision, above/below
+  decision, defaults for junk measurements).
 
 ## [0.11.2] - 2026-11-14
 

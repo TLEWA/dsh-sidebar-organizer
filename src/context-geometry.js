@@ -109,13 +109,27 @@ function contextDividerLineGap(menu, rects, y, tolerance) {
   return best;
 }
 // A right-click menu has no host-owned More row. Before the menu has tucked
-// anything, the anchor a drag needs is laid out OUTSIDE the menu box: growing
-// the surface mid-drag made the host re-place the whole menu (CSS anchor
-// positioning flipped it ~300px up, away from the pointer). Once a row is
-// tucked the anchor becomes a real row inside the frame again, so the strip
-// never lingers in menus nobody customized.
+// anything, the anchor a drag needs must not grow the surface: growing it
+// mid-drag made the host re-place the whole menu (CSS anchor positioning
+// flipped it ~300px up, away from the pointer). Once a row is tucked the anchor
+// becomes a real row inside the frame again, so the strip never lingers in
+// menus nobody customized. Floating keeps the size only by leaving the box;
+// contextMoreAnchorPinned is the variant that keeps the size AND stays inside.
 function contextMoreAnchorFloats(tuckedCount) {
   return !(Number(tuckedCount) > 0);
+}
+
+// A first drag can keep the menu's exact height with the anchor INSIDE the
+// panel: the row being dragged leaves the frame and the 34px More row takes the
+// slot it freed, so nothing grows and nothing needs re-placing. The caller hides
+// that row, which is only safe while the menu still has rows left to hit-test -
+// the last visible action cannot be tucked (the runtime refuses it), so pinning
+// there would empty the drop list instead of offering the tuck.
+function contextMoreAnchorPinned(options) {
+  const opts = options || {};
+  if (!opts.dragging) return false;
+  if (Number(opts.tuckedCount) > 0) return false;
+  return Number(opts.visibleCount) > 1;
 }
 
 // Which side of the menu the out-of-flow anchor takes. Below reads as "the rest
