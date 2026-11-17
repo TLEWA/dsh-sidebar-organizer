@@ -70,6 +70,10 @@ function createRuntime(ctx) {
     // drag ends and the layout is re-synced a beat later).
     ctxMoreDragId: "",
     ctxMoreHiddenItem: null,
+    // The host grouping measured BEFORE the drag hid its source row. A hidden
+    // row drops out of the gap count, so re-measuring mid-drag would shift every
+    // separator above it up by one and the first commit would persist that.
+    ctxMoreNativeDividers: null,
     ctxMoreTimer: 0,
     // Which host phase the flattened rows were last mirrored for ("enter" /
     // "replace" / "dismiss" / ""). The phase attribute is watched, and the rows
@@ -1310,7 +1314,7 @@ function createRuntime(ctx) {
     // The host's own separators mark the shipped grouping. They are the initial
     // divider set, so turning the feature on does not silently regroup a menu
     // the user never touched.
-    const nativeDividers = [];
+    let nativeDividers = [];
     // A row that has not been laid out yet must not count as a row above a
     // separator: that shifted the whole divider set by one.
     const laidRects = rows.filter((row) => row.rect.height > 0).map((row) => row.rect);
@@ -1323,6 +1327,12 @@ function createRuntime(ctx) {
       if (gap > 0 && nativeDividers.indexOf(gap) === -1) nativeDividers.push(gap);
     }
     nativeDividers.sort((a, b) => a - b);
+    // While a drag hides the row it would tuck, keep the grouping measured
+    // before the hide: the frozen snapshot is what the first commit must write.
+    nativeDividers = contextNativeDividersWhileHidden(
+      state.ctxMoreDragActive ? state.ctxMoreNativeDividers : null,
+      nativeDividers,
+    );
     const ids = new Map();
     for (const row of rows) ids.set(row.id, row);
     return { menu, viewport, footer, rows, ids, nativeDividers };
@@ -1664,6 +1674,12 @@ function createRuntime(ctx) {
     }
     state.ctxMoreAnchor = null;
     state.ctxMoreDragActive = false;
+    // Hand the source row back before the menu is torn down or the feature is
+    // switched off: the hidden class uses display:none !important, so leaving it
+    // behind would keep a host action missing from the next menu.
+    hideContextMoreSourceRow(null);
+    state.ctxMoreDragId = "";
+    state.ctxMoreNativeDividers = null;
     for (const [element, entry] of state.contextStyled) {
       try {
         element.style.order = entry.order;
@@ -3102,6 +3118,13 @@ function createRuntime(ctx) {
       tuckedCount: tucked.length,
       visibleCount: contextVisibleRowCount(model, hidden),
     });
+    // Freeze the host grouping before the row leaves the flow: the model built
+    // after the hide counts one row less, and the first commit must not inherit
+    // that shifted set. Only the first call of a drag sees a model measured with
+    // the row still visible.
+    if (pinned && !state.ctxMoreNativeDividers) {
+      state.ctxMoreNativeDividers = (model.nativeDividers || []).slice();
+    }
     hideContextMoreSourceRow(pinned ? dragRow : null);
     const floating = !pinned && contextMoreAnchorFloats(tucked.length);
     if (anchor.classList.contains("is-floating") !== floating) {
@@ -5453,6 +5476,7 @@ function createRuntime(ctx) {
     if (gesture.scope === CONTEXT_SCOPE && state.ctxMoreDragActive) {
       state.ctxMoreDragActive = false;
       state.ctxMoreDragId = "";
+      state.ctxMoreNativeDividers = null;
       scheduleContextSync();
     }
     document.body.classList.remove("dso-dragging");

@@ -7,7 +7,9 @@ import { createClientEnv } from "./helpers/client-env.mjs";
 // as an extra real row it made the host re-place the whole menu mid-gesture
 // (measured ~300px up, away from the pointer). The three decisions that keep it
 // from doing that are pure and pinned here, because getting them wrong is
-// invisible until a menu near the viewport edge jumps under the pointer.
+// invisible until a menu near the viewport edge jumps under the pointer. The
+// fourth keeps the host's own separators where they were while the drag hides
+// the row that is about to be tucked.
 async function geometryEnv() {
   return createClientEnv({ modules: ["context-geometry.js"] });
 }
@@ -25,6 +27,15 @@ function side(env, options) {
 function pinned(env, options) {
   env.sandbox.__pin = options;
   return vm.runInContext("contextMoreAnchorPinned(__pin)", env.context);
+}
+
+// The sandbox has its own Array prototype, so the result is serialized back
+// before comparison: deepStrictEqual would reject two structurally equal arrays
+// that came from different realms.
+function frozenDividers(env, frozen, measured) {
+  env.sandbox.__frozen = frozen;
+  env.sandbox.__measured = measured;
+  return JSON.parse(vm.runInContext("JSON.stringify(contextNativeDividersWhileHidden(__frozen, __measured))", env.context));
 }
 
 test("O-14: the anchor floats only until the menu has tucked its first row", async () => {
@@ -88,4 +99,22 @@ test("O-14: pinning never applies without a drag, after a tuck, or when it would
   );
   assert.equal(pinned(env, null), false);
   assert.equal(pinned(env, undefined), false);
+});
+
+test("O-14: a hidden source row never shifts the host separators the first commit writes", async () => {
+  const env = await geometryEnv();
+  assert.deepEqual(frozenDividers(env, null, [2]), [2], "no drag snapshot: the measured grouping stands");
+  assert.deepEqual(
+    frozenDividers(env, [2], [1]),
+    [2],
+    "the row is display:none, so the re-measure lost it and counted one row less: the frozen set wins"
+  );
+  assert.deepEqual(frozenDividers(env, [], [1]), [], "a frozen empty grouping is a real snapshot, not a missing one");
+  assert.deepEqual(frozenDividers(env, null, undefined), [], "an unmeasurable menu degrades to no dividers");
+  env.sandbox.__measured = [2];
+  const kept = vm.runInContext(
+    "(function () { const result = contextNativeDividersWhileHidden(null, __measured); result.push(3); return __measured.length; })()",
+    env.context
+  );
+  assert.equal(kept, 1, "the caller gets a copy: the model's own array must not be mutated");
 });

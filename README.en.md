@@ -318,6 +318,11 @@ the page. Since 0.2.0 the mechanism is different:
   (`.dso-ctx-more-source-hidden`) and the anchor turns off `is-floating` to take the 34px
   it freed: the height nets to zero, the host has no reason to re-place the surface, and the
   anchor stays inside the panel; release and cancel restore both in one synchronous block.
+  The hidden row also drops out of the host's own grouping (`nativeDividers` counts one row less
+  and every gap index shifts up), so the grouping seen before the first hide is frozen and the
+  first commit writes that snapshot; `clearContextMenu()` (menu closed, plugin stopped) removes
+  the hidden class and the drag identity first, so an interrupted gesture cannot leave a host
+  action missing.
   Tucked ids live in `hidden`; their rows get
   `display:none`, visible rows are numbered by their visible index, so divider
   gaps still point at rows you can see. Dropping on the anchor tucks (refused

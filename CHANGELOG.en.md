@@ -30,6 +30,11 @@
   release and cancel restore the row and drop the anchor in one frame. A menu left with a single
   visible row has no slot to free and still falls back to the strip on the menu edge (material
   copied from the host surface, alpha 0.94, both themes); after a tuck it is a real last row anyway.
+  A hidden row also drops out of the host's own grouping, so every separator gap above it would
+  shift up by one: the grouping seen when the drag starts is frozen first and the first commit
+  writes that snapshot instead of a mid-drag re-measure. Closing the menu or stopping the plugin
+  now removes the hidden class and hands the row back, so an interrupted drag can no longer leave
+  a host action missing.
 - Fixes the top-right "···" popup: right-clicking no longer closes it (it used to be parked as an ordinary
   context menu whose intent never resolved), so right-clicking between two rows toggles the divider there;
   after a drag the host's own two dividers no longer stack on one another (rows take 2N, lines 2N-1, the host
@@ -47,7 +52,8 @@
 - Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
   snapshots falling back to labels, a throwing accessor degrading safely) and
   `test/o14-context-more-anchor.test.mjs` (float switch, the in-panel pin decision, above/below
-  decision, defaults for junk measurements).
+  decision, defaults for junk measurements, and the frozen host grouping while the source row is
+  hidden).
 
 ## [0.11.2] - 2026-11-14
 

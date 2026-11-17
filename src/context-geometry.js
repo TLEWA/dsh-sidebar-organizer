@@ -132,6 +132,16 @@ function contextMoreAnchorPinned(options) {
   return Number(opts.visibleCount) > 1;
 }
 
+// A first drag hides the row it would tuck, and a display:none row measures
+// 0px: the host's own separators would then count one row less, so every gap
+// above the hidden row shifts up by one. The drag freezes the grouping it
+// started from, and that snapshot wins until the row is back in the flow -
+// committing the shifted set would permanently move the user's separators.
+function contextNativeDividersWhileHidden(frozen, measured) {
+  if (Array.isArray(frozen)) return frozen.slice();
+  return Array.isArray(measured) ? measured.slice() : [];
+}
+
 // Which side of the menu the out-of-flow anchor takes. Below reads as "the rest
 // of the list", so it wins whenever a full anchor plus its gap fits under the
 // menu; it only flips above when the menu is close enough to the bottom edge to
