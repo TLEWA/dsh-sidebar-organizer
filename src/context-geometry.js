@@ -109,13 +109,50 @@ function contextDividerLineGap(menu, rects, y, tolerance) {
   return best;
 }
 // A right-click menu has no host-owned More row. Before the menu has tucked
-// anything, the anchor a drag needs is laid out OUTSIDE the menu box: growing
-// the surface mid-drag made the host re-place the whole menu (CSS anchor
-// positioning flipped it ~300px up, away from the pointer). Once a row is
-// tucked the anchor becomes a real row inside the frame again, so the strip
-// never lingers in menus nobody customized.
+// anything, the anchor a drag needs must not grow the surface: growing it
+// mid-drag made the host re-place the whole menu (CSS anchor positioning
+// flipped it ~300px up, away from the pointer). Once a row is tucked the anchor
+// becomes a real row inside the frame again, so the strip never lingers in
+// menus nobody customized. Floating keeps the size only by leaving the box;
+// contextMoreAnchorPinned is the variant that keeps the size AND stays inside.
 function contextMoreAnchorFloats(tuckedCount) {
   return !(Number(tuckedCount) > 0);
+}
+
+// A first drag can keep the menu's exact height with the anchor INSIDE the
+// panel: the row being dragged leaves the frame and the 34px More row takes the
+// slot it freed, so nothing grows and nothing needs re-placing. The caller hides
+// that row, which is only safe while the menu still has rows left to hit-test -
+// the last visible action cannot be tucked (the runtime refuses it), so pinning
+// there would empty the drop list instead of offering the tuck.
+function contextMoreAnchorPinned(options) {
+  const opts = options || {};
+  if (!opts.dragging) return false;
+  if (Number(opts.tuckedCount) > 0) return false;
+  return Number(opts.visibleCount) > 1;
+}
+
+// A first drag hides the row it would tuck, and a display:none row measures
+// 0px: the host's own separators would then count one row less, so every gap
+// above the hidden row shifts up by one. The drag freezes the grouping it
+// started from, and that snapshot wins until the row is back in the flow -
+// committing the shifted set would permanently move the user's separators.
+function contextNativeDividersWhileHidden(frozen, measured) {
+  if (Array.isArray(frozen)) return frozen.slice();
+  return Array.isArray(measured) ? measured.slice() : [];
+}
+
+// A press on a context menu has to travel before it can mean a drop. While a
+// first drag is pinned, the More anchor stands in the slot of the row that was
+// just hidden - the very slot the finger is on - so an unmoved long-press
+// followed by a release would hit the anchor and tuck the row the user only
+// pressed. Small jitter inside the tolerance still counts as "did not move".
+function pointerMovedBeyond(startX, startY, x, y, tolerance) {
+  const limit = Number.isFinite(tolerance) ? tolerance : 8;
+  const dx = Math.abs(Number(x) - Number(startX));
+  const dy = Math.abs(Number(y) - Number(startY));
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return false;
+  return dx > limit || dy > limit;
 }
 
 // Which side of the menu the out-of-flow anchor takes. Below reads as "the rest
