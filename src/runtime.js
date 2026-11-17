@@ -5191,6 +5191,13 @@ function createRuntime(ctx) {
         || (gesture.target.kind === "ctx-reveal" && gesture.target.beforeId == null));
     gesture.target = null;
     hideIndicator(gesture);
+    // A press that never moved resolves no target at all: the pinned More anchor
+    // now sits in the slot of the row it hid, under the very finger that pressed
+    // it, so without this a long-press and release would tuck that row.
+    if (gesture.scope === CONTEXT_SCOPE && !pointerMovedBeyond(gesture.startX, gesture.startY, x, y, MOVE_TOLERANCE)) {
+      markDropMore(gesture, false);
+      return;
+    }
     // Decide the anchor state once per pointer move and apply it on the way out.
     // Arming and disarming inside one call restarts the anchor's transition (the
     // hit test in between forces a layout flush), which reads as the anchor

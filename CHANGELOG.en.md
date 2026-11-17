@@ -34,7 +34,10 @@
   shift up by one: the grouping seen when the drag starts is frozen first and the first commit
   writes that snapshot instead of a mid-drag re-measure. Closing the menu or stopping the plugin
   now removes the hidden class and hands the row back, so an interrupted drag can no longer leave
-  a host action missing.
+  a host action missing. Because the anchor takes exactly the slot under the finger, a long-press
+  followed by a release without moving is no longer read as a drop on "More": a context-menu drag
+  has to travel past 8px (the same threshold that cancels a pending long-press) before any target
+  resolves, so one press cannot tuck the last row by accident.
 - Fixes the top-right "···" popup: right-clicking no longer closes it (it used to be parked as an ordinary
   context menu whose intent never resolved), so right-clicking between two rows toggles the divider there;
   after a drag the host's own two dividers no longer stack on one another (rows take 2N, lines 2N-1, the host
@@ -52,8 +55,8 @@
 - Adds `test/o13-context-target-kind.test.mjs` (target kind detection, other kinds and empty
   snapshots falling back to labels, a throwing accessor degrading safely) and
   `test/o14-context-more-anchor.test.mjs` (float switch, the in-panel pin decision, above/below
-  decision, defaults for junk measurements, and the frozen host grouping while the source row is
-  hidden).
+  decision, defaults for junk measurements, the frozen host grouping while the source row is
+  hidden, and the movement threshold that keeps an unmoved press from resolving a drop).
 
 ## [0.11.2] - 2026-11-14
 

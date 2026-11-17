@@ -142,6 +142,19 @@ function contextNativeDividersWhileHidden(frozen, measured) {
   return Array.isArray(measured) ? measured.slice() : [];
 }
 
+// A press on a context menu has to travel before it can mean a drop. While a
+// first drag is pinned, the More anchor stands in the slot of the row that was
+// just hidden - the very slot the finger is on - so an unmoved long-press
+// followed by a release would hit the anchor and tuck the row the user only
+// pressed. Small jitter inside the tolerance still counts as "did not move".
+function pointerMovedBeyond(startX, startY, x, y, tolerance) {
+  const limit = Number.isFinite(tolerance) ? tolerance : 8;
+  const dx = Math.abs(Number(x) - Number(startX));
+  const dy = Math.abs(Number(y) - Number(startY));
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return false;
+  return dx > limit || dy > limit;
+}
+
 // Which side of the menu the out-of-flow anchor takes. Below reads as "the rest
 // of the list", so it wins whenever a full anchor plus its gap fits under the
 // menu; it only flips above when the menu is close enough to the bottom edge to

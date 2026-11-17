@@ -322,7 +322,9 @@ the page. Since 0.2.0 the mechanism is different:
   and every gap index shifts up), so the grouping seen before the first hide is frozen and the
   first commit writes that snapshot; `clearContextMenu()` (menu closed, plugin stopped) removes
   the hidden class and the drag identity first, so an interrupted gesture cannot leave a host
-  action missing.
+  action missing. The anchor takes exactly the slot under the finger, so a release without any
+  movement resolves no target: a drag has to travel past 8px (the same threshold that cancels a
+  pending long-press) before drops are judged, and a bare long-press cannot tuck the last row.
   Tucked ids live in `hidden`; their rows get
   `display:none`, visible rows are numbered by their visible index, so divider
   gaps still point at rows you can see. Dropping on the anchor tucks (refused

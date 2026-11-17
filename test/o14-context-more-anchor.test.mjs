@@ -32,6 +32,11 @@ function pinned(env, options) {
 // The sandbox has its own Array prototype, so the result is serialized back
 // before comparison: deepStrictEqual would reject two structurally equal arrays
 // that came from different realms.
+function moved(env, args) {
+  env.sandbox.__move = args;
+  return vm.runInContext("pointerMovedBeyond(__move.sx, __move.sy, __move.x, __move.y, __move.tolerance)", env.context);
+}
+
 function frozenDividers(env, frozen, measured) {
   env.sandbox.__frozen = frozen;
   env.sandbox.__measured = measured;
@@ -99,6 +104,18 @@ test("O-14: pinning never applies without a drag, after a tuck, or when it would
   );
   assert.equal(pinned(env, null), false);
   assert.equal(pinned(env, undefined), false);
+});
+
+test("O-14: a context-menu press must travel before it can mean a drop", async () => {
+  const env = await geometryEnv();
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 300, tolerance: 8 }), false, "a long-press that never moved is not a drop");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 403, y: 306, tolerance: 8 }), false, "jitter inside the tolerance still counts as still");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 308, tolerance: 8 }), false, "exactly the tolerance is not beyond it");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 309, tolerance: 8 }), true);
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 409, y: 300, tolerance: 8 }), true, "horizontal travel counts too");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 309, tolerance: undefined }), true, "a missing tolerance falls back to 8");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 309, tolerance: NaN }), true);
+  assert.equal(moved(env, { sx: undefined, sy: 300, x: 400, y: 309, tolerance: 8 }), false, "unmeasured coordinates are not a move");
 });
 
 test("O-14: a hidden source row never shifts the host separators the first commit writes", async () => {
