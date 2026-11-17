@@ -603,6 +603,15 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   margin-top: 0;
   margin-bottom: 4px;
 }
+/* The row a first drag pulls out of the frame. It is hidden with a class rather
+   than an inline display because applyContextLayout rewrites every row's inline
+   display on each sync - an inline "none" came back and grew the menu mid-drag,
+   which the host answered by re-placing the whole surface ~300px away from the
+   pointer. The 34px More row takes this slot in the same task, so the menu box
+   keeps its height and the control stays inside the panel. */
+.dso-ctx-more-source-hidden {
+  display: none !important;
+}
 /* The armed anchor keeps the full "drop here" feedback — it shrinks to 0.94 and
    breathes, as the sidebar targets do. Hit-testing measures the wrapper
    ([data-dso-ctx-more]), which never scales, so the shrink cannot move the drop

@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { createClientEnv } from "./helpers/client-env.mjs";
 
-// The drag-only More anchor of a right-click menu is laid out OUTSIDE the menu
-// box: as a real row it grew the surface, and the host re-placed the whole menu
-// mid-gesture (measured ~300px up, away from the pointer). Both decisions that
-// keep it out of the way are pure and pinned here, because getting them wrong
-// is invisible until a menu near the viewport edge jumps under the pointer.
+// The drag-only More anchor of a right-click menu must never grow the surface:
+// as an extra real row it made the host re-place the whole menu mid-gesture
+// (measured ~300px up, away from the pointer). The three decisions that keep it
+// from doing that are pure and pinned here, because getting them wrong is
+// invisible until a menu near the viewport edge jumps under the pointer. The
+// fourth keeps the host's own separators where they were while the drag hides
+// the row that is about to be tucked.
 async function geometryEnv() {
   return createClientEnv({ modules: ["context-geometry.js"] });
 }
@@ -20,6 +22,25 @@ function floats(env, tucked) {
 function side(env, options) {
   env.sandbox.__menu = options;
   return vm.runInContext("contextMoreAnchorSide(__menu)", env.context);
+}
+
+function pinned(env, options) {
+  env.sandbox.__pin = options;
+  return vm.runInContext("contextMoreAnchorPinned(__pin)", env.context);
+}
+
+// The sandbox has its own Array prototype, so the result is serialized back
+// before comparison: deepStrictEqual would reject two structurally equal arrays
+// that came from different realms.
+function moved(env, args) {
+  env.sandbox.__move = args;
+  return vm.runInContext("pointerMovedBeyond(__move.sx, __move.sy, __move.x, __move.y, __move.tolerance)", env.context);
+}
+
+function frozenDividers(env, frozen, measured) {
+  env.sandbox.__frozen = frozen;
+  env.sandbox.__measured = measured;
+  return JSON.parse(vm.runInContext("JSON.stringify(contextNativeDividersWhileHidden(__frozen, __measured))", env.context));
 }
 
 test("O-14: the anchor floats only until the menu has tucked its first row", async () => {
@@ -60,4 +81,57 @@ test("O-14: the row height and gap drive the decision, and junk measurements kee
   assert.equal(side(env, { menuBottom: 745, viewportHeight: 802 }), "below", "a missing top measurement is not guessed");
   assert.equal(side(env, null), "below");
   assert.equal(side(env, undefined), "below");
+});
+
+test("O-14: the first drag keeps the anchor inside the menu, in the slot the dragged row freed", async () => {
+  const env = await geometryEnv();
+  assert.equal(
+    pinned(env, { dragging: true, tuckedCount: 0, visibleCount: 7 }),
+    true,
+    "a row that is really being dragged can stand in for the anchor: same height, control inside the panel"
+  );
+  assert.equal(pinned(env, { dragging: true, tuckedCount: 0, visibleCount: 2 }), true, "two rows left is still a usable drop list");
+});
+
+test("O-14: pinning never applies without a drag, after a tuck, or when it would empty the menu", async () => {
+  const env = await geometryEnv();
+  assert.equal(pinned(env, { dragging: false, tuckedCount: 0, visibleCount: 7 }), false, "an idle menu grows nothing: no anchor at all");
+  assert.equal(pinned(env, { dragging: true, tuckedCount: 1, visibleCount: 6 }), false, "a menu that already tucks rows is in flow anyway");
+  assert.equal(
+    pinned(env, { dragging: true, tuckedCount: 0, visibleCount: 1 }),
+    false,
+    "the last visible action cannot be tucked, so the anchor has to stay out of flow"
+  );
+  assert.equal(pinned(env, null), false);
+  assert.equal(pinned(env, undefined), false);
+});
+
+test("O-14: a context-menu press must travel before it can mean a drop", async () => {
+  const env = await geometryEnv();
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 300, tolerance: 8 }), false, "a long-press that never moved is not a drop");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 403, y: 306, tolerance: 8 }), false, "jitter inside the tolerance still counts as still");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 308, tolerance: 8 }), false, "exactly the tolerance is not beyond it");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 309, tolerance: 8 }), true);
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 409, y: 300, tolerance: 8 }), true, "horizontal travel counts too");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 309, tolerance: undefined }), true, "a missing tolerance falls back to 8");
+  assert.equal(moved(env, { sx: 400, sy: 300, x: 400, y: 309, tolerance: NaN }), true);
+  assert.equal(moved(env, { sx: undefined, sy: 300, x: 400, y: 309, tolerance: 8 }), false, "unmeasured coordinates are not a move");
+});
+
+test("O-14: a hidden source row never shifts the host separators the first commit writes", async () => {
+  const env = await geometryEnv();
+  assert.deepEqual(frozenDividers(env, null, [2]), [2], "no drag snapshot: the measured grouping stands");
+  assert.deepEqual(
+    frozenDividers(env, [2], [1]),
+    [2],
+    "the row is display:none, so the re-measure lost it and counted one row less: the frozen set wins"
+  );
+  assert.deepEqual(frozenDividers(env, [], [1]), [], "a frozen empty grouping is a real snapshot, not a missing one");
+  assert.deepEqual(frozenDividers(env, null, undefined), [], "an unmeasurable menu degrades to no dividers");
+  env.sandbox.__measured = [2];
+  const kept = vm.runInContext(
+    "(function () { const result = contextNativeDividersWhileHidden(null, __measured); result.push(3); return __measured.length; })()",
+    env.context
+  );
+  assert.equal(kept, 1, "the caller gets a copy: the model's own array must not be mutated");
 });

@@ -65,6 +65,15 @@ function createRuntime(ctx) {
     ctxMorePanel: null,
     ctxMoreOpen: false,
     ctxMoreDragActive: false,
+    // The row the running drag would tuck, and the element this plugin hid to
+    // free its slot for the More row (kept so the class is removed even when the
+    // drag ends and the layout is re-synced a beat later).
+    ctxMoreDragId: "",
+    ctxMoreHiddenItem: null,
+    // The host grouping measured BEFORE the drag hid its source row. A hidden
+    // row drops out of the gap count, so re-measuring mid-drag would shift every
+    // separator above it up by one and the first commit would persist that.
+    ctxMoreNativeDividers: null,
     ctxMoreTimer: 0,
     // Which host phase the flattened rows were last mirrored for ("enter" /
     // "replace" / "dismiss" / ""). The phase attribute is watched, and the rows
@@ -1305,7 +1314,7 @@ function createRuntime(ctx) {
     // The host's own separators mark the shipped grouping. They are the initial
     // divider set, so turning the feature on does not silently regroup a menu
     // the user never touched.
-    const nativeDividers = [];
+    let nativeDividers = [];
     // A row that has not been laid out yet must not count as a row above a
     // separator: that shifted the whole divider set by one.
     const laidRects = rows.filter((row) => row.rect.height > 0).map((row) => row.rect);
@@ -1318,6 +1327,12 @@ function createRuntime(ctx) {
       if (gap > 0 && nativeDividers.indexOf(gap) === -1) nativeDividers.push(gap);
     }
     nativeDividers.sort((a, b) => a - b);
+    // While a drag hides the row it would tuck, keep the grouping measured
+    // before the hide: the frozen snapshot is what the first commit must write.
+    nativeDividers = contextNativeDividersWhileHidden(
+      state.ctxMoreDragActive ? state.ctxMoreNativeDividers : null,
+      nativeDividers,
+    );
     const ids = new Map();
     for (const row of rows) ids.set(row.id, row);
     return { menu, viewport, footer, rows, ids, nativeDividers };
@@ -1659,6 +1674,12 @@ function createRuntime(ctx) {
     }
     state.ctxMoreAnchor = null;
     state.ctxMoreDragActive = false;
+    // Hand the source row back before the menu is torn down or the feature is
+    // switched off: the hidden class uses display:none !important, so leaving it
+    // behind would keep a host action missing from the next menu.
+    hideContextMoreSourceRow(null);
+    state.ctxMoreDragId = "";
+    state.ctxMoreNativeDividers = null;
     for (const [element, entry] of state.contextStyled) {
       try {
         element.style.order = entry.order;
@@ -2900,6 +2921,11 @@ function createRuntime(ctx) {
   // Host rows never set `order`, so any large value seats "More" after the footer
   // block and the root-level buttons the host appends to the same menu.
   const CONTEXT_MORE_ORDER = "9999";
+  // The row a first drag pulls out of the frame is hidden with a CLASS: the
+  // plugin rewrites every row's inline display on each layout sync, so an inline
+  // "none" came straight back and grew the menu mid-drag (measured: the host
+  // then re-placed the surface ~300px away from the pointer).
+  const CONTEXT_MORE_SOURCE_CLASS = "dso-ctx-more-source-hidden";
 
   function contextTuckedRows(model, hiddenIds) {
     if (!model) return [];
@@ -3020,18 +3046,57 @@ function createRuntime(ctx) {
     if (button.getAttribute("aria-expanded") !== value) button.setAttribute("aria-expanded", value);
   }
 
+  // The row a drag would tuck is taken out of the frame while the anchor stands
+  // in for it. Pass null to put it back: the two changes then happen in one task
+  // (-34px row, +34px anchor), so the menu box never changes height and the host
+  // never re-places the surface.
+  function hideContextMoreSourceRow(row) {
+    const item = row && row.item ? row.item : null;
+    const previous = state.ctxMoreHiddenItem;
+    if (previous && previous !== item) {
+      previous.classList.remove(CONTEXT_MORE_SOURCE_CLASS);
+      state.ctxMoreHiddenItem = null;
+    }
+    if (!item) return;
+    state.ctxMoreHiddenItem = item;
+    if (!item.classList.contains(CONTEXT_MORE_SOURCE_CLASS)) item.classList.add(CONTEXT_MORE_SOURCE_CLASS);
+  }
+
+  function contextMoreSourceRow() {
+    const model = state.contextRows;
+    if (!model || !state.ctxMoreDragId) return null;
+    for (const row of model.rows) {
+      if (row.id === state.ctxMoreDragId) return row;
+    }
+    return null;
+  }
+
+  function contextVisibleRowCount(model, hiddenIds) {
+    if (!model) return 0;
+    const hidden = new Set(hiddenIds || []);
+    let count = 0;
+    for (const row of model.rows) {
+      if (!hidden.has(row.id)) count += 1;
+    }
+    return count;
+  }
+
   function ensureContextMoreAnchor(model, kind, hiddenIds) {
     // A menu whose scroll viewport we cannot identify still takes the anchor:
     // hanging it off the menu root is all the placement needs, and refusing to
     // inject it here would silently disable the whole drag-to-More affordance.
     if (!model || !model.menu) return;
-    const tucked = contextTuckedRows(model, hiddenIds || (kind ? readContextMenuLayout(kind).hidden : []));
+    const hidden = hiddenIds || (kind ? readContextMenuLayout(kind).hidden : []);
+    const tucked = contextTuckedRows(model, hidden);
     // The anchor only exists once something is tucked away, or while a menu row
     // is actually being dragged: that drag is the affordance for the first one,
     // and leaving an empty "More" row in a menu nobody customized would just
     // add a dead action.
     const wanted = tucked.length > 0 || state.ctxMoreDragActive;
     if (!wanted) {
+      // Put the row back in the SAME task that drops the anchor, so the menu
+      // keeps its height and the host has no reason to re-place it.
+      hideContextMoreSourceRow(null);
       if (state.ctxMoreAnchor && state.ctxMoreAnchor.parentNode) {
         state.ctxMoreAnchor.parentNode.removeChild(state.ctxMoreAnchor);
       }
@@ -3041,11 +3106,27 @@ function createRuntime(ctx) {
     }
     if (!state.ctxMoreAnchor) state.ctxMoreAnchor = buildContextMoreAnchor();
     const anchor = state.ctxMoreAnchor;
-    // A menu that already tucks rows keeps a real More row inside its frame. The
-    // anchor a drag needs before the first tuck is laid out OUT of the flow
-    // instead: growing the surface mid-drag made the host re-place the whole
-    // menu (CSS anchor positioning flipped it ~300px up, away from the pointer).
-    const floating = contextMoreAnchorFloats(tucked.length);
+    // Before the first tuck the anchor stands in for the row the drag pulls out:
+    // that row leaves the frame and the 34px More row takes its slot, so the
+    // surface keeps its height AND the control stays inside the panel. Everything
+    // else - no drag, or a menu that already tucks rows - lays the anchor out as
+    // a normal row, and only the drag-only case that cannot free a slot (the last
+    // visible action) still hangs it outside the box.
+    const dragRow = state.ctxMoreDragActive ? contextMoreSourceRow() : null;
+    const pinned = contextMoreAnchorPinned({
+      dragging: Boolean(dragRow),
+      tuckedCount: tucked.length,
+      visibleCount: contextVisibleRowCount(model, hidden),
+    });
+    // Freeze the host grouping before the row leaves the flow: the model built
+    // after the hide counts one row less, and the first commit must not inherit
+    // that shifted set. Only the first call of a drag sees a model measured with
+    // the row still visible.
+    if (pinned && !state.ctxMoreNativeDividers) {
+      state.ctxMoreNativeDividers = (model.nativeDividers || []).slice();
+    }
+    hideContextMoreSourceRow(pinned ? dragRow : null);
+    const floating = !pinned && contextMoreAnchorFloats(tucked.length);
     if (anchor.classList.contains("is-floating") !== floating) {
       anchor.classList.toggle("is-floating", floating);
       if (!floating) {
@@ -5110,6 +5191,13 @@ function createRuntime(ctx) {
         || (gesture.target.kind === "ctx-reveal" && gesture.target.beforeId == null));
     gesture.target = null;
     hideIndicator(gesture);
+    // A press that never moved resolves no target at all: the pinned More anchor
+    // now sits in the slot of the row it hid, under the very finger that pressed
+    // it, so without this a long-press and release would tuck that row.
+    if (gesture.scope === CONTEXT_SCOPE && !pointerMovedBeyond(gesture.startX, gesture.startY, x, y, MOVE_TOLERANCE)) {
+      markDropMore(gesture, false);
+      return;
+    }
     // Decide the anchor state once per pointer move and apply it on the way out.
     // Arming and disarming inside one call restarts the anchor's transition (the
     // hit test in between forces a layout flush), which reads as the anchor
@@ -5311,12 +5399,6 @@ function createRuntime(ctx) {
     // this, a drag started in the same frame as a previous drop can snapshot
     // the pre-order positions and make the ghost and indicator jump.
     if (gesture.source === "row") pass(true);
-    // A context menu ships no host More row, so one is injected for the duration
-    // of the drag: without it the first tuck would have nothing to aim at.
-    if (gesture.scope === CONTEXT_SCOPE && gesture.source !== "more" && state.contextRows) {
-      state.ctxMoreDragActive = true;
-      ensureContextMoreAnchor(state.contextRows, state.contextKind);
-    }
     let element = gesture.source === "row" ? findRowElement(gesture.scope, gesture.id) : gesture.element;
     if (!element && gesture.source === "row") element = gesture.element;
     const snapshot = buildSnapshot(gesture);
@@ -5350,6 +5432,20 @@ function createRuntime(ctx) {
       gesture.y = gesture.startY;
       positionGhost(gesture);
     }
+    // A context menu ships no host More row, so one is injected for the duration
+    // of the drag: without it the first tuck would have nothing to aim at. The
+    // row is taken out of the frame in the same task, after the clone exists
+    // (the ghost inherits the source's computed display), so the anchor fits into
+    // the slot it freed instead of floating outside the panel.
+    if (gesture.scope === CONTEXT_SCOPE && gesture.source !== "more" && state.contextRows) {
+      state.ctxMoreDragActive = true;
+      state.ctxMoreDragId = gesture.id;
+      ensureContextMoreAnchor(state.contextRows, state.contextKind);
+      // The snapshot was frozen before the anchor existed; hit-testing reads live
+      // geometry for its other fields, and these two are what markDropMore uses.
+      snapshot.moreRect = contextMoreRect();
+      snapshot.moreElement = contextMoreElement();
+    }
     document.body.classList.add("dso-dragging");
     updateDragTarget(gesture, gesture.x, gesture.y);
   }
@@ -5381,9 +5477,13 @@ function createRuntime(ctx) {
     // click on the anchor and the guard would otherwise swallow it.
     if (dragged && gesture.scope === "header" && gesture.source === "menu" && !gesture.keepMenu) dismissHeaderMenu();
     // The anchor injected for this drag is only permanent once a row is tucked;
-    // re-sync so an empty one is removed again.
-    if (dragged && gesture.scope === CONTEXT_SCOPE && state.ctxMoreDragActive) {
+    // re-sync so an empty one is removed again. Not gated on `dragged`: a drag
+    // that aborted during beginDrag already armed the anchor, and leaving the
+    // flag on would keep a dead "More" row in the next menu.
+    if (gesture.scope === CONTEXT_SCOPE && state.ctxMoreDragActive) {
       state.ctxMoreDragActive = false;
+      state.ctxMoreDragId = "";
+      state.ctxMoreNativeDividers = null;
       scheduleContextSync();
     }
     document.body.classList.remove("dso-dragging");
