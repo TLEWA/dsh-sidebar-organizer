@@ -1210,7 +1210,7 @@ function createRuntime(ctx) {
   // hints live in a sibling <kbd>, so textContent would bake "Ctrl+Alt+G" into
   // the hash and the same action would get a new id on every shortcut change.
   function contextRowLabel(menuitem) {
-    const label = menuitem.querySelector('[class*="itemLabel"], [class*="submenu-label"]');
+    const label = menuitem.querySelector('[class*="itemLabel"]');
     if (label && (label.textContent || "").trim()) return (label.textContent || "").trim();
     let text = "";
     for (const child of menuitem.childNodes) {
