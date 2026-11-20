@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+- 维护：右键菜单的标签读取只保留 `itemLabel` 选择器。宿主自 0.2.1-rc.3 起用 `itemLabel` 标记
+  菜单行文本；`submenu-label` 在 0.2.1-rc.3 与 0.2.2-rc.5 的产物里都不存在，已无命中可能。
 - 会话正文右键菜单也能整理了（DSH 0.2.2-rc.3 起，这张菜单由宿主 `contextMenus` 以
   `kind: "conversation"` 渲染，dsh-sidebar-row-menu 负责打开它）：长按条目拖动排序、右键
   条目增删分隔线、拖到最底部收进 `··· 更多 ›`、悬停展开后再长按拖回一级。顺序、分隔线与

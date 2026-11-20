@@ -4,6 +4,9 @@
 
 ### English
 
+- Maintenance: a context row is labelled through the `itemLabel` selector only. Hosts since
+  `0.2.1-rc.3` mark menu labels with `itemLabel`; `submenu-label` appears in neither the
+  `0.2.1-rc.3` nor the `0.2.2-rc.5` build, so that selector could never match.
 - Fixed divider toggling after a reorder: the seam under the pointer used the row's child index, but a drag
   only changes the painted order and leaves the children where they were - a row dragged to the top could never
   get a divider and other rows toggled the wrong seam. Rows are now read back in paint order (their flex order)
