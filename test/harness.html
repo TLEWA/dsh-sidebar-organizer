@@ -2221,8 +2221,9 @@
       );
       // Parity with dsh-sidebar-row-menu's submenu, which mounts the host's own
       // MenuSurface + MenuItemButton primitives. These are the host item metrics
-      // (._item_1p5el_105) and the host submenu body padding
-      // (._list_1p5el_7,._submenu_1p5el_8), so the two panels cannot drift apart.
+      // (._item_70kcw_173, DSH 0.2.2-rc.5; the host rebuilt this hash family)
+      // and the host submenu body padding (._list_70kcw_7,._submenu_70kcw_8),
+      // so the two panels cannot drift apart.
       const panelRowStyle = panelRows.length === 1 ? getComputedStyle(panelRows[0]) : null;
       const panelStyle = panel ? getComputedStyle(panel) : null;
       assert(

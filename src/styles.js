@@ -618,10 +618,11 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
    target out from under the pointer: the class also toggles at most once per
    gesture (markDropMore is idempotent), so the scale transition never restarts
    on pointermove. */
-/* Row geometry is copied from the host's own menu item
-   (._item_1p5el_105: min-height 34, padding 6px 8px, gap 6, radius md,
-   13px/20px), so the anchor sits in the list with the same rhythm as the rows
-   the host paints itself. */
+/* Row geometry is copied from the host's own menu item in DSH 0.2.2-rc.5
+   (._item_70kcw_173; an earlier CSS-module hash carried the same metrics):
+   min-height 34, padding 6px 8px, gap 6, radius md, 13px/20px - the metrics
+   survived the CSS-module rename unchanged, so the anchor sits in the list with
+   the same rhythm as the rows the host paints itself. */
 .dso-ctx-more-trigger {
   display: flex;
   align-items: center;
@@ -667,13 +668,24 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   font-size: 15px;
   line-height: 16px;
 }
-/* Same surface recipe as the host menu and as dsh-sidebar-row-menu's submenu,
-   which mounts the host's MenuSurface + MenuItemButton primitives:
-     ._list_1p5el_7,._submenu_1p5el_8 { padding:4px; display:flex; column;
-       gap:0; border:0; box-shadow: var(--dsw-elevation-prominent);
+/* Same surface recipe as the host menu in DSH 0.2.2-rc.5 and as
+   dsh-sidebar-row-menu's submenu, which mounts the host's MenuSurface +
+   MenuItemButton primitives. Quoted from
+   dsh-web-frontend/dist/assets/index-CSAdOBx6.css - these are the host's rules,
+   not selectors this sheet applies (the plugin never styles host nodes), kept
+   verbatim so .dso-ctx-panel and the host menu cannot drift apart:
+     ._list_70kcw_7,._submenu_70kcw_8 { box-sizing:border-box; padding:4px;
+       display:flex; flex-direction:column; gap:0; border:0;
+       box-shadow: var(--dsw-elevation-prominent);
        --dsw-elevation-stroke-color: var(--dsw-alias-border-l1) }
      ._material_1w4el_21 { background: var(--dsw-menu-surface-fill);
        backdrop-filter: var(--dsw-menu-backdrop-filter) }
+   The 70kcw family is the host's current CSS-module hash (it replaced the
+   previous family in 0.2.2-rc.5); _material_1w4el_21 kept its hash.
+   Stable anchors if the hashes move again:
+   the first-level popup is the role="menu" box carrying [data-context-menu],
+   and a submenu is the role="menu" box flagged [data-submenu-layout] /
+   [data-contextual]; both come from the same host primitive.
    The host splits the fill into an absolutely positioned backing layer; a single
    fixed panel only needs the same two properties on itself. */
 .dso-ctx-panel {
@@ -713,7 +725,7 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
 /* Submenus scroll (max-height 64vh); without this the rows would shrink to
    fit instead of overflowing. */
 .dso-rm-pane > * { flex: 0 0 auto; }
-/* 1:1 with the host's menu item (._item_1p5el_105). */
+/* 1:1 with the host's menu item (._item_70kcw_173, DSH 0.2.2-rc.5). */
 .dso-ctx-panel-row {
   display: flex;
   align-items: center;
@@ -743,7 +755,7 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
   outline: none;
 }
-/* Host icon slot (._itemIcon_1p5el_165): 14x14, menu-icon colour. */
+/* Host icon slot (._itemIcon_70kcw_233, DSH 0.2.2-rc.5): 14x14, menu-icon colour. */
 .dso-ctx-panel-icon {
   display: inline-flex;
   align-items: center;

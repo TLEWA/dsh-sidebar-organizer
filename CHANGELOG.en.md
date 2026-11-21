@@ -4,6 +4,18 @@
 
 ### English
 
+- Maintenance (visual-parity note): the note that keeps the context-menu panel on the host's surface
+  and padding now cites DSH 0.2.2-rc.5. The host rebuilt its CSS modules, so the first-level and
+  submenu containers moved from `._list_1p5el_7,._submenu_1p5el_8` to
+  `._list_70kcw_7,._submenu_70kcw_8`, menu rows from `._item_1p5el_105` to `._item_70kcw_173`,
+  and icon slots from `._itemIcon_1p5el_165` to `._itemIcon_70kcw_233`; the material layer
+  `._material_1w4el_21` kept its hash. Row metrics (min-height 34, padding 6px 8px, gap 6,
+  13px/20px) and the panel's own 4px padding are unchanged across the rename. Those class names
+  appear in comments only as the host source and metric reference (the panel is the plugin's own
+  `.dso-ctx-panel`, host nodes are never styled here), so rendering is unchanged. The stable
+  anchors are recorded as well: the first-level popup is the `role="menu"` box carrying
+  `[data-context-menu]`, and a submenu is the `role="menu"` box flagged
+  `[data-submenu-layout]` / `[data-contextual]`, for the next time the hashes move.
 - Maintenance: a context row is labelled through the `itemLabel` selector only. Hosts since
   `0.2.1-rc.3` mark menu labels with `itemLabel`; `submenu-label` appears in neither the
   `0.2.1-rc.3` nor the `0.2.2-rc.5` build, so that selector could never match.
