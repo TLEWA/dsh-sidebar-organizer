@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+- 维护（视觉对齐说明）：右键菜单面板「与宿主同款材质 / 内边距」的对照说明更新到 DSH 0.2.2-rc.5。
+  宿主重建 CSS modules 后，一级与二级菜单容器由 `._list_1p5el_7,._submenu_1p5el_8` 改为
+  `._list_70kcw_7,._submenu_70kcw_8`，菜单行由 `._item_1p5el_105` 改为 `._item_70kcw_173`，
+  图标槽由 `._itemIcon_1p5el_165` 改为 `._itemIcon_70kcw_233`，材质层 `._material_1w4el_21`
+  哈希未变；行度量（min-height 34、padding 6px 8px、gap 6、13px/20px）与面板内边距 4px 跨改名不变。
+  这些类名只出现在注释里当宿主来源与度量依据（面板由插件自绘 `.dso-ctx-panel`，不写宿主节点样式），
+  所以渲染结果不变。同时记下语义锚点：一级弹层是带 `[data-context-menu]` 的 `role="menu"` 盒子，
+  子菜单是带 `[data-submenu-layout]` / `[data-contextual]` 的 `role="menu"` 盒子，下次哈希再变时
+  按属性定位。
 - 维护：右键菜单的标签读取只保留 `itemLabel` 选择器。宿主自 0.2.1-rc.3 起用 `itemLabel` 标记
   菜单行文本；`submenu-label` 在 0.2.1-rc.3 与 0.2.2-rc.5 的产物里都不存在，已无命中可能。
 - 会话正文右键菜单也能整理了（DSH 0.2.2-rc.3 起，这张菜单由宿主 `contextMenus` 以
