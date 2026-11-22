@@ -4,6 +4,24 @@
 
 ### English
 
+- The right sidebar's "Start" page now supports better-sidebar 0.32's two-column
+  card grid. The whole `.guide` column is no longer treated as one row: the
+  nearest common ancestor of the `data-sidebar-right-guide-entry` nodes is the
+  real grid container, each whole card is the sortable item (`style.order` lands
+  on the grid item), the order is read row-major, and a drop picks the row first
+  then the column by x; the measured slot is mapped back onto the full visual order
+  that still includes the dragged card, so the preview line and the committed cell
+  name the same card. A vertical line is drawn inside a row and a horizontal one
+  across rows. A partial last row keeps the vertical line inside that row and only
+  wraps when the row is full; the line is centred on the measured gap. That grid's
+  "More" menu is drawn by better-sidebar and does not render the host's
+  `sidebar.right.tab.guide.actions` slot, so the plugin appends a "Tucked away"
+  block when that menu opens: a card dropped on "More" is hidden from the grid and
+  listed there; clicking its row opens that card, and dragging it back onto the grid
+  restores it at the indicated slot. Tucked rows use the card's short
+  title, so the menu keeps its native width. Adds `src/right-grid.js` and O-18
+  tests for discovery, the two-dimensional drop point, last-row geometry and the
+  full-order slot conversion.
 - Maintenance (visual-parity note): the note that keeps the context-menu panel on the host's surface
   and padding now cites DSH 0.2.2-rc.5. The host rebuilt its CSS modules, so the first-level and
   submenu containers moved from `._list_1p5el_7,._submenu_1p5el_8` to

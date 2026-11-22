@@ -24,6 +24,7 @@ const MODULES = [
   "icons.js",
   "slot.js",
   "scopes.js",
+  "right-grid.js",
   "context-geometry.js",
   "runtime.js",
   "menu.js",

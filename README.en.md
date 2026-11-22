@@ -39,17 +39,34 @@ composer dock, session header, right sidebar, and settings navigation.
 | Conversation tabs | chat, trajectory, … | horizontal |
 | Composer dock | stats, context, activity, usage, … | horizontal |
 | Session header | reminder, bottom panel, context diagnostics, find, … | horizontal |
-| Right sidebar "Start" | files, browser, terminal, "More tools" | vertical |
+| Right sidebar "Start" | files, browser, terminal, "More tools" | two-dimensional grid |
 | Settings navigation | account, general, models, plugins, … | vertical |
 
 - **Long-press to reorder**: hold for ~0.26 s; the row/card lifts (a ghost
   follows the pointer plus a drop indicator) and you drag it into place.
   Horizontal scopes show a vertical line; vertical scopes show a horizontal one.
   The order applies immediately and is persisted.
+- **Two-column card grid (better-sidebar 0.32+)**: once better-sidebar renders
+  the right sidebar's "Start" page as a two-column grid, a drop is resolved in two
+  dimensions: the row under the pointer decides which row takes the card, then x
+  decides the column inside that row. The measured slot is mapped back onto the
+  full visual order that still includes the dragged card, so the preview line and
+  the committed cell name the same card. The line is vertical between cards of one
+  row and horizontal across rows; a partial last row keeps the vertical line inside
+  that row and only wraps when the row is full. The sortable item is the whole card
+  (the grid item itself), not the button inside it. That layout's "More" menu is
+  drawn by better-sidebar and does not render the host slot our tucked entries are
+  injected into, so the plugin appends a "Tucked away" block when that menu opens:
+  a card dropped on "More" is hidden from the grid and listed there, and clicking
+  its row opens that card; dragging it back onto the grid restores it at the
+  indicated slot. Tucked rows use the card's short title, so the menu keeps
+  its native width.
 - **Tuck into the matching "More" menu**: drop a row on that scope's More anchor
   and it leaves the strip, moving into the "Tucked away" group of that menu.
   The sidebar footer shares the left sidebar's More menu; tabs and the composer
-  share the conversation More menu; the right sidebar uses its own "More tools".
+  share the conversation More menu; the right sidebar's old single-column guide uses
+  its own "More tools"; in the better-sidebar grid, a drop on "More" goes to the
+  plugin-appended "Tucked away" block (see above).
   The session header tucks into the shipped "More actions" menu (the one with
   "Download session log" and "Feedback"), with tucked icons listed directly
   above its own items. That "..." button is a column of the strip too, so it can
@@ -247,8 +264,14 @@ the page. Since 0.2.0 the mechanism is different:
     outlet;
   - conversation tabs read direct tab children of `[data-conversation-tabs]` and
     detect the sibling More trigger;
-  - the right sidebar reads direct cards inside `[data-sidebar-right-guide]`,
-    using `data-sidebar-right-guide-entry` as the card kind;
+  - the right sidebar treats `[data-sidebar-right-guide]` as the region root,
+    collects every `data-sidebar-right-guide-entry` below it, and uses their
+    nearest common ancestor as the real grid container; that container's direct
+    children (cards, or the old entry cells) are the rows. The old flat guide
+    falls back to the root's direct children. The grid is read row-major and a
+    drop picks the row first, then the column by x; see `src/right-grid.js`. A
+    drop on the grid's "More" card hides that card, and `syncRightMoreMenu()`
+    appends a "Tucked away" block when better-sidebar opens its native More menu;
   - settings navigation uses the button-dense container inside
     `[data-shortcut-modal="settings"] nav`.
 - A missing container or empty row list only skips that scope; other scopes keep
