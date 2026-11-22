@@ -387,3 +387,55 @@ test("O-18: a card restored from the tucked menu keeps the slot after the last c
   assert.equal(place(false), 0);
   assert.equal(place(true), 0);
 });
+
+test("O-18: a shelf row dragged over its own menu keeps the menu hit", () => {
+  const env = geometryEnv();
+  // The portal floats over the grid, so every point below is inside both boxes.
+  const boxes = {
+    container: { left: 0, top: 0, right: 400, bottom: 300 },
+    menuRect: { left: 200, top: 40, right: 380, bottom: 200 },
+    moreRect: { left: 320, top: 240, right: 380, bottom: 290 },
+  };
+  const region = (source, x, y) => {
+    env.sandbox.__boxes = boxes;
+    env.sandbox.__source = source;
+    env.sandbox.__x = x;
+    env.sandbox.__y = y;
+    return vm.runInContext("gridDragRegion(__boxes, __source, __x, __y)", env.context);
+  };
+
+  assert.equal(region("menu", 250, 100), "menu", "the shelf owns the overlap with the grid");
+  assert.equal(region("row", 250, 100), "grid", "a card from the grid still lands in that cell");
+  assert.equal(region("menu", 100, 100), "grid", "off the rows the shelf drag becomes a restore");
+  assert.equal(region("menu", 350, 265), "more", "the More card keeps its own box");
+  assert.equal(region("menu", 500, 400), "outside");
+  assert.equal(region("menu", 250, 100), "menu", "the menu hit does not depend on the grid at all");
+});
+
+test("O-18: a shelf row reorders before and after its siblings", () => {
+  const env = geometryEnv();
+  const a = { id: "a", rect: rect(100, 0) };
+  const b = { id: "b", rect: rect(180, 0) };
+  const c = { id: "c", rect: rect(260, 0) };
+  const target = (id, y, rows = [a, b, c]) => {
+    env.sandbox.__rows = rows;
+    env.sandbox.__id = id;
+    env.sandbox.__y = y;
+    return JSON.parse(vm.runInContext("JSON.stringify(tuckedMenuTarget(__rows, __id, __y))", env.context));
+  };
+
+  // c onto the upper half of b: the gap above b, which is a real move.
+  assert.deepEqual(target("c", 190), { index: 1, beforeId: "b", boundary: 168 });
+  // a past b but above c: the gap between them.
+  assert.deepEqual(target("a", 250), { index: 1, beforeId: "c", boundary: 248 });
+  // c above the first row: the head gap.
+  assert.deepEqual(target("c", 110), { index: 0, beforeId: "a", boundary: 100 });
+  // b below the last row: an append, so the release appends instead of landing
+  // in front of the final row.
+  assert.deepEqual(target("b", 400), { index: 2, beforeId: null, boundary: 316 });
+  // A drop back into the source's own slot is no target: nothing to persist.
+  assert.equal(target("b", 150), null);
+  assert.equal(target("a", 110), null);
+  // A lone shelf row can only point at itself, which is still a live drag.
+  assert.deepEqual(target("a", 130, [a]), { index: 0, beforeId: null, boundary: 100 });
+});

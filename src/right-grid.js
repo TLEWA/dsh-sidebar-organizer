@@ -131,3 +131,51 @@ function gridPlaceIndex(items, slot, hasSource) {
   const limit = hasSource ? Math.max(0, total - 1) : total;
   return Math.max(0, Math.min(limit, gridSlotIndex(items, slot)));
 }
+
+// The tucked shelf is the grid's own More popup, and better-sidebar renders it
+// as a portal: it hangs outside the grid container yet usually floats over it.
+// A plain grid hit test therefore reads a shelf row dragged onto its own menu as
+// "put this card back in that cell". Decide the region before any grid math: a
+// drag that started in the shelf belongs to the menu while the pointer stays on
+// its rows, then to the More card, and only outside both is it a grid drop.
+function gridDragRegion(boxes, source, x, y) {
+  const inside = (rect, pad) => Boolean(rect)
+    && x >= rect.left - pad && x <= rect.right + pad
+    && y >= rect.top - pad && y <= rect.bottom + pad;
+  if (source === "menu" && inside(boxes && boxes.menuRect, 0)) return "menu";
+  if (inside(boxes && boxes.moreRect, 2)) return "more";
+  if (inside(boxes && boxes.container, 10)) return "grid";
+  return "outside";
+}
+
+// Reordering inside that shelf is the same 1-D midpoint scan the other menus
+// use, kept pure so it can be pinned without a DOM. The source row leaves the
+// insertion list but keeps its place in the geometry the gap is measured
+// against, so the line lands in the real seam instead of across the row under
+// the finger. A drop that would reinsert the row where it already sits is not a
+// target at all: nothing changes and the line would cut through that row.
+function tuckedMenuTarget(targets, id, y) {
+  const list = (targets || []).slice().sort((a, b) => a.rect.top - b.rect.top);
+  if (!list.length) return null;
+  const others = list.filter((item) => item.id !== id);
+  if (!others.length) return { index: 0, beforeId: null, boundary: list[0].rect.top };
+  const middle = (rect) => rect.top + rect.height / 2;
+  const next = others.find((item) => y < middle(item.rect)) || null;
+  let index = others.length;
+  let boundary;
+  if (next) {
+    index = others.indexOf(next);
+    const at = list.indexOf(next);
+    const previous = at > 0 ? list[at - 1].rect : null;
+    boundary = previous ? (previous.bottom + next.rect.top) / 2 : next.rect.top;
+  } else {
+    const last = others[others.length - 1];
+    const at = list.indexOf(last);
+    const after = at >= 0 && at + 1 < list.length ? list[at + 1].rect : null;
+    boundary = after ? (last.rect.bottom + after.top) / 2 : last.rect.bottom;
+  }
+  const source = list.find((item) => item.id === id);
+  if (source && index === list.indexOf(source)) return null;
+  return { index, beforeId: next ? next.id : null, boundary };
+}
+

@@ -81,7 +81,7 @@ composer dock, session header, right sidebar, and settings navigation.
 - **Pull back out of "More"**: open the menu, long-press a tucked item and drag
   it onto the strip. The source row is hidden while dragging, so the floating
   preview never overlaps a duplicate of its own label.
-- **Reorder inside the menu**: long-press drag within the tucked group.
+- **Reorder inside the menu**: long-press drag within the tucked group; the "More" menu better-sidebar draws for the Start page's two-column grid works the same way, because the region is decided first and a popup floating over the grid is never mistaken for a restore.
 - **Turn shipped menu items into buttons**: in the session header, drag
   "Download session log" or "Feedback" out of the "More actions" menu onto the
   strip to get an icon button that performs the same action as the item. Drop

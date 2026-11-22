@@ -5450,14 +5450,36 @@ function createRuntime(ctx) {
     // card is better-sidebar's own overflow shelf; a card hidden there is
     // listed by syncRightMoreMenu, so the card is a real tuck target.
     if (snapshot.found && snapshot.found.grid) {
-      if (snapshot.moreRect && pointIn(snapshot.moreRect, x, y, 2)) {
+      // The shelf hangs inside that same popup, so the region has to be decided
+      // before the grid math: a shelf row dragged across its own menu overlaps
+      // the grid's container and would otherwise be read as "restore this card
+      // into that cell", and a pointer outside the container used to return
+      // before the menu branch below and cancel the reorder outright.
+      const region = gridDragRegion(snapshot, gesture.source, x, y);
+      if (region === "menu") {
+        const targets = snapshot.menuTargets && snapshot.menuTargets.length
+          ? snapshot.menuTargets
+          : snapshot.menuItems;
+        const hit = tuckedMenuTarget(targets, gesture.id, y);
+        if (!hit) {
+          // Dropping a shelf row back where it already sits changes nothing, and
+          // releasing there must not close the shelf the row came from.
+          gesture.keepMenu = true;
+          return;
+        }
+        const others = targets.filter((item) => item.id !== gesture.id);
+        gesture.target = { kind: "menu", index: hit.index, beforeId: hit.beforeId };
+        menuDrop(gesture, menuSurfaceFromItems(targets), hit.boundary, others, hit.index, y);
+        return;
+      }
+      if (region === "more") {
         if (canHide(gesture.scope, gesture.id)) {
           gesture.target = { kind: "hide" };
           dropMore = true;
         }
         return;
       }
-      if (!pointIn(snapshot.container, x, y, 10)) return;
+      if (region === "outside") return;
       const source = snapshot.items.find((item) => item.id === gesture.id);
       const sourceIndex = snapshot.items.indexOf(source);
       // Pointer still over its own cell: the grid already shows the card there,

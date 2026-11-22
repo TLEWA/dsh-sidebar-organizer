@@ -22,6 +22,18 @@
   title, so the menu keeps its native width. Adds `src/right-grid.js` and O-18
   tests for discovery, the two-dimensional drop point, last-row geometry and the
   full-order slot conversion.
+- Fixed reordering inside the grid's "More" menu. That popup is portalled and
+  usually floats over the grid container, while the two-dimensional drop test ran
+  first: a gesture that started on a "Tucked away" row was read as a restore, and
+  a pointer outside the container returned early, so releasing merely closed the
+  menu and no order was ever saved. `gridDragRegion()` in `src/right-grid.js`
+  now decides the region first (tucked menu, then the "More" card, then the grid,
+  then outside), and `tuckedMenuTarget()` from the same module resolves the row
+  order by row midpoints: a drop back onto the source's own slot is not a target
+  and keeps the menu open, and a drop past the final row really appends. Grid
+  drops and the end-slot conversion keep the previous semantics, so the preview
+  line and the committed order still agree. Two more O-18 tests cover the region
+  decision, the menu-over-grid overlap, and the up / down / append moves.
 - Fixed the last slot when a card is dragged back out of the "Tucked away" block in the
   two-column grid: the dragged card is not part of the visible order, so its last legal slot
   is one past the final visible card. Both cases used to be clamped to "visible length - 1",
