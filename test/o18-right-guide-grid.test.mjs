@@ -349,3 +349,41 @@ test("O-18: the measured slot maps to the same cell in the full order", () => {
   env.sandbox.__slot = null;
   assert.equal(JSON.parse(vm.runInContext("JSON.stringify(gridSlotIndex(__items, __slot))", env.context)), 0);
 });
+
+test("O-18: a card restored from the tucked menu keeps the slot after the last card", () => {
+  const env = geometryEnv();
+  const a = { id: "a", rect: rect(0, 0) };
+  const b = { id: "b", rect: rect(0, 120) };
+  const place = (hasSource) => {
+    env.sandbox.__hasSource = hasSource;
+    return JSON.parse(vm.runInContext("JSON.stringify(gridPlaceIndex(__items, __slot, __hasSource))", env.context));
+  };
+
+  // Full last row: the line below it names an append, and a card coming back
+  // from the menu has to be able to take it.
+  const items = [a, b];
+  const below = dropIndex(env, items, 10, 400, items, 2);
+  assert.equal(below.index, 2);
+  assert.equal(below.slot.horizontal, true, "a full row wraps");
+  env.sandbox.__items = items;
+  env.sandbox.__slot = below.slot;
+  assert.equal(place(false), 2, "the tucked card appends after the last cell");
+  assert.equal(place(true), 1, "a card already in the grid stays in front of the last cell");
+
+  // One visible card is the sharpest case: clamping to length - 1 put the
+  // restored card in front of the only card instead of behind it.
+  const only = [a];
+  const after = dropIndex(env, only, 10, 400, only, 2);
+  assert.equal(after.index, 1);
+  assert.equal(after.slot.horizontal, false, "a partial last row keeps the in-row line");
+  env.sandbox.__items = only;
+  env.sandbox.__slot = after.slot;
+  assert.equal(place(false), 1);
+  assert.equal(place(true), 0);
+
+  // An empty grid has nowhere but the first slot, with or without a source.
+  env.sandbox.__items = [];
+  env.sandbox.__slot = null;
+  assert.equal(place(false), 0);
+  assert.equal(place(true), 0);
+});

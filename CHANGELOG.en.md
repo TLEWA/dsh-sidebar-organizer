@@ -22,6 +22,13 @@
   title, so the menu keeps its native width. Adds `src/right-grid.js` and O-18
   tests for discovery, the two-dimensional drop point, last-row geometry and the
   full-order slot conversion.
+- Fixed the last slot when a card is dragged back out of the "Tucked away" block in the
+  two-column grid: the dragged card is not part of the visible order, so its last legal slot
+  is one past the final visible card. Both cases used to be clamped to "visible length - 1",
+  which drew the line after the last card but saved an order with the card in front of it, and
+  a lone visible card could only get the restored card at the very front. The cap now follows
+  whether the source card is in that order, the conversion lives in `gridPlaceIndex()` in
+  `src/right-grid.js`, and O-18 pins it. A partial last row still keeps the in-row vertical line.
 - Maintenance (visual-parity note): the note that keeps the context-menu panel on the host's surface
   and padding now cites DSH 0.2.2-rc.5. The host rebuilt its CSS modules, so the first-level and
   submenu containers moved from `._list_1p5el_7,._submenu_1p5el_8` to

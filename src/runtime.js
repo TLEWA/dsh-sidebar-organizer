@@ -5469,7 +5469,9 @@ function createRuntime(ctx) {
       // gridIndexAt measures against others (source removed); the line is drawn
       // for a slot in that list. Convert it to the complete visual order so the
       // committed card lands in the cell the line names, not one cell earlier.
-      const slotIndex = Math.max(0, Math.min(snapshot.items.length - 1, gridSlotIndex(snapshot.items, hit.slot)));
+      // A card dragged in from the tucked menu is not in that order, so it owns
+      // one more slot than a card that is already drawn in the grid.
+      const slotIndex = gridPlaceIndex(snapshot.items, hit.slot, Boolean(source));
       if (slotIndex === sourceIndex) return;
       gesture.target = {
         kind: "place",

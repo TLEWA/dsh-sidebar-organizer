@@ -115,3 +115,19 @@ function gridSlotIndex(items, slot) {
   }
   return 0;
 }
+
+// gridSlotIndex() names a cell of the complete visual order, and the drop commits
+// that cell as the card's final index. How far that index may go depends on
+// whether the dragged card is one of those cells: a card taken out of the grid
+// leaves a hole, so the last legal slot is the one in front of the final card
+// (index length - 1). A card dragged in from the tucked "More" menu never was in
+// that order, so the grid it joins is one cell longer and the last legal slot is
+// one past the final card, where a null beforeId appends. Clamping both cases to
+// length - 1 used to save the wrong order: the line was drawn after the last
+// card, but the card was inserted in front of it, and with a single visible card
+// a restored card could only land at the very front.
+function gridPlaceIndex(items, slot, hasSource) {
+  const total = items && items.length ? items.length : 0;
+  const limit = hasSource ? Math.max(0, total - 1) : total;
+  return Math.max(0, Math.min(limit, gridSlotIndex(items, slot)));
+}

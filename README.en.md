@@ -60,7 +60,9 @@ composer dock, session header, right sidebar, and settings navigation.
   a card dropped on "More" is hidden from the grid and listed there, and clicking
   its row opens that card; dragging it back onto the grid restores it at the
   indicated slot. Tucked rows use the card's short title, so the menu keeps
-  its native width.
+  its native width. A card dragged back out of that block keeps the slot after
+  the last visible card instead of being clipped in front of it, so it can still
+  land behind the only visible card.
 - **Tuck into the matching "More" menu**: drop a row on that scope's More anchor
   and it leaves the strip, moving into the "Tucked away" group of that menu.
   The sidebar footer shares the left sidebar's More menu; tabs and the composer
