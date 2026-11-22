@@ -3,7 +3,7 @@
 版本格式遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 本文件的中文条目为默认语言；英文条目见英文段落（同一版本内）。
 
-## [Unreleased]
+## [0.11.3] - 2026-11-22
 
 - 右侧栏「开始」页适配 better-sidebar 0.32 的两列卡片网格：不再把整个 `.guide` 当成一行，
   而是用 `data-sidebar-right-guide-entry` 的最近公共祖先找到真正的网格容器，以整张卡片为
