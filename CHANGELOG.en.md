@@ -4,6 +4,55 @@
 
 ### English
 
+- The right sidebar's "Start" page now supports better-sidebar 0.32's two-column
+  card grid. The whole `.guide` column is no longer treated as one row: the
+  nearest common ancestor of the `data-sidebar-right-guide-entry` nodes is the
+  real grid container, each whole card is the sortable item (`style.order` lands
+  on the grid item), the order is read row-major, and a drop picks the row first
+  then the column by x; the measured slot is mapped back onto the full visual order
+  that still includes the dragged card, so the preview line and the committed cell
+  name the same card. A vertical line is drawn inside a row and a horizontal one
+  across rows. A partial last row keeps the vertical line inside that row and only
+  wraps when the row is full; the line is centred on the measured gap. That grid's
+  "More" menu is drawn by better-sidebar and does not render the host's
+  `sidebar.right.tab.guide.actions` slot, so the plugin appends a "Tucked away"
+  block when that menu opens: a card dropped on "More" is hidden from the grid and
+  listed there; clicking its row opens that card, and dragging it back onto the grid
+  restores it at the indicated slot. Tucked rows use the card's short
+  title, so the menu keeps its native width. Adds `src/right-grid.js` and O-18
+  tests for discovery, the two-dimensional drop point, last-row geometry and the
+  full-order slot conversion.
+- Fixed reordering inside the grid's "More" menu. That popup is portalled and
+  usually floats over the grid container, while the two-dimensional drop test ran
+  first: a gesture that started on a "Tucked away" row was read as a restore, and
+  a pointer outside the container returned early, so releasing merely closed the
+  menu and no order was ever saved. `gridDragRegion()` in `src/right-grid.js`
+  now decides the region first (tucked menu, then the "More" card, then the grid,
+  then outside), and `tuckedMenuTarget()` from the same module resolves the row
+  order by row midpoints: a drop back onto the source's own slot is not a target
+  and keeps the menu open, and a drop past the final row really appends. Grid
+  drops and the end-slot conversion keep the previous semantics, so the preview
+  line and the committed order still agree. Two more O-18 tests cover the region
+  decision, the menu-over-grid overlap, and the up / down / append moves.
+- Fixed the last slot when a card is dragged back out of the "Tucked away" block in the
+  two-column grid: the dragged card is not part of the visible order, so its last legal slot
+  is one past the final visible card. Both cases used to be clamped to "visible length - 1",
+  which drew the line after the last card but saved an order with the card in front of it, and
+  a lone visible card could only get the restored card at the very front. The cap now follows
+  whether the source card is in that order, the conversion lives in `gridPlaceIndex()` in
+  `src/right-grid.js`, and O-18 pins it. A partial last row still keeps the in-row vertical line.
+- Maintenance (visual-parity note): the note that keeps the context-menu panel on the host's surface
+  and padding now cites DSH 0.2.2-rc.5. The host rebuilt its CSS modules, so the first-level and
+  submenu containers moved from `._list_1p5el_7,._submenu_1p5el_8` to
+  `._list_70kcw_7,._submenu_70kcw_8`, menu rows from `._item_1p5el_105` to `._item_70kcw_173`,
+  and icon slots from `._itemIcon_1p5el_165` to `._itemIcon_70kcw_233`; the material layer
+  `._material_1w4el_21` kept its hash. Row metrics (min-height 34, padding 6px 8px, gap 6,
+  13px/20px) and the panel's own 4px padding are unchanged across the rename. Those class names
+  appear in comments only as the host source and metric reference (the panel is the plugin's own
+  `.dso-ctx-panel`, host nodes are never styled here), so rendering is unchanged. The stable
+  anchors are recorded as well: the first-level popup is the `role="menu"` box carrying
+  `[data-context-menu]`, and a submenu is the `role="menu"` box flagged
+  `[data-submenu-layout]` / `[data-contextual]`, for the next time the hashes move.
 - Maintenance: a context row is labelled through the `itemLabel` selector only. Hosts since
   `0.2.1-rc.3` mark menu labels with `itemLabel`; `submenu-label` appears in neither the
   `0.2.1-rc.3` nor the `0.2.2-rc.5` build, so that selector could never match.

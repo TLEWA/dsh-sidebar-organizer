@@ -549,21 +549,66 @@ function collectTabs() {
   };
 }
 
+// The start page is not always a flat list of entry cells. The shipped guide
+// (0.2.2-rc.5) still renders `root > entryCell > button`, but better-sidebar
+// replaces it with a two-column `root > .guide > .grid > card` grid. Walking
+// only the root's direct children then saw a single "row" — the whole .guide
+// column — so a drag shuffled one wrapper and every card stayed put. Find the
+// element that actually owns the entries, then treat ITS children as the items.
+// The root still identifies the region; the grid owns the geometry.
+function commonEntryParent(nodes, fallback) {
+  if (!nodes.length) return fallback;
+  let node = nodes[0].parentElement;
+  while (node && node !== fallback) {
+    if (nodes.every((entry) => node.contains(entry))) return node;
+    node = node.parentElement;
+  }
+  return fallback;
+}
+
+// The grid's track count decides whether a drop lands beside the last card or
+// below it. Reading the computed tracks keeps single-column hosts and the
+// two-column better-sidebar layout on the same code path; the VM test sandbox
+// has no getComputedStyle, so an absent browser API falls back to one column.
+function gridColumnCount(container, grid) {
+  if (!grid || !container) return 1;
+  try {
+    if (typeof getComputedStyle === "function") {
+      const tracks = String(getComputedStyle(container).gridTemplateColumns || "").trim();
+      if (tracks && tracks !== "none") {
+        const count = tracks.split(/\s+/).filter(Boolean).length;
+        if (count > 0) return count;
+      }
+    }
+  } catch (err) {
+    /* fall through */
+  }
+  return 1;
+}
+
+// better-sidebar's card button carries the title AND the description in its
+// aria-label. That is fine for the press target, but a More-menu row needs the
+// short title or the popup grows to fit a whole sentence.
+function guideCardTitle(card) {
+  const title = card && card.querySelector ? card.querySelector('[class*="cardTitle"]') : null;
+  return title ? cleanLabel(title.textContent) : "";
+}
+
 function collectRight() {
-  const container = document.querySelector("[data-sidebar-right-guide]");
-  if (!container) return null;
+  const root = document.querySelector("[data-sidebar-right-guide]");
+  if (!root) return null;
+  const entryNodes = Array.from(root.querySelectorAll("[data-sidebar-right-guide-entry]")).filter(
+    (node) => !node.closest(".dso-ghost")
+  );
+  const container = commonEntryParent(entryNodes, root);
+  const grid = container !== root;
+  const columns = gridColumnCount(container, grid);
   const rows = [];
   const tails = [];
   let more = null;
   const kindCounts = new Map();
   for (const child of elementChildren(container)) {
     if (child.classList.contains("dso-ghost")) continue;
-    if (isMoreTrigger(child)) {
-      more = child;
-      continue;
-    }
-    const target = clickableIn(child);
-    if (!target) continue;
     const kindNode = child.matches("[data-sidebar-right-guide-entry]")
       ? child
       : child.querySelector("[data-sidebar-right-guide-entry]");
@@ -573,11 +618,16 @@ function collectRight() {
     // a tail instead: an unmarked sibling with the default order 0 would jump
     // above every ordered row.
     if (!kindNode) {
-      tails.push(child);
+      if ((child.matches && child.matches("[data-guide-more]")) || (child.querySelector && child.querySelector("[data-guide-more]")) || isMoreTrigger(child)) {
+        more = child;
+      } else {
+        tails.push(child);
+      }
       continue;
     }
+    const target = clickableIn(child) || kindNode;
     const kind = cleanLabel(kindNode.getAttribute("data-sidebar-right-guide-entry")) || "";
-    const label = labelOf(target, kind);
+    const label = (grid && guideCardTitle(child)) || labelOf(target, kind);
     let id;
     if (kind) {
       const nth = (kindCounts.get(kind) || 0) + 1;
@@ -586,7 +636,10 @@ function collectRight() {
     } else {
       id = deriveId(target, label);
     }
-    rows.push({ unit: child, target, label, id: null, baseId: id });
+    // A grid card is the item: it carries the border/background and is the
+    // direct child CSS `order` can move. The button inside is only the press
+    // target, so mark the card itself for pointer capture and the drag ghost.
+    rows.push({ unit: child, target, mark: grid ? child : null, label, id: null, baseId: id });
   }
   const used = new Set();
   for (const row of rows) row.id = uniqueId(row.baseId || deriveId(row.target, row.label), used);
@@ -594,7 +647,10 @@ function collectRight() {
     scope: "right",
     axis: "y",
     container,
-    via: "right-guide",
+    root,
+    grid,
+    columns,
+    via: grid ? "right-guide-grid" : "right-guide",
     rows,
     tails,
     more,

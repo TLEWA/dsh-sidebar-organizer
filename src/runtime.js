@@ -24,6 +24,12 @@ function createRuntime(ctx) {
     headerMenu: null,
     headerMenuBlock: null,
     headerMenuSignature: "",
+    // better-sidebar's own More menu is a different portal from the header
+    // sheet: the start page grid tucks cards into it, so it gets its own
+    // injected shelf and signature.
+    rightMenu: null,
+    rightMenuBlock: null,
+    rightMenuSignature: "",
     // Divider nodes this plugin injected into the shipped popup, plus the
     // display value its own separators had before being hidden. Both are
     // per-open-popup: the host owns the portal and unmounts it on close.
@@ -132,10 +138,14 @@ function createRuntime(ctx) {
 
   function markRow(row, scope, hidden) {
     if (!row || !row.target) return;
-    row.target.dataset.dsoScope = scope;
-    row.target.dataset.dsoKey = row.id;
-    if (hidden) row.target.dataset.dsoHidden = "1";
-    else delete row.target.dataset.dsoHidden;
+    // Grid cards carry the visible surface; marking the inner .cardMain instead
+    // cloned a transparent button as the drag ghost and moved only that. Mark
+    // whichever element is the sortable item, falling back to the press target.
+    const mark = row.mark || row.target;
+    mark.dataset.dsoScope = scope;
+    mark.dataset.dsoKey = row.id;
+    if (hidden) mark.dataset.dsoHidden = "1";
+    else delete mark.dataset.dsoHidden;
   }
 
   // The settings nav has no host overflow menu.  The injected anchor is an
@@ -401,6 +411,144 @@ function createRuntime(ctx) {
     // Re-applied now that the shelf exists: it is the first row, and every seam
     // below it moved one index down.
     applyHostMenuOrder(menu);
+  }
+
+  // ---- start-page grid: cards tucked into better-sidebar's More menu ----
+  // better-sidebar owns this popup and only lists its own overflow entries; it
+  // never renders the host guide.actions slot, so a card tucked from the grid
+  // would otherwise have no way back. We keep the native menu and add one shelf
+  // above its items. The shelf is not React-managed, so it is rebuilt from the
+  // saved hidden list on every open and torn down as soon as the portal closes.
+  function rightGuideAnchor() {
+    const anchor = document.querySelector("[data-guide-more]");
+    if (!anchor || !anchor.isConnected) return null;
+    return anchor;
+  }
+
+  function rightMoreMenu(anchor) {
+    if (!anchor) return null;
+    const anchorRect = anchor.getBoundingClientRect();
+    let best = null;
+    let bestDistance = Infinity;
+    for (const menu of document.querySelectorAll('[role="menu"]')) {
+      if (menu.classList.contains("dso-settings-more-menu") || menu.closest(".dso-settings-more-menu")) continue;
+      if (menu.hasAttribute("data-submenu-layout") || menu.closest("[data-submenu-layout]")) continue;
+      if (menu.closest("[data-context-menu]")) continue;
+      const rect = menu.getBoundingClientRect();
+      if (!rect.width && !rect.height) continue;
+      const distance = menuDistance(anchorRect, rect);
+      // The anchor's popup is the nearest surface; a header sheet or a context
+      // menu elsewhere on screen must not host the grid's shelf.
+      if (distance > 160 * 160) continue;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = menu;
+      }
+    }
+    return best;
+  }
+
+  function rightMenuViewport(menu) {
+    const viewport = menu.querySelector('[class*="_viewport_"]');
+    if (viewport && !viewport.closest('[role="menuitem"]')) return viewport;
+    return menu;
+  }
+
+  function rightTuckedBlock(rows) {
+    const block = document.createElement("div");
+    block.className = "dso-right-tucked";
+    block.setAttribute("data-dso-right-tucked", "true");
+    const caption = document.createElement("div");
+    caption.className = "dso-menu-caption";
+    caption.textContent = strings().hidden;
+    block.appendChild(caption);
+    for (const item of rows) {
+      // The shelf is the grid's More menu, so its rows speak the same language
+      // as every other tucked shelf: a menu item with a menu key. Clicking it
+      // opens the card; dragging it back onto the grid reveals it in the slot
+      // under the indicator. Keeping the restore action on the row made the
+      // start page the only place where a tucked item could not be opened.
+      const wrapper = document.createElement("div");
+      wrapper.className = "dso-menu-item dso-right-tucked-item";
+      wrapper.setAttribute("data-dso-more-key", "right:" + item.id);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "dso-menu-row";
+      button.setAttribute("role", "menuitem");
+      const markup = iconFor("right", item.id);
+      if (markup) {
+        const icon = document.createElement("span");
+        icon.className = "dso-menu-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.innerHTML = markup;
+        button.appendChild(icon);
+      }
+      const label = document.createElement("span");
+      label.className = "dso-menu-label";
+      label.textContent = item.label;
+      button.appendChild(label);
+      wrapper.appendChild(button);
+      block.appendChild(wrapper);
+    }
+    return block;
+  }
+
+  function removeRightMenuBlock() {
+    const block = state.rightMenuBlock;
+    state.rightMenuBlock = null;
+    state.rightMenuSignature = "";
+    if (block && block.parentNode) block.parentNode.removeChild(block);
+  }
+
+  // The native popup is owned by better-sidebar. A shelf row is not its React
+  // child, so selecting one has to close the popup through the same toggle the
+  // native rows use. The click guard is bypassed only for that one click.
+  function closeRightMoreMenu(anchor) {
+    removeRightMenuBlock();
+    state.rightMenu = null;
+    if (!anchor || !anchor.isConnected || anchor.getAttribute("aria-expanded") !== "true") return;
+    state.clickBypass = anchor;
+    try {
+      anchor.click();
+    } catch (err) {
+      /* ignore */
+    } finally {
+      state.clickBypass = null;
+    }
+  }
+
+  function syncRightMoreMenu() {
+    const anchor = rightGuideAnchor();
+    // A closing popup keeps its portal in the DOM for the exit animation. Do
+    // not rebuild the shelf into it, or a row selected to open a card would
+    // flash back while the menu fades out.
+    const menu = anchor && anchor.getAttribute("aria-expanded") === "true" ? rightMoreMenu(anchor) : null;
+    if (!menu) {
+      state.rightMenu = null;
+      removeRightMenuBlock();
+      return;
+    }
+    const rows = hiddenForRegion("rightbar").filter((item) => item.scope === "right");
+    if (!rows.length) {
+      state.rightMenu = menu;
+      removeRightMenuBlock();
+      return;
+    }
+    const signature = rows.map((row) => row.id + ":" + row.label).join("|");
+    if (state.rightMenu === menu && state.rightMenuBlock && state.rightMenuBlock.isConnected) {
+      if (state.rightMenuSignature === signature) return;
+      const fresh = rightTuckedBlock(rows);
+      state.rightMenuBlock.parentNode.replaceChild(fresh, state.rightMenuBlock);
+      state.rightMenuBlock = fresh;
+      state.rightMenuSignature = signature;
+      return;
+    }
+    state.rightMenu = menu;
+    state.rightMenuSignature = signature;
+    const block = rightTuckedBlock(rows);
+    const host = rightMenuViewport(menu);
+    host.insertBefore(block, host.firstChild);
+    state.rightMenuBlock = block;
   }
 
   // ---- shipped-menu actions pulled onto the strip -----------------------
@@ -994,6 +1142,23 @@ function createRuntime(ctx) {
   function onHeaderMenuClick(event) {
     const target = event.target;
     if (!target || target.nodeType !== 1) return;
+    // The start page shelf lives in better-sidebar's portal, which also stops
+    // propagation. Its rows open their card exactly like every other tucked
+    // shelf: select the row, then close the native popup the same way its own
+    // items do (the anchor is a toggle, so click only while expanded).
+    const tucked = target.closest(".dso-right-tucked-item");
+    if (tucked) {
+      event.preventDefault();
+      event.stopPropagation();
+      // A click synthesized by the browser right after a drag belongs to the
+      // drop, not to the row (the header shelf has the same rule).
+      if (Date.now() < state.guardUntil) return;
+      const parsed = menuKey(tucked);
+      const anchor = rightGuideAnchor();
+      closeRightMoreMenu(anchor);
+      if (parsed) activate(parsed.scope, parsed.id);
+      return;
+    }
     // The host's menu portal stops propagation, so the capture phase is the only
     // place to notice that the user moved on to another action: any click in the
     // menu that is neither a popup row nor the anchor closes the popup.
@@ -1015,6 +1180,13 @@ function createRuntime(ctx) {
   function onDocumentClick(event) {
     const target = event.target;
     if (!target || target.nodeType !== 1) return;
+    // better-sidebar mounts its More portal in the same task as this click; the
+    // shelf has to be resolved after React has committed the menu.
+    if (target.closest("[data-guide-more]")) {
+      window.setTimeout(() => {
+        if (!state.stopped) syncRightMoreMenu();
+      }, 0);
+    }
     const moreButton = target.closest(".dso-settings-more");
     if (moreButton) {
       event.preventDefault();
@@ -3808,6 +3980,9 @@ function createRuntime(ctx) {
     // The header strip's tuck target is the shipped session-log menu; keep our
     // injected block in sync with whether it is open and what is tucked away.
     syncHeaderMenu();
+    // Same for the start page's grid, whose More popup belongs to
+    // better-sidebar rather than the host.
+    syncRightMoreMenu();
     if (seen && !state.readyLogged) {
       state.readyLogged = true;
       try {
@@ -4358,7 +4533,7 @@ function createRuntime(ctx) {
       if (!rect || (!rect.width && !rect.height)) continue;
       items.push({ id: row.id, unit: row.unit, target: row.target, rect });
     }
-    items.sort((a, b) => visualOrder(a, b, found.axis));
+    items.sort((a, b) => (found.grid ? gridOrder(a, b) : visualOrder(a, b, found.axis)));
     if (gesture.source === "row" && items.every((item) => item.id !== gesture.id)) items.length = 0;
 
     const menuItems = [];
@@ -4415,6 +4590,7 @@ function createRuntime(ctx) {
       menuTargets,
       menuRect,
       moreRect: more,
+      gridGap: found.grid ? gridGaps(found.container) : null,
     };
   }
 
@@ -5174,6 +5350,70 @@ function createRuntime(ctx) {
     }
   }
 
+  // The grid's gap is part of the host's theme, not a constant: measure it so
+  // the line sits in the middle of the seam for any density the host ships.
+  function gridGaps(container) {
+    let column = 12;
+    let row = 12;
+    try {
+      if (container && typeof getComputedStyle === "function") {
+        const style = getComputedStyle(container);
+        const c = parseFloat(style.columnGap);
+        const r = parseFloat(style.rowGap);
+        if (c > 0) column = c;
+        if (r > 0) row = r;
+      }
+    } catch (err) {
+      /* fall through */
+    }
+    return { column, row };
+  }
+
+  // The 1-D indicator always spans the cross axis of the whole strip. A grid
+  // changes axis per slot: between two cards it is a vertical bar as tall as the
+  // row, and at a row edge it is a horizontal bar as wide as the grid. A
+  // partial row is not a row edge: the card belongs after the last card in
+  // that row, so the bar stays vertical and no full-width line is drawn.
+  function showGridIndicator(gesture, slot, crossRect, gaps) {
+    const indicator = gesture.indicator;
+    if (!indicator) return;
+    if (!slot) {
+      hideIndicator(gesture);
+      return;
+    }
+    const columnGap = gaps && gaps.column > 0 ? gaps.column : 12;
+    const rowGap = gaps && gaps.row > 0 ? gaps.row : 12;
+    indicator.dataset.visible = "1";
+    if (slot.horizontal) {
+      indicator.className = "dso-indicator dso-indicator-h";
+      const row = slot.row;
+      // Half a gap on either side of the seam, minus the 2px bar itself, so the
+      // bar is centred rather than hugging the previous row's border.
+      const top = slot.before ? row.top - rowGap / 2 - 1 : row.bottom + rowGap / 2 - 1;
+      const first = row.items.length ? row.items[0].rect : null;
+      const left = crossRect ? crossRect.left : first ? first.left : 0;
+      const width = crossRect ? crossRect.width : first ? first.width : 0;
+      indicator.style.left = left + 4 + "px";
+      indicator.style.top = top + "px";
+      indicator.style.width = Math.max(0, width - 8) + "px";
+      indicator.style.height = "2px";
+    } else {
+      indicator.className = "dso-indicator dso-indicator-v";
+      const tail = slot.row.items.length ? slot.row.items[slot.row.items.length - 1] : null;
+      const left = slot.before
+        ? slot.before.rect.left - columnGap / 2 - 1
+        : tail
+          ? tail.rect.right + columnGap / 2 - 1
+          : crossRect
+            ? crossRect.left
+            : 0;
+      indicator.style.left = left + "px";
+      indicator.style.top = slot.row.top + "px";
+      indicator.style.width = "2px";
+      indicator.style.height = Math.max(0, slot.row.bottom - slot.row.top) + "px";
+    }
+  }
+
   function hideIndicator(gesture) {
     if (gesture && gesture.indicator) gesture.indicator.dataset.visible = "0";
   }
@@ -5204,6 +5444,65 @@ function createRuntime(ctx) {
     // growing and shrinking on every mouse move.
     let dropMore = false;
     try {
+
+    // The start page grid is two-dimensional; the 1-D strip code below compares
+    // y only and would land every right-column drop in the left column. Its More
+    // card is better-sidebar's own overflow shelf; a card hidden there is
+    // listed by syncRightMoreMenu, so the card is a real tuck target.
+    if (snapshot.found && snapshot.found.grid) {
+      // The shelf hangs inside that same popup, so the region has to be decided
+      // before the grid math: a shelf row dragged across its own menu overlaps
+      // the grid's container and would otherwise be read as "restore this card
+      // into that cell", and a pointer outside the container used to return
+      // before the menu branch below and cancel the reorder outright.
+      const region = gridDragRegion(snapshot, gesture.source, x, y);
+      if (region === "menu") {
+        const targets = snapshot.menuTargets && snapshot.menuTargets.length
+          ? snapshot.menuTargets
+          : snapshot.menuItems;
+        const hit = tuckedMenuTarget(targets, gesture.id, y);
+        if (!hit) {
+          // Dropping a shelf row back where it already sits changes nothing, and
+          // releasing there must not close the shelf the row came from.
+          gesture.keepMenu = true;
+          return;
+        }
+        const others = targets.filter((item) => item.id !== gesture.id);
+        gesture.target = { kind: "menu", index: hit.index, beforeId: hit.beforeId };
+        menuDrop(gesture, menuSurfaceFromItems(targets), hit.boundary, others, hit.index, y);
+        return;
+      }
+      if (region === "more") {
+        if (canHide(gesture.scope, gesture.id)) {
+          gesture.target = { kind: "hide" };
+          dropMore = true;
+        }
+        return;
+      }
+      if (region === "outside") return;
+      const source = snapshot.items.find((item) => item.id === gesture.id);
+      const sourceIndex = snapshot.items.indexOf(source);
+      // Pointer still over its own cell: the grid already shows the card there,
+      // so moving it inside that cell is not a drop. Without this, the removed
+      // source makes the neighbouring card look like the insertion point.
+      if (source && pointIn(source.rect, x, y, 2)) return;
+      const others = snapshot.items.filter((item) => item.id !== gesture.id);
+      const hit = gridIndexAt(others, x, y, snapshot.items, snapshot.found.columns);
+      // gridIndexAt measures against others (source removed); the line is drawn
+      // for a slot in that list. Convert it to the complete visual order so the
+      // committed card lands in the cell the line names, not one cell earlier.
+      // A card dragged in from the tucked menu is not in that order, so it owns
+      // one more slot than a card that is already drawn in the grid.
+      const slotIndex = gridPlaceIndex(snapshot.items, hit.slot, Boolean(source));
+      if (slotIndex === sourceIndex) return;
+      gesture.target = {
+        kind: "place",
+        index: slotIndex,
+        beforeId: others[slotIndex] ? others[slotIndex].id : null,
+      };
+      showGridIndicator(gesture, hit.slot, snapshot.crossRect, snapshot.gridGap);
+      return;
+    }
 
     if (gesture.scope === ROW_MENU_SCOPE) {
       // Pulling a 更多操作 entry out of its submenu: the submenu closes ~160ms
@@ -5476,6 +5775,12 @@ function createRuntime(ctx) {
     // Do this before arming the click guard, because the close is a synthetic
     // click on the anchor and the guard would otherwise swallow it.
     if (dragged && gesture.scope === "header" && gesture.source === "menu" && !gesture.keepMenu) dismissHeaderMenu();
+    // The grid's More popup is better-sidebar's portal. Pulling a shelf row back
+    // onto the grid has to close it for the same reason: the native menu owns
+    // its own dismissal, and a shelf row is not one of its React children.
+    if (dragged && gesture.scope === "right" && gesture.source === "menu" && !gesture.keepMenu) {
+      closeRightMoreMenu(rightGuideAnchor());
+    }
     // The anchor injected for this drag is only permanent once a row is tucked;
     // re-sync so an empty one is removed again. Not gated on `dragged`: a drag
     // that aborted during beginDrag already armed the anchor, and leaving the
@@ -6181,6 +6486,10 @@ function createRuntime(ctx) {
     removeHeaderMenuBlock();
     clearHeaderMenuDividers();
     clearHeaderMenuOrder();
+    // better-sidebar's More popup owns the start page shelf; a disable or hot
+    // reload while it is open must not leave a dead "tucked" block behind.
+    removeRightMenuBlock();
+    state.rightMenu = null;
     cancelGesture();
     for (const cleanup of state.listenerCleanup.splice(0)) {
       try {

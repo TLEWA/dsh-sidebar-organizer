@@ -125,6 +125,16 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
    grow a seam; the caption uses the same quiet styling as every other shelf. */
 .dso-header-tucked { display: block; padding: 2px 0 2px; }
 .dso-header-tucked .dso-menu-caption { padding-top: 2px; }
+/* The start page's More popup belongs to better-sidebar; this shelf lists the
+   grid cards it does not know are hidden. A hairline separates it from the
+   native browse/create/order actions below. */
+.dso-right-tucked {
+  display: block;
+  padding: 2px 0 4px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.1));
+}
+.dso-right-tucked .dso-menu-caption { padding-top: 2px; }
+.dso-right-tucked .dso-menu-row { min-height: 30px; }
 /* Shortcut buttons for shipped-menu actions pulled onto the header strip. They
    must look like the host's 28px icon buttons, not like our menu rows. */
 .dso-host-action {
@@ -618,10 +628,12 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
    target out from under the pointer: the class also toggles at most once per
    gesture (markDropMore is idempotent), so the scale transition never restarts
    on pointermove. */
-/* Row geometry is copied from the host's own menu item
-   (._item_1p5el_105: min-height 34, padding 6px 8px, gap 6, radius md,
-   13px/20px), so the anchor sits in the list with the same rhythm as the rows
-   the host paints itself. */
+/* Row geometry is copied from the host's own menu item - CSS module local name
+   'item', emitted as _<local>_<5-char hash>_<ordinal>; the hash segment is tied
+   to the host build and moves between releases, so it is deliberately not
+   quoted here. The numbers: min-height 34, padding 6px 8px, gap 6, radius md,
+   13px/20px. They have survived every CSS-module rename so far, so the anchor
+   sits in the list with the same rhythm as the rows the host paints itself. */
 .dso-ctx-more-trigger {
   display: flex;
   align-items: center;
@@ -668,12 +680,27 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   line-height: 16px;
 }
 /* Same surface recipe as the host menu and as dsh-sidebar-row-menu's submenu,
-   which mounts the host's MenuSurface + MenuItemButton primitives:
-     ._list_1p5el_7,._submenu_1p5el_8 { padding:4px; display:flex; column;
-       gap:0; border:0; box-shadow: var(--dsw-elevation-prominent);
+   which mounts the host's MenuSurface + MenuItemButton primitives. These are the
+   host's own rules, not selectors this sheet applies (the plugin never styles
+   host nodes), kept verbatim so .dso-ctx-panel and the host menu cannot drift
+   apart. The host ships them as CSS modules: every emitted class name is
+   _<local>_<5-char hash>_<ordinal>, and both the hash segment and the dist asset
+   filename move with each host build - neither is a fixed contract, so neither
+   is quoted here. What stays put is the local name and these declarations:
+     _list, _submenu { box-sizing:border-box; padding:4px;
+       display:flex; flex-direction:column; gap:0; border:0;
+       box-shadow: var(--dsw-elevation-prominent);
        --dsw-elevation-stroke-color: var(--dsw-alias-border-l1) }
-     ._material_1w4el_21 { background: var(--dsw-menu-surface-fill);
+     _material (the absolute backing layer) {
+       background: var(--dsw-menu-surface-fill);
        backdrop-filter: var(--dsw-menu-backdrop-filter) }
+   Both host builds audited so far (0.2.2-rc.5 and 0.2.3-alpha.1) carry exactly
+   these declarations under different hashes, which is why only the local names
+   are cited above.
+   Stable anchors if the hashes move again:
+   the first-level popup is the role="menu" box carrying [data-context-menu],
+   and a submenu is the role="menu" box flagged [data-submenu-layout] /
+   [data-contextual]; both come from the same host primitive.
    The host splits the fill into an absolutely positioned backing layer; a single
    fixed panel only needs the same two properties on itself. */
 .dso-ctx-panel {
@@ -713,7 +740,8 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
 /* Submenus scroll (max-height 64vh); without this the rows would shrink to
    fit instead of overflowing. */
 .dso-rm-pane > * { flex: 0 0 auto; }
-/* 1:1 with the host's menu item (._item_1p5el_105). */
+/* 1:1 with the host's menu item (host CSS module local name 'item'; the emitted
+   hash segment is build-bound, so it is deliberately not quoted). */
 .dso-ctx-panel-row {
   display: flex;
   align-items: center;
@@ -743,7 +771,8 @@ body.dso-dragging [data-dso-key]:hover { background: transparent !important; }
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
   outline: none;
 }
-/* Host icon slot (._itemIcon_1p5el_165): 14x14, menu-icon colour. */
+/* Host icon slot (host CSS module local name 'itemIcon'; hash segment omitted on
+   purpose - it changes per host build): 14x14, menu-icon colour. */
 .dso-ctx-panel-icon {
   display: inline-flex;
   align-items: center;
